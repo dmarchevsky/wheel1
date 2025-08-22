@@ -43,15 +43,34 @@ nano .env
 # Required API Keys
 TRADIER_ACCESS_TOKEN=your_tradier_token
 TRADIER_ACCOUNT_ID=your_account_id
-OPENAI_API_KEY=your_openai_key
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
+
+# OpenAI Configuration (Optional)
+OPENAI_ENABLED=false  # Set to true to enable AI analysis
+OPENAI_API_KEY=your_openai_key  # Required if OPENAI_ENABLED=true
 
 # Database (can use defaults for development)
 POSTGRES_PASSWORD=secure_password
 ```
 
-### 4. Start the Application
+### 4. OpenAI Configuration
+
+The application includes optional AI-powered analysis using OpenAI's ChatGPT. By default, this feature is **disabled** to avoid unnecessary API costs during development.
+
+To enable AI analysis:
+
+1. Set `OPENAI_ENABLED=true` in your `.env` file
+2. Provide a valid `OPENAI_API_KEY`
+3. The system will automatically use ChatGPT for:
+   - Stock fundamental analysis
+   - Risk assessment
+   - Catalyst identification
+   - Qualitative scoring
+
+When disabled, the system uses default values for qualitative scoring components.
+
+### 5. Start the Application
 
 ```bash
 # Start all services
@@ -61,7 +80,7 @@ docker compose up --build
 just dev
 ```
 
-### 5. Access the Application
+### 6. Access the Application
 
 - **Web Dashboard**: http://localhost:3000
 - **API Documentation**: http://localhost:8000/docs

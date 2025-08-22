@@ -95,6 +95,7 @@ class Recommendation(Base):
     # Relationships
     ticker = relationship("Ticker", back_populates="recommendations")
     option = relationship("Option", back_populates="recommendations")
+    trades = relationship("Trade", back_populates="recommendation")
 
 
 class Position(Base):
@@ -135,22 +136,24 @@ class Trade(Base):
     __tablename__ = "trades"
     
     id = Column(Integer, primary_key=True, index=True)
-    external_order_id = Column(String, nullable=True)
+    recommendation_id = Column(Integer, ForeignKey("recommendations.id"), nullable=True)
     symbol = Column(String, nullable=False)
-    contract_symbol = Column(String, nullable=True)
-    side = Column(String, nullable=False)  # 'buy', 'sell'
-    option_type = Column(String, nullable=True)  # 'put', 'call', 'stock'
+    option_symbol = Column(String, nullable=True)
+    side = Column(String, nullable=False)  # 'sell_to_open', 'buy_to_close', etc.
     quantity = Column(Integer, nullable=False)
     price = Column(Float, nullable=False)
-    fees = Column(Float, default=0.0)
-    trade_time = Column(DateTime, nullable=False)
-    status = Column(String, default="filled")  # 'pending', 'filled', 'cancelled'
-    meta_json = Column(JSONB, nullable=True)  # Additional trade metadata
+    order_id = Column(String, nullable=True)  # External order ID from broker
+    status = Column(String, default="pending")  # 'pending', 'filled', 'cancelled', 'rejected'
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True)
+    
+    # Relationships
+    recommendation = relationship("Recommendation", back_populates="trades")
     
     # Indexes
     __table_args__ = (
-        Index('idx_symbol_time', 'symbol', 'trade_time'),
-        Index('idx_status_time', 'status', 'trade_time'),
+        Index('idx_symbol_time', 'symbol', 'created_at'),
+        Index('idx_status_time', 'status', 'created_at'),
     )
 
 
@@ -201,6 +204,26 @@ class Telemetry(Base):
     # Indexes
     __table_args__ = (
         Index('idx_event_time', 'event', 'created_at'),
+    )
+
+
+class Alert(Base):
+    """Alerts for position monitoring."""
+    __tablename__ = "alerts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    type = Column(String, nullable=False)  # 'profit_target', 'time_decay', 'delta_threshold', 'covered_call_opportunity'
+    symbol = Column(String, nullable=False)
+    message = Column(String, nullable=False)
+    data = Column(JSONB, nullable=True)  # Additional alert data
+    status = Column(String, default="pending")  # 'pending', 'processed', 'dismissed'
+    created_at = Column(DateTime, default=datetime.utcnow)
+    processed_at = Column(DateTime, nullable=True)
+    
+    # Indexes
+    __table_args__ = (
+        Index('idx_type_status', 'type', 'status'),
+        Index('idx_symbol_time', 'symbol', 'created_at'),
     )
 
 

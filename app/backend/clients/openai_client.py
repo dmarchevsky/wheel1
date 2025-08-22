@@ -50,6 +50,9 @@ class OpenAIClient:
     """OpenAI client with caching and retry logic."""
     
     def __init__(self):
+        if not settings.openai_enabled:
+            raise ValueError("OpenAI is disabled in configuration")
+        
         self.api_base = settings.openai_api_base
         self.api_key = settings.openai_api_key
         self.model = settings.openai_model
@@ -173,7 +176,9 @@ class OpenAICacheManager:
     
     def __init__(self, db: Session):
         self.db = db
-        self.client = OpenAIClient()
+        self.client = None
+        if settings.openai_enabled:
+            self.client = OpenAIClient()
     
     def _generate_cache_key(self, symbol: str, date: str) -> str:
         """Generate cache key for symbol and date."""
@@ -230,6 +235,17 @@ class OpenAICacheManager:
         cached = self.get_cached_analysis(symbol, today)
         if cached:
             return cached
+        
+        # If OpenAI is disabled, return default analysis
+        if not settings.openai_enabled or not self.client:
+            return OpenAIAnalysis(
+                symbol=symbol,
+                fundamentals_summary="OpenAI analysis disabled",
+                catalysts=["Analysis disabled", "Analysis disabled", "Analysis disabled"],
+                risks=["Analysis disabled", "Analysis disabled", "Analysis disabled"],
+                earnings_date="unknown",
+                qualitative_score=0.5
+            )
         
         # Create new analysis
         analysis = await self.client.analyze_stock(symbol, current_price, sector)

@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     tradier_account_id: str = Field(env="TRADIER_ACCOUNT_ID")
     
     # OpenAI
+    openai_enabled: bool = Field(default=False, env="OPENAI_ENABLED")
     openai_api_base: str = Field(env="OPENAI_API_BASE")
     openai_api_key: str = Field(env="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-4o-mini", env="OPENAI_MODEL")
@@ -114,10 +115,13 @@ def validate_required_settings():
     """Validate that all required settings are present."""
     required_fields = [
         "tradier_access_token",
-        "openai_api_key", 
         "telegram_bot_token",
         "telegram_chat_id"
     ]
+    
+    # Only require OpenAI settings if enabled
+    if settings.openai_enabled:
+        required_fields.extend(["openai_api_key"])
     
     missing_fields = []
     for field in required_fields:
