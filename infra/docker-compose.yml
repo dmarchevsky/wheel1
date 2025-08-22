@@ -1,0 +1,192 @@
+version: '3.8'
+
+services:
+  # Database
+  db:
+    image: postgres:15-alpine
+    container_name: wheel_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-wheel}
+      POSTGRES_USER: ${POSTGRES_USER:-wheel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wheel}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wheel} -d ${POSTGRES_DB:-wheel}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wheel_network
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: wheel_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wheel_network
+
+  # Backend API
+  api:
+    build:
+      context: ../app/backend
+      dockerfile: ../../infra/Dockerfile.backend
+    container_name: wheel_api
+    environment:
+      - MODE=api
+      - ENV=${ENV:-dev}
+      - TZ=${TZ:-America/Los_Angeles}
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-wheel}
+      - POSTGRES_USER=${POSTGRES_USER:-wheel}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-wheel}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - TRADIER_BASE_URL=${TRADIER_BASE_URL:-https://api.tradier.com/v1}
+      - TRADIER_ACCESS_TOKEN=${TRADIER_ACCESS_TOKEN}
+      - TRADIER_ACCOUNT_ID=${TRADIER_ACCOUNT_ID}
+      - OPENAI_API_BASE=${OPENAI_API_BASE:-https://api.openai.com/v1}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - WEB_BASE_URL=${WEB_BASE_URL:-http://localhost:3000}
+      - API_BASE_URL=${API_BASE_URL:-http://api:8000}
+      - MARKET_TIMEZONE=${MARKET_TIMEZONE:-America/New_York}
+      - RECOMMENDER_INTERVAL_MIN=${RECOMMENDER_INTERVAL_MIN:-15}
+      - PUT_DELTA_MIN=${PUT_DELTA_MIN:-0.25}
+      - PUT_DELTA_MAX=${PUT_DELTA_MAX:-0.35}
+      - IVR_MIN=${IVR_MIN:-30}
+      - IVR_MAX=${IVR_MAX:-60}
+      - MIN_OI=${MIN_OI:-500}
+      - MIN_VOLUME=${MIN_VOLUME:-200}
+      - MAX_BID_ASK_PCT=${MAX_BID_ASK_PCT:-5}
+      - ANNUALIZED_MIN_PCT=${ANNUALIZED_MIN_PCT:-20}
+      - MAX_TICKERS_PER_CYCLE=${MAX_TICKERS_PER_CYCLE:-10}
+      - MAX_RECOMMENDATIONS=${MAX_RECOMMENDATIONS:-3}
+      - EARNINGS_BLACKOUT_DAYS=${EARNINGS_BLACKOUT_DAYS:-7}
+      - PROFIT_TARGET_PCT=${PROFIT_TARGET_PCT:-70}
+      - TIME_DECAY_THRESHOLD_DAYS=${TIME_DECAY_THRESHOLD_DAYS:-7}
+      - TIME_DECAY_PREMIUM_THRESHOLD_PCT=${TIME_DECAY_PREMIUM_THRESHOLD_PCT:-20}
+      - DELTA_THRESHOLD_CLOSE=${DELTA_THRESHOLD_CLOSE:-0.45}
+      - COVERED_CALL_DTE_MIN=${COVERED_CALL_DTE_MIN:-28}
+      - COVERED_CALL_DTE_MAX=${COVERED_CALL_DTE_MAX:-35}
+      - COVERED_CALL_DELTA_MIN=${COVERED_CALL_DELTA_MIN:-0.20}
+      - COVERED_CALL_DELTA_MAX=${COVERED_CALL_DELTA_MAX:-0.30}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - wheel_network
+
+  # Background Worker
+  worker:
+    build:
+      context: ../app/backend
+      dockerfile: ../../infra/Dockerfile.backend
+    container_name: wheel_worker
+    environment:
+      - MODE=worker
+      - ENV=${ENV:-dev}
+      - TZ=${TZ:-America/Los_Angeles}
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-wheel}
+      - POSTGRES_USER=${POSTGRES_USER:-wheel}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-wheel}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - TRADIER_BASE_URL=${TRADIER_BASE_URL:-https://api.tradier.com/v1}
+      - TRADIER_ACCESS_TOKEN=${TRADIER_ACCESS_TOKEN}
+      - TRADIER_ACCOUNT_ID=${TRADIER_ACCOUNT_ID}
+      - OPENAI_API_BASE=${OPENAI_API_BASE:-https://api.openai.com/v1}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - WEB_BASE_URL=${WEB_BASE_URL:-http://localhost:3000}
+      - API_BASE_URL=${API_BASE_URL:-http://api:8000}
+      - MARKET_TIMEZONE=${MARKET_TIMEZONE:-America/New_York}
+      - RECOMMENDER_INTERVAL_MIN=${RECOMMENDER_INTERVAL_MIN:-15}
+      - PUT_DELTA_MIN=${PUT_DELTA_MIN:-0.25}
+      - PUT_DELTA_MAX=${PUT_DELTA_MAX:-0.35}
+      - IVR_MIN=${IVR_MIN:-30}
+      - IVR_MAX=${IVR_MAX:-60}
+      - MIN_OI=${MIN_OI:-500}
+      - MIN_VOLUME=${MIN_VOLUME:-200}
+      - MAX_BID_ASK_PCT=${MAX_BID_ASK_PCT:-5}
+      - ANNUALIZED_MIN_PCT=${ANNUALIZED_MIN_PCT:-20}
+      - MAX_TICKERS_PER_CYCLE=${MAX_TICKERS_PER_CYCLE:-10}
+      - MAX_RECOMMENDATIONS=${MAX_RECOMMENDATIONS:-3}
+      - EARNINGS_BLACKOUT_DAYS=${EARNINGS_BLACKOUT_DAYS:-7}
+      - PROFIT_TARGET_PCT=${PROFIT_TARGET_PCT:-70}
+      - TIME_DECAY_THRESHOLD_DAYS=${TIME_DECAY_THRESHOLD_DAYS:-7}
+      - TIME_DECAY_PREMIUM_THRESHOLD_PCT=${TIME_DECAY_PREMIUM_THRESHOLD_PCT:-20}
+      - DELTA_THRESHOLD_CLOSE=${DELTA_THRESHOLD_CLOSE:-0.45}
+      - COVERED_CALL_DTE_MIN=${COVERED_CALL_DTE_MIN:-28}
+      - COVERED_CALL_DTE_MAX=${COVERED_CALL_DTE_MAX:-35}
+      - COVERED_CALL_DELTA_MIN=${COVERED_CALL_DELTA_MIN:-0.20}
+      - COVERED_CALL_DELTA_MAX=${COVERED_CALL_DELTA_MAX:-0.30}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "ps", "aux", "|", "grep", "worker.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - wheel_network
+
+  # Frontend
+  frontend:
+    build:
+      context: ../app/frontend
+      dockerfile: ../../infra/Dockerfile.frontend
+    container_name: wheel_frontend
+    environment:
+      - NEXT_PUBLIC_API_BASE_URL=${API_BASE_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - wheel_network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  wheel_network:
+    driver: bridge
