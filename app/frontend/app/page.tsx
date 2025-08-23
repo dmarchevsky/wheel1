@@ -238,7 +238,7 @@ export default function Dashboard() {
                 <CardTitle>Equity Positions</CardTitle>
               </CardHeader>
               <CardContent>
-                {portfolio?.positions.length > 0 ? (
+                {portfolio?.positions && portfolio.positions.length > 0 ? (
                   <div className="space-y-3">
                     {portfolio.positions.map((position, index) => (
                       <div key={index} className="flex justify-between items-center p-3 border rounded-lg">
@@ -269,7 +269,7 @@ export default function Dashboard() {
                 <CardTitle>Option Positions</CardTitle>
               </CardHeader>
               <CardContent>
-                {portfolio?.option_positions.length > 0 ? (
+                {portfolio?.option_positions && portfolio.option_positions.length > 0 ? (
                   <div className="space-y-3">
                     {portfolio.option_positions.map((position, index) => (
                       <div key={index} className="flex justify-between items-center p-3 border rounded-lg">

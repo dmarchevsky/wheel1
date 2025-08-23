@@ -7,11 +7,11 @@ default:
 # Development commands
 dev:
     @echo "Starting development environment..."
-    docker compose up --build
+    docker-compose up --build
 
 dev-backend:
     @echo "Starting backend only..."
-    docker compose up --build api worker
+    docker-compose up --build api worker
 
 dev-frontend:
     @echo "Starting frontend only..."
