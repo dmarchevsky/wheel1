@@ -7,11 +7,11 @@ default:
 # Development commands
 dev:
     @echo "Starting development environment..."
-    docker-compose up --build
+    cd infra && sudo docker-compose up --build
 
 dev-backend:
     @echo "Starting backend only..."
-    docker-compose up --build api worker
+    cd infra && sudo docker-compose up --build api worker
 
 dev-frontend:
     @echo "Starting frontend only..."
@@ -68,8 +68,8 @@ db-rollback:
 
 db-reset:
     @echo "Resetting database..."
-    docker compose down -v
-    docker compose up db -d
+    cd infra && sudo docker compose down -v
+    cd infra && sudo docker compose up db -d
     sleep 5
     just db-migrate
     just seed
@@ -87,29 +87,29 @@ export:
 # Cleanup
 clean:
     @echo "Cleaning up..."
-    docker compose down -v
-    docker system prune -f
+    cd infra && sudo docker compose down -v
+    sudo docker system prune -f
 
 clean-cache:
     @echo "Cleaning cache..."
-    docker compose exec redis redis-cli FLUSHALL
+    cd infra && sudo docker compose exec redis redis-cli FLUSHALL
 
 # Monitoring
 logs:
     @echo "Showing logs..."
-    docker compose logs -f
+    cd infra && sudo docker compose logs -f
 
 logs-api:
     @echo "Showing API logs..."
-    docker compose logs -f api
+    cd infra && sudo docker compose logs -f api
 
 logs-worker:
     @echo "Showing worker logs..."
-    docker compose logs -f worker
+    cd infra && sudo docker compose logs -f worker
 
 logs-frontend:
     @echo "Showing frontend logs..."
-    docker compose logs -f frontend
+    cd infra && sudo docker compose logs -f frontend
 
 # Health checks
 health:
@@ -120,11 +120,11 @@ health:
 # Production
 build:
     @echo "Building production images..."
-    docker compose build
+    cd infra && sudo docker compose build
 
 deploy:
     @echo "Deploying to production..."
-    docker compose -f docker-compose.prod.yml up -d
+    cd infra && sudo docker compose -f docker-compose.prod.yml up -d
 
 # Help
 help:
