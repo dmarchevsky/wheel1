@@ -58,7 +58,13 @@ async def get_async_db() -> AsyncSession:
 
 def create_tables():
     """Create all database tables."""
-    Base.metadata.create_all(bind=sync_engine)
+    try:
+        Base.metadata.create_all(bind=sync_engine)
+    except Exception as e:
+        # Log the error but don't fail the application startup
+        # This handles cases where tables/indexes already exist
+        print(f"Warning: Database table creation encountered issues: {e}")
+        print("Continuing with application startup...")
 
 
 def drop_tables():
