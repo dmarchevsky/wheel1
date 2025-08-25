@@ -74,10 +74,10 @@ When disabled, the system uses default values for qualitative scoring components
 
 ```bash
 # Start all services
-docker compose up --build
-
-# Or use the justfile
 just dev
+
+# Or manually with docker compose
+docker compose -f infra/docker-compose.yml --env-file .env up --build
 ```
 
 ### 6. Access the Application
@@ -315,14 +315,14 @@ docker compose -f docker-compose.prod.yml up -d
 
 ```bash
 # View all logs
-docker compose logs
+just logs
 
 # Filter by service
-docker compose logs api
-docker compose logs worker
+just logs-api
+just logs-worker
 
 # Follow logs
-docker compose logs -f
+just logs
 ```
 
 ## Support

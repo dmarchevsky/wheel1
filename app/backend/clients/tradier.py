@@ -120,7 +120,12 @@ class TradierClient:
         """Get account positions."""
         data = await self._make_request("GET", f"/accounts/{self.account_id}/positions")
         
-        positions = data.get("positions", {}).get("position", [])
+        positions_data = data.get("positions", {})
+        # Handle case where positions is "null" string
+        if positions_data == "null" or not positions_data:
+            return []
+        
+        positions = positions_data.get("position", [])
         if not isinstance(positions, list):
             positions = [positions]
         
@@ -155,7 +160,11 @@ class TradierClient:
     async def get_account_balances(self) -> Dict[str, Any]:
         """Get account balances."""
         data = await self._make_request("GET", f"/accounts/{self.account_id}/balances")
-        return data.get("balances", {})
+        balances = data.get("balances", {})
+        # Handle case where balances is "null" string
+        if balances == "null":
+            return {}
+        return balances
     
     async def get_account_history(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:
         """Get account history."""

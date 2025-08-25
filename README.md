@@ -34,7 +34,7 @@ A production-ready, containerized application that automates the **Wheel** optio
 
 2. **Start the application**:
    ```bash
-   docker compose up --build
+   just dev
    ```
 
 3. **Access the application**:

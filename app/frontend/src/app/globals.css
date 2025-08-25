@@ -1,0 +1,93 @@
+/* Global styles for the Wheel Strategy Frontend */
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  height: 100%;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: linear-gradient(
+      to bottom,
+      transparent,
+      rgb(var(--background-end-rgb))
+    )
+    rgb(var(--background-start-rgb));
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Custom scrollbar for webkit browsers */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1a1a1a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Data Grid customizations */
+.MuiDataGrid-root {
+  border: none !important;
+}
+
+.MuiDataGrid-cell:focus {
+  outline: none !important;
+}
+
+.MuiDataGrid-columnHeader:focus {
+  outline: none !important;
+}
+
+/* Custom focus styles for accessibility */
+.MuiButton-root:focus-visible,
+.MuiIconButton-root:focus-visible {
+  outline: 2px solid #00d4aa;
+  outline-offset: 2px;
+}
+
+/* Loading states */
+.loading-skeleton {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
+

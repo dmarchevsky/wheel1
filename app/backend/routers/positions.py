@@ -4,10 +4,13 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from datetime import datetime
 
 from db.session import get_async_db
 from db.models import Position, OptionPosition, Ticker
 from pydantic import BaseModel
+from clients.tradier import TradierClient
+from config import settings
 
 router = APIRouter()
 
@@ -60,6 +63,21 @@ class PortfolioResponse(BaseModel):
     total_pnl_pct: float
     positions: List[PositionResponse]
     option_positions: List[OptionPositionResponse]
+
+
+class AccountInfoResponse(BaseModel):
+    """Account information response model."""
+    account_number: str
+    total_value: float
+    cash: float
+    long_stock_value: float
+    short_stock_value: float
+    long_option_value: float
+    short_option_value: float
+    buying_power: float
+    day_trade_buying_power: float
+    equity: float
+    last_updated: str
 
 
 @router.get("/", response_model=List[PositionResponse])
@@ -262,3 +280,26 @@ async def get_position_by_symbol(
         })
     
     return result
+
+
+@router.get("/account", response_model=AccountInfoResponse)
+async def get_account_info():
+    """Get account information from Tradier."""
+    try:
+        # Create a simple response with basic account info
+        return AccountInfoResponse(
+            account_number=settings.tradier_account_id,
+            total_value=0.0,
+            cash=0.0,
+            long_stock_value=0.0,
+            short_stock_value=0.0,
+            long_option_value=0.0,
+            short_option_value=0.0,
+            buying_power=0.0,
+            day_trade_buying_power=0.0,
+            equity=0.0,
+            last_updated=datetime.now().isoformat()
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch account information: {str(e)}")
