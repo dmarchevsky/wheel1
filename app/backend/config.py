@@ -2,7 +2,8 @@
 
 import os
 from typing import Optional
-from pydantic import BaseSettings, Field, validator
+from pydantic import Field, validator
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -114,14 +115,16 @@ settings = Settings()
 def validate_required_settings():
     """Validate that all required settings are present."""
     required_fields = [
-        "tradier_access_token",
-        "telegram_bot_token",
-        "telegram_chat_id"
+        "tradier_access_token"
     ]
     
     # Only require OpenAI settings if enabled
     if settings.openai_enabled:
         required_fields.extend(["openai_api_key"])
+    
+    # Only require Telegram settings in production
+    if settings.env == "prod":
+        required_fields.extend(["telegram_bot_token", "telegram_chat_id"])
     
     missing_fields = []
     for field in required_fields:
