@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { accountApi } from '@/lib/api'
+import { AccountBalance } from '@/types'
 import {
   Box,
   Container,
@@ -122,17 +124,32 @@ const columns: GridColDef[] = [
 export default function Dashboard() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [accountData, setAccountData] = useState<AccountBalance | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleRefresh = () => {
-    setLoading(true)
-    // Simulate API call
-    setTimeout(() => setLoading(false), 1000)
+  const fetchAccountData = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const response = await accountApi.getAccountInfo()
+      setAccountData(response.data)
+    } catch (err) {
+      console.error('Error fetching account data:', err)
+      setError('Failed to fetch account data')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const totalPnl = mockPositions.reduce((sum, pos) => sum + pos.pnl, 0)
-  const totalPnlPercent = mockPositions.length > 0 
-    ? (totalPnl / mockPositions.reduce((sum, pos) => sum + pos.avgPrice * pos.quantity, 0)) * 100
-    : 0
+  useEffect(() => {
+    fetchAccountData()
+  }, [])
+
+  const handleRefresh = () => {
+    fetchAccountData()
+  }
+
+
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
@@ -209,35 +226,26 @@ export default function Dashboard() {
         {loading && <LinearProgress sx={{ mb: 2 }} />}
 
         <Container maxWidth="xl">
+          {/* Error Alert */}
+          {error && (
+            <Alert severity="error" sx={{ mb: 3 }}>
+              {error}
+            </Alert>
+          )}
+
           {/* Summary Cards */}
           <Grid container spacing={3} sx={{ mb: 4 }}>
             <Grid item xs={12} sm={6} md={3}>
               <Card>
                 <CardContent>
                   <Typography color="textSecondary" gutterBottom>
-                    Total P&L
+                    Account Number
                   </Typography>
-                  <Typography variant="h4" component="div" color={totalPnl >= 0 ? 'success.main' : 'error.main'}>
-                    ${totalPnl.toFixed(2)}
-                  </Typography>
-                  <Typography variant="body2" color={totalPnlPercent >= 0 ? 'success.main' : 'error.main'}>
-                    {totalPnlPercent >= 0 ? '+' : ''}{totalPnlPercent.toFixed(1)}%
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            
-            <Grid item xs={12} sm={6} md={3}>
-              <Card>
-                <CardContent>
-                  <Typography color="textSecondary" gutterBottom>
-                    Active Positions
-                  </Typography>
-                  <Typography variant="h4" component="div">
-                    {mockPositions.length}
+                  <Typography variant="h6" component="div">
+                    {accountData?.account_number || 'Loading...'}
                   </Typography>
                   <Typography variant="body2" color="textSecondary">
-                    Open contracts
+                    Tradier Account
                   </Typography>
                 </CardContent>
               </Card>
@@ -247,13 +255,13 @@ export default function Dashboard() {
               <Card>
                 <CardContent>
                   <Typography color="textSecondary" gutterBottom>
-                    Portfolio Value
+                    Total Value
                   </Typography>
                   <Typography variant="h4" component="div">
-                    $25,430.50
+                    ${accountData?.total_value?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
                   </Typography>
-                  <Typography variant="body2" color="success.main">
-                    +$1,245.30 (+5.1%)
+                  <Typography variant="body2" color="textSecondary">
+                    Portfolio Value
                   </Typography>
                 </CardContent>
               </Card>
@@ -266,10 +274,26 @@ export default function Dashboard() {
                     Available Cash
                   </Typography>
                   <Typography variant="h4" component="div">
-                    $8,750.00
+                    ${accountData?.cash?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
                   </Typography>
                   <Typography variant="body2" color="textSecondary">
                     Ready to deploy
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            
+            <Grid item xs={12} sm={6} md={3}>
+              <Card>
+                <CardContent>
+                  <Typography color="textSecondary" gutterBottom>
+                    Buying Power
+                  </Typography>
+                  <Typography variant="h4" component="div">
+                    ${accountData?.buying_power?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                  </Typography>
+                  <Typography variant="body2" color="textSecondary">
+                    Day Trade: ${accountData?.day_trade_buying_power?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
                   </Typography>
                 </CardContent>
               </Card>

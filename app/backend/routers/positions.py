@@ -11,6 +11,7 @@ from db.models import Position, OptionPosition, Ticker
 from pydantic import BaseModel
 from clients.tradier import TradierClient
 from config import settings
+from services.account_service import AccountService
 
 router = APIRouter()
 
@@ -155,6 +156,10 @@ async def get_portfolio(
     db: Session = Depends(get_async_db)
 ):
     """Get portfolio summary."""
+    # Get account information
+    account_service = AccountService()
+    account_info = await account_service.get_account_info()
+    
     # Get equity positions
     equity_positions = db.query(Position).all()
     
@@ -167,10 +172,10 @@ async def get_portfolio(
     equity_value = sum(pos.shares * pos.avg_price for pos in equity_positions)
     option_value = sum(pos.quantity * pos.open_price for pos in option_positions)
     
-    # TODO: Get cash balance from account
-    cash = 10000.0  # Placeholder
+    # Use real cash balance from account
+    cash = account_info["cash"]
     
-    total_value = cash + equity_value + option_value
+    total_value = account_info["total_value"]
     
     # Calculate P&L (placeholder)
     total_pnl = 0.0  # Would need current prices
@@ -286,20 +291,10 @@ async def get_position_by_symbol(
 async def get_account_info():
     """Get account information from Tradier."""
     try:
-        # Create a simple response with basic account info
-        return AccountInfoResponse(
-            account_number=settings.tradier_account_id,
-            total_value=0.0,
-            cash=0.0,
-            long_stock_value=0.0,
-            short_stock_value=0.0,
-            long_option_value=0.0,
-            short_option_value=0.0,
-            buying_power=0.0,
-            day_trade_buying_power=0.0,
-            equity=0.0,
-            last_updated=datetime.now().isoformat()
-        )
+        account_service = AccountService()
+        account_info = await account_service.get_account_info()
+        
+        return AccountInfoResponse(**account_info)
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch account information: {str(e)}")

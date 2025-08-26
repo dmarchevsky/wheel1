@@ -30,12 +30,17 @@ export interface Recommendation {
 }
 
 export interface AccountBalance {
+  account_number: string
+  total_value: number
   cash: number
-  buyingPower: number
-  dayTradeBuyingPower: number
+  long_stock_value: number
+  short_stock_value: number
+  long_option_value: number
+  short_option_value: number
+  buying_power: number
+  day_trade_buying_power: number
   equity: number
-  marketValue: number
-  totalValue: number
+  last_updated: string
 }
 
 export interface Portfolio {
