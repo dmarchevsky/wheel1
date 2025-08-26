@@ -1,0 +1,10 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+// Write code that is easy to read, maintain, and extend. Use clear naming, consistent formatting, and modular functions.
+// Prefer improving and refactoring existing files and methods for clarity and robustness, rather than adding unnecessary new files.
+// Organize code logically: group related logic, keep files focused, and avoid duplication.
+// Document complex logic with concise comments. Remove dead code and unused dependencies.
+// Favor explicitness over cleverness—make intent obvious to future readers.

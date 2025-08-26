@@ -3,7 +3,8 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import desc, select
 from datetime import datetime
 
 from db.session import get_async_db
@@ -83,10 +84,13 @@ class AccountInfoResponse(BaseModel):
 
 @router.get("/", response_model=List[PositionResponse])
 async def get_positions(
-    db: Session = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Get all equity positions."""
-    positions = db.query(Position).order_by(desc(Position.shares)).all()
+    result = await db.execute(
+        select(Position).order_by(desc(Position.shares))
+    )
+    positions = result.scalars().all()
     
     result = []
     for pos in positions:
@@ -110,16 +114,18 @@ async def get_positions(
 
 @router.get("/options", response_model=List[OptionPositionResponse])
 async def get_option_positions(
-    db: Session = Depends(get_async_db),
+    db: AsyncSession = Depends(get_async_db),
     status: Optional[str] = Query(default="open")
 ):
     """Get option positions."""
-    query = db.query(OptionPosition)
+    query = select(OptionPosition)
     
     if status:
-        query = query.filter(OptionPosition.status == status)
+        query = query.where(OptionPosition.status == status)
     
-    positions = query.order_by(desc(OptionPosition.open_time)).all()
+    query = query.order_by(desc(OptionPosition.open_time))
+    result = await db.execute(query)
+    positions = result.scalars().all()
     
     result = []
     for pos in positions:
@@ -153,7 +159,7 @@ async def get_option_positions(
 
 @router.get("/portfolio", response_model=PortfolioResponse)
 async def get_portfolio(
-    db: Session = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Get portfolio summary."""
     # Get account information
@@ -161,12 +167,14 @@ async def get_portfolio(
     account_info = await account_service.get_account_info()
     
     # Get equity positions
-    equity_positions = db.query(Position).all()
+    result = await db.execute(select(Position))
+    equity_positions = result.scalars().all()
     
     # Get option positions
-    option_positions = db.query(OptionPosition).filter(
-        OptionPosition.status == "open"
-    ).all()
+    result = await db.execute(
+        select(OptionPosition).where(OptionPosition.status == "open")
+    )
+    option_positions = result.scalars().all()
     
     # Calculate values (placeholder - would need real market data)
     equity_value = sum(pos.shares * pos.avg_price for pos in equity_positions)

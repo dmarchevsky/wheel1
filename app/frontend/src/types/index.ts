@@ -1,32 +1,42 @@
 export interface Position {
   id: number
   symbol: string
-  type: 'PUT' | 'CALL'
+  shares: number
+  avg_price: number
+  current_price?: number
+  market_value?: number
+  pnl?: number
+  pnl_pct?: number
+  updated_at: string
+}
+
+export interface OptionPosition {
+  id: number
+  symbol: string
+  contract_symbol: string
+  side: string
+  option_type: string
+  quantity: number
   strike: number
   expiry: string
-  quantity: number
-  avgPrice: number
-  currentPrice: number
-  pnl: number
-  pnlPercent: number
-  delta?: number
-  gamma?: number
-  theta?: number
-  vega?: number
-  iv?: number
+  open_price: number
+  current_price?: number
+  pnl?: number
+  pnl_pct?: number
+  dte?: number
+  status: string
+  updated_at: string
 }
 
 export interface Recommendation {
   id: number
   symbol: string
-  strategy: string
-  confidence: number
-  expectedReturn: number
-  risk: 'Low' | 'Medium' | 'High'
-  description?: string
-  entryPrice?: number
-  targetPrice?: number
-  stopLoss?: number
+  strike?: number
+  expiry?: string
+  score: number
+  rationale: Record<string, any>
+  status: string
+  created_at: string
 }
 
 export interface AccountBalance {
@@ -54,11 +64,14 @@ export interface Portfolio {
 export interface TradeHistory {
   id: number
   symbol: string
-  type: 'BUY' | 'SELL'
+  option_symbol?: string
+  action: string
   quantity: number
   price: number
-  timestamp: string
-  pnl?: number
+  status: string
+  created_at: string
+  executed_at?: string
+  recommendation_id?: number
 }
 
 export interface ApiResponse<T> {

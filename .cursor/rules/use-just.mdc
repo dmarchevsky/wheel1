@@ -1,0 +1,8 @@
+---
+alwaysApply: true
+---
+// Always use `just` for task automation and `docker` for containerization in your workflows.
+
+
+
+

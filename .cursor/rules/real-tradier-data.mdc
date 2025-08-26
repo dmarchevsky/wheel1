@@ -1,0 +1,14 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+// When integrating with trading or financial data, always use actual data from the Tradier API whenever possible. 
+// If it is not possible to use real Tradier API data (e.g., due to missing credentials, API downtime, or development constraints), 
+// you must explicitly notify in documentation, comments, or UI that mock data is being used instead of live Tradier data.
+ 
+// Example: 
+// - For production and staging, ensure all data is fetched directly from the Tradier API.
+// - For local development, if you must use mock data, add a clear warning in the UI and code comments: 
+//   "⚠️ Using mock data: Tradier API not available."

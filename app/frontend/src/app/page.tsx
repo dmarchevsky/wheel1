@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { accountApi } from '@/lib/api'
-import { AccountBalance } from '@/types'
+import { accountApi, positionsApi, recommendationsApi, tradesApi } from '@/lib/api'
+import { AccountBalance, Position, OptionPosition, Recommendation, TradeHistory } from '@/types'
 import {
   Box,
   Container,
@@ -13,227 +13,141 @@ import {
   AppBar,
   Toolbar,
   IconButton,
-  Drawer,
-  List,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
-  Divider,
+  Alert,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
   Chip,
   LinearProgress,
-  Alert,
+  CircularProgress,
 } from '@mui/material'
 import {
-  Menu as MenuIcon,
-  Dashboard as DashboardIcon,
+  Refresh as RefreshIcon,
   TrendingUp as TrendingUpIcon,
   AccountBalance as AccountBalanceIcon,
-  Settings as SettingsIcon,
-  Refresh as RefreshIcon,
-  TrendingDown as TrendingDownIcon,
-  AttachMoney as MoneyIcon,
   Timeline as TimelineIcon,
 } from '@mui/icons-material'
-import { DataGrid, GridColDef } from '@mui/x-data-grid'
-
-// Mock data for demonstration
-const mockPositions = [
-  {
-    id: 1,
-    symbol: 'AAPL',
-    type: 'PUT',
-    strike: 150,
-    expiry: '2024-01-19',
-    quantity: 1,
-    avgPrice: 2.50,
-    currentPrice: 2.75,
-    pnl: 25.00,
-    pnlPercent: 10.0,
-  },
-  {
-    id: 2,
-    symbol: 'TSLA',
-    type: 'CALL',
-    strike: 200,
-    expiry: '2024-01-26',
-    quantity: 2,
-    avgPrice: 1.80,
-    currentPrice: 1.60,
-    pnl: -40.00,
-    pnlPercent: -11.1,
-  },
-]
-
-const mockRecommendations = [
-  {
-    id: 1,
-    symbol: 'NVDA',
-    strategy: 'Wheel',
-    confidence: 85,
-    expectedReturn: 12.5,
-    risk: 'Medium',
-  },
-  {
-    id: 2,
-    symbol: 'AMD',
-    strategy: 'Iron Condor',
-    confidence: 72,
-    expectedReturn: 8.3,
-    risk: 'Low',
-  },
-]
-
-const columns: GridColDef[] = [
-  { field: 'symbol', headerName: 'Symbol', width: 100 },
-  { field: 'type', headerName: 'Type', width: 80 },
-  { field: 'strike', headerName: 'Strike', width: 100, type: 'number' },
-  { field: 'expiry', headerName: 'Expiry', width: 120 },
-  { field: 'quantity', headerName: 'Qty', width: 80, type: 'number' },
-  { field: 'avgPrice', headerName: 'Avg Price', width: 120, type: 'number' },
-  { field: 'currentPrice', headerName: 'Current', width: 120, type: 'number' },
-  {
-    field: 'pnl',
-    headerName: 'P&L',
-    width: 120,
-    type: 'number',
-    renderCell: (params) => (
-      <Typography
-        color={params.value >= 0 ? 'success.main' : 'error.main'}
-        fontWeight="bold"
-      >
-        ${params.value.toFixed(2)}
-      </Typography>
-    ),
-  },
-  {
-    field: 'pnlPercent',
-    headerName: 'P&L %',
-    width: 100,
-    type: 'number',
-    renderCell: (params) => (
-      <Typography
-        color={params.value >= 0 ? 'success.main' : 'error.main'}
-        fontWeight="bold"
-      >
-        {params.value >= 0 ? '+' : ''}{params.value.toFixed(1)}%
-      </Typography>
-    ),
-  },
-]
 
 export default function Dashboard() {
-  const [drawerOpen, setDrawerOpen] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [accountData, setAccountData] = useState<AccountBalance | null>(null)
   const [error, setError] = useState<string | null>(null)
+  
+  // Account data
+  const [accountData, setAccountData] = useState<AccountBalance | null>(null)
+  
+  // Positions data
+  const [equityPositions, setEquityPositions] = useState<Position[]>([])
+  const [optionPositions, setOptionPositions] = useState<OptionPosition[]>([])
+  
+  // Recommendations data
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([])
+  
+  // Trade history data
+  const [tradeHistory, setTradeHistory] = useState<TradeHistory[]>([])
 
-  const fetchAccountData = async () => {
+  const fetchAllData = async () => {
     try {
       setLoading(true)
       setError(null)
-      const response = await accountApi.getAccountInfo()
-      setAccountData(response.data)
+      
+      // Fetch all data in parallel
+      const [accountRes, equityRes, optionsRes, recsRes, tradesRes] = await Promise.allSettled([
+        accountApi.getAccountInfo(),
+        positionsApi.getAll(),
+        positionsApi.getOptions(),
+        recommendationsApi.getCurrent(),
+        tradesApi.getHistory(),
+      ])
+      
+      // Handle account data
+      if (accountRes.status === 'fulfilled') {
+        setAccountData(accountRes.value.data)
+      }
+      
+      // Handle equity positions
+      if (equityRes.status === 'fulfilled') {
+        setEquityPositions(equityRes.value.data)
+      }
+      
+      // Handle option positions
+      if (optionsRes.status === 'fulfilled') {
+        setOptionPositions(optionsRes.value.data)
+      }
+      
+      // Handle recommendations
+      if (recsRes.status === 'fulfilled') {
+        setRecommendations(recsRes.value.data)
+      }
+      
+      // Handle trade history
+      if (tradesRes.status === 'fulfilled') {
+        setTradeHistory(tradesRes.value.data)
+      }
+      
     } catch (err) {
-      console.error('Error fetching account data:', err)
-      setError('Failed to fetch account data')
+      console.error('Error fetching data:', err)
+      setError('Failed to fetch data')
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    fetchAccountData()
+    fetchAllData()
   }, [])
 
   const handleRefresh = () => {
-    fetchAccountData()
+    fetchAllData()
   }
 
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value)
+  }
 
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    })
+  }
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      {/* App Bar */}
-      <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      {/* Header */}
+      <AppBar position="static">
         <Toolbar>
-          <IconButton
-            color="inherit"
-            edge="start"
-            onClick={() => setDrawerOpen(!drawerOpen)}
-            sx={{ mr: 2 }}
-          >
-            <MenuIcon />
-          </IconButton>
+          <AccountBalanceIcon sx={{ mr: 2 }} />
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
             Wheel Strategy Dashboard
           </Typography>
           <IconButton color="inherit" onClick={handleRefresh} disabled={loading}>
-            <RefreshIcon />
+            {loading ? <CircularProgress size={24} color="inherit" /> : <RefreshIcon />}
           </IconButton>
         </Toolbar>
       </AppBar>
 
-      {/* Sidebar */}
-      <Drawer
-        variant="temporary"
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        sx={{
-          width: 240,
-          flexShrink: 0,
-          '& .MuiDrawer-paper': {
-            width: 240,
-            boxSizing: 'border-box',
-          },
-        }}
-      >
-        <Toolbar />
-        <Box sx={{ overflow: 'auto' }}>
-          <List>
-            <ListItem button>
-              <ListItemIcon>
-                <DashboardIcon />
-              </ListItemIcon>
-              <ListItemText primary="Dashboard" />
-            </ListItem>
-            <ListItem button>
-              <ListItemIcon>
-                <TrendingUpIcon />
-              </ListItemIcon>
-              <ListItemText primary="Positions" />
-            </ListItem>
-            <ListItem button>
-              <ListItemIcon>
-                <AccountBalanceIcon />
-              </ListItemIcon>
-              <ListItemText primary="Account" />
-            </ListItem>
-            <Divider />
-            <ListItem button>
-              <ListItemIcon>
-                <SettingsIcon />
-              </ListItemIcon>
-              <ListItemText primary="Settings" />
-            </ListItem>
-          </List>
-        </Box>
-      </Drawer>
-
       {/* Main Content */}
-      <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
-        <Toolbar />
-        
+      <Container maxWidth="xl" sx={{ flexGrow: 1, py: 3 }}>
         {loading && <LinearProgress sx={{ mb: 2 }} />}
+        
+        {error && (
+          <Alert severity="error" sx={{ mb: 3 }}>
+            {error}
+          </Alert>
+        )}
 
-        <Container maxWidth="xl">
-          {/* Error Alert */}
-          {error && (
-            <Alert severity="error" sx={{ mb: 3 }}>
-              {error}
-            </Alert>
-          )}
-
-          {/* Summary Cards */}
+        {/* Account Summary Cards */}
+        {accountData && (
           <Grid container spacing={3} sx={{ mb: 4 }}>
             <Grid item xs={12} sm={6} md={3}>
               <Card>
@@ -242,7 +156,7 @@ export default function Dashboard() {
                     Account Number
                   </Typography>
                   <Typography variant="h6" component="div">
-                    {accountData?.account_number || 'Loading...'}
+                    {accountData.account_number}
                   </Typography>
                   <Typography variant="body2" color="textSecondary">
                     Tradier Account
@@ -258,7 +172,7 @@ export default function Dashboard() {
                     Total Value
                   </Typography>
                   <Typography variant="h4" component="div">
-                    ${accountData?.total_value?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                    {formatCurrency(accountData.total_value)}
                   </Typography>
                   <Typography variant="body2" color="textSecondary">
                     Portfolio Value
@@ -274,7 +188,7 @@ export default function Dashboard() {
                     Available Cash
                   </Typography>
                   <Typography variant="h4" component="div">
-                    ${accountData?.cash?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                    {formatCurrency(accountData.cash)}
                   </Typography>
                   <Typography variant="body2" color="textSecondary">
                     Ready to deploy
@@ -290,96 +204,267 @@ export default function Dashboard() {
                     Buying Power
                   </Typography>
                   <Typography variant="h4" component="div">
-                    ${accountData?.buying_power?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                    {formatCurrency(accountData.buying_power)}
                   </Typography>
                   <Typography variant="body2" color="textSecondary">
-                    Day Trade: ${accountData?.day_trade_buying_power?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                    Day Trade: {formatCurrency(accountData.day_trade_buying_power)}
                   </Typography>
                 </CardContent>
               </Card>
             </Grid>
           </Grid>
+        )}
 
-          {/* Main Content Grid */}
-          <Grid container spacing={3}>
-            {/* Positions Table */}
-            <Grid item xs={12} lg={8}>
-              <Card>
-                <CardContent>
-                  <Typography variant="h6" gutterBottom>
+        {/* Main Content - Vertical Layout */}
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {/* Recommendations */}
+          <Card>
+              <CardContent>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                  <TrendingUpIcon sx={{ mr: 1 }} />
+                  <Typography variant="h6" component="div">
+                    Current Recommendations
+                  </Typography>
+                </Box>
+                
+                {recommendations.length === 0 ? (
+                  <Typography color="textSecondary" align="center" sx={{ py: 4 }}>
+                    No current recommendations
+                  </Typography>
+                ) : (
+                  <TableContainer component={Paper} variant="outlined">
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Symbol</TableCell>
+                          <TableCell>Score</TableCell>
+                          <TableCell>Status</TableCell>
+                          <TableCell>Created</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                                                 {recommendations.map((rec: Recommendation) => (
+                          <TableRow key={rec.id}>
+                            <TableCell>
+                              <Typography variant="body2" fontWeight="bold">
+                                {rec.symbol}
+                              </Typography>
+                              {rec.strike && (
+                                <Typography variant="caption" color="textSecondary">
+                                  Strike: {rec.strike}
+                                </Typography>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Chip 
+                                label={`${rec.score.toFixed(1)}`}
+                                size="small"
+                                color={rec.score >= 7 ? 'success' : rec.score >= 5 ? 'warning' : 'error'}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Chip 
+                                label={rec.status}
+                                size="small"
+                                variant="outlined"
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2">
+                                {formatDate(rec.created_at)}
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </CardContent>
+            </Card>
+
+          {/* Current Positions */}
+          <Card>
+              <CardContent>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                  <AccountBalanceIcon sx={{ mr: 1 }} />
+                  <Typography variant="h6" component="div">
                     Current Positions
                   </Typography>
-                  <Box sx={{ height: 400, width: '100%' }}>
-                    <DataGrid
-                      rows={mockPositions}
-                      columns={columns}
-                      initialState={{
-                        pagination: {
-                          paginationModel: { pageSize: 5 },
-                        },
-                      }}
-                      pageSizeOptions={[5]}
-                      disableRowSelectionOnClick
-                      sx={{
-                        '& .MuiDataGrid-cell': {
-                          borderBottom: '1px solid #333',
-                        },
-                        '& .MuiDataGrid-columnHeaders': {
-                          backgroundColor: '#1a1a1a',
-                          borderBottom: '2px solid #333',
-                        },
-                      }}
-                    />
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
-
-            {/* Recommendations */}
-            <Grid item xs={12} lg={4}>
-              <Card>
-                <CardContent>
-                  <Typography variant="h6" gutterBottom>
-                    Recommendations
+                </Box>
+                
+                {equityPositions.length === 0 && optionPositions.length === 0 ? (
+                  <Typography color="textSecondary" align="center" sx={{ py: 4 }}>
+                    No current positions
                   </Typography>
-                  {mockRecommendations.map((rec) => (
-                    <Box key={rec.id} sx={{ mb: 2, p: 2, border: '1px solid #333', borderRadius: 1 }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                        <Typography variant="h6">{rec.symbol}</Typography>
-                        <Chip 
-                          label={rec.strategy} 
-                          size="small" 
-                          color="primary" 
-                          variant="outlined"
-                        />
-                      </Box>
-                      <Typography variant="body2" color="textSecondary" gutterBottom>
-                        Expected Return: {rec.expectedReturn}%
-                      </Typography>
-                      <Typography variant="body2" color="textSecondary" gutterBottom>
-                        Risk: {rec.risk}
-                      </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
-                        <Typography variant="body2" sx={{ mr: 1 }}>
-                          Confidence:
-                        </Typography>
-                        <LinearProgress 
-                          variant="determinate" 
-                          value={rec.confidence} 
-                          sx={{ flexGrow: 1, mr: 1 }}
-                        />
-                        <Typography variant="body2">
-                          {rec.confidence}%
-                        </Typography>
-                      </Box>
-                    </Box>
-                  ))}
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
-        </Container>
-      </Box>
+                ) : (
+                  <TableContainer component={Paper} variant="outlined">
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Symbol</TableCell>
+                          <TableCell>Type</TableCell>
+                          <TableCell>Quantity</TableCell>
+                          <TableCell>Avg Price</TableCell>
+                          <TableCell>P&L</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {/* Equity Positions */}
+                                                 {equityPositions.map((pos: Position) => (
+                          <TableRow key={`equity-${pos.id}`}>
+                            <TableCell>
+                              <Typography variant="body2" fontWeight="bold">
+                                {pos.symbol}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Chip label="Stock" size="small" color="primary" />
+                            </TableCell>
+                            <TableCell>{pos.shares}</TableCell>
+                            <TableCell>{formatCurrency(pos.avg_price)}</TableCell>
+                            <TableCell>
+                              {pos.pnl !== undefined && (
+                                <Typography
+                                  variant="body2"
+                                  color={pos.pnl >= 0 ? 'success.main' : 'error.main'}
+                                  fontWeight="bold"
+                                >
+                                  {formatCurrency(pos.pnl)}
+                                </Typography>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        
+                        {/* Option Positions */}
+                                                 {optionPositions.map((pos: OptionPosition) => (
+                          <TableRow key={`option-${pos.id}`}>
+                            <TableCell>
+                              <Typography variant="body2" fontWeight="bold">
+                                {pos.symbol}
+                              </Typography>
+                              <Typography variant="caption" color="textSecondary">
+                                {pos.contract_symbol}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Chip 
+                                label={`${pos.option_type} ${pos.side}`}
+                                size="small"
+                                color="secondary"
+                              />
+                            </TableCell>
+                            <TableCell>{pos.quantity}</TableCell>
+                            <TableCell>{formatCurrency(pos.open_price)}</TableCell>
+                            <TableCell>
+                              {pos.pnl !== undefined && (
+                                <Typography
+                                  variant="body2"
+                                  color={pos.pnl >= 0 ? 'success.main' : 'error.main'}
+                                  fontWeight="bold"
+                                >
+                                  {formatCurrency(pos.pnl)}
+                                </Typography>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </CardContent>
+            </Card>
+
+          {/* Orders History */}
+          <Card>
+              <CardContent>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                  <TimelineIcon sx={{ mr: 1 }} />
+                  <Typography variant="h6" component="div">
+                    Orders History
+                  </Typography>
+                </Box>
+                
+                {tradeHistory.length === 0 ? (
+                  <Typography color="textSecondary" align="center" sx={{ py: 4 }}>
+                    No trade history available
+                  </Typography>
+                ) : (
+                  <TableContainer component={Paper} variant="outlined">
+                    <Table>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Symbol</TableCell>
+                          <TableCell>Action</TableCell>
+                          <TableCell>Quantity</TableCell>
+                          <TableCell>Price</TableCell>
+                          <TableCell>Status</TableCell>
+                          <TableCell>Created</TableCell>
+                          <TableCell>Executed</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                                                 {tradeHistory.map((trade: TradeHistory) => (
+                          <TableRow key={trade.id}>
+                            <TableCell>
+                              <Typography variant="body2" fontWeight="bold">
+                                {trade.symbol}
+                              </Typography>
+                              {trade.option_symbol && (
+                                <Typography variant="caption" color="textSecondary">
+                                  {trade.option_symbol}
+                                </Typography>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Chip 
+                                label={trade.action}
+                                size="small"
+                                color={trade.action.includes('buy') ? 'success' : 'error'}
+                              />
+                            </TableCell>
+                            <TableCell>{trade.quantity}</TableCell>
+                            <TableCell>{formatCurrency(trade.price)}</TableCell>
+                            <TableCell>
+                              <Chip 
+                                label={trade.status}
+                                size="small"
+                                variant="outlined"
+                                color={
+                                  trade.status === 'filled' ? 'success' :
+                                  trade.status === 'pending' ? 'warning' :
+                                  trade.status === 'cancelled' ? 'error' : 'default'
+                                }
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2">
+                                {formatDate(trade.created_at)}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              {trade.executed_at ? (
+                                <Typography variant="body2">
+                                  {formatDate(trade.executed_at)}
+                                </Typography>
+                              ) : (
+                                <Typography variant="body2" color="textSecondary">
+                                  -
+                                </Typography>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </CardContent>
+            </Card>
+        </Box>
+      </Container>
     </Box>
   )
 }
