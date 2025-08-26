@@ -10,30 +10,33 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "next": "14.1.0",
+    "next": "^15.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "@types/node": "^20.11.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "typescript": "^5.3.3",
-    "@mui/material": "^5.15.10",
-    "@mui/icons-material": "^5.15.10",
+    "@mui/material": "^5.18.0",
+    "@mui/icons-material": "^5.18.0",
     "@emotion/react": "^11.11.3",
     "@emotion/styled": "^11.11.0",
-    "@mui/x-data-grid": "^6.18.0",
-    "@mui/x-charts": "^6.19.4",
-    "@mui/x-date-pickers": "^6.19.4",
+    "@mui/x-data-grid": "^6.20.4",
+    "@mui/x-charts": "^6.19.8",
+    "@mui/x-date-pickers": "^6.20.2",
     "date-fns": "^2.30.0",
     "axios": "^1.6.7",
     "recharts": "^2.10.4",
     "lucide-react": "^0.330.0"
   },
   "devDependencies": {
-    "eslint": "^8.56.0",
-    "eslint-config-next": "14.1.0",
-    "@typescript-eslint/eslint-plugin": "^7.0.2",
-    "@typescript-eslint/parser": "^7.0.2",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "^15.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
     "prettier": "^3.2.5"
+  },
+  "overrides": {
+    "@mui/base": "@base-ui-components/react"
   }
 }

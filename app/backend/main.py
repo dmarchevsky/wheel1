@@ -66,7 +66,9 @@ app.add_middleware(
     allow_origins=[
         settings.web_base_url,
         "http://192.168.3.100:3000",
-        "http://localhost:3000"
+        "http://localhost:3000",
+        "http://0.0.0.0:3000",
+        "*"  # Allow all origins for development
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -114,6 +116,6 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=8000,
-        reload=settings.env == "dev",
+        reload=True,  # Always enable reload in development
         log_level=settings.log_level.lower()
     )

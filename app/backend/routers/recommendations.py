@@ -1,6 +1,7 @@
 """Recommendations router."""
 
 from typing import List, Optional
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
@@ -8,6 +9,7 @@ from sqlalchemy import desc
 from db.session import get_async_db
 from db.models import Recommendation, Ticker, Option
 from pydantic import BaseModel
+from services.recommender_service import RecommenderService
 
 router = APIRouter()
 
@@ -172,3 +174,22 @@ async def get_recommendations_by_symbol(
         ))
     
     return result
+
+
+@router.post("/refresh")
+async def refresh_recommendations(
+    db: Session = Depends(get_async_db)
+):
+    """Refresh recommendations by generating new ones."""
+    try:
+        # For now, return a success message since database tables need to be set up
+        # TODO: Implement full recommendation generation once database is properly configured
+        
+        return {
+            "message": "Recommendations refresh endpoint is working! Database setup required for full functionality.",
+            "new_recommendations_count": 0,
+            "timestamp": datetime.utcnow().isoformat(),
+            "note": "Database tables need to be created for full recommendation generation"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to refresh recommendations: {str(e)}")

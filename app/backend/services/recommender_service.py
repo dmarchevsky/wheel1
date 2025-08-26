@@ -93,11 +93,16 @@ class RecommenderService:
     
     def _get_current_positions(self, db: Session) -> List[str]:
         """Get symbols of current positions."""
-        positions = db.query(Position).filter(
-            Position.status == "open"
-        ).all()
-        
-        return [pos.symbol for pos in positions]
+        try:
+            positions = db.query(Position).filter(
+                Position.status == "open"
+            ).all()
+            
+            return [pos.symbol for pos in positions]
+        except Exception as e:
+            logger.warning(f"Could not query positions table: {e}")
+            # Return empty list if table doesn't exist
+            return []
     
     async def _get_options_for_ticker(self, db: Session, ticker: Ticker) -> List[Option]:
         """Get suitable put options for a ticker."""

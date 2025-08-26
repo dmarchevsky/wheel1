@@ -89,7 +89,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={inter.className}>
+      <body className={inter.className} suppressHydrationWarning={true}>
         <ThemeProvider theme={darkTheme}>
           <CssBaseline />
           <LocalizationProvider dateAdapter={AdapterDateFns}>

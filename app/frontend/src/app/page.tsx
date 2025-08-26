@@ -13,6 +13,7 @@ import {
   AppBar,
   Toolbar,
   IconButton,
+  Button,
   Alert,
   Table,
   TableBody,
@@ -48,6 +49,10 @@ export default function Dashboard() {
   
   // Trade history data
   const [tradeHistory, setTradeHistory] = useState<TradeHistory[]>([])
+  
+  // Recommendations refresh state
+  const [recommendationsLastUpdated, setRecommendationsLastUpdated] = useState<string | null>(null)
+  const [refreshingRecommendations, setRefreshingRecommendations] = useState(false)
 
   const fetchAllData = async () => {
     try {
@@ -81,6 +86,7 @@ export default function Dashboard() {
       // Handle recommendations
       if (recsRes.status === 'fulfilled') {
         setRecommendations(recsRes.value.data)
+        setRecommendationsLastUpdated(new Date().toISOString())
       }
       
       // Handle trade history
@@ -102,6 +108,27 @@ export default function Dashboard() {
 
   const handleRefresh = () => {
     fetchAllData()
+  }
+
+  const handleRefreshRecommendations = async () => {
+    try {
+      setRefreshingRecommendations(true)
+      setError(null)
+      
+      // Call the refresh endpoint
+      await recommendationsApi.refresh()
+      
+      // Fetch updated recommendations
+      const recsRes = await recommendationsApi.getCurrent()
+      setRecommendations(recsRes.data)
+      setRecommendationsLastUpdated(new Date().toISOString())
+      
+    } catch (err) {
+      console.error('Error refreshing recommendations:', err)
+      setError('Failed to refresh recommendations')
+    } finally {
+      setRefreshingRecommendations(false)
+    }
   }
 
   const formatCurrency = (value: number) => {
@@ -220,11 +247,29 @@ export default function Dashboard() {
           {/* Recommendations */}
           <Card>
               <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <TrendingUpIcon sx={{ mr: 1 }} />
-                  <Typography variant="h6" component="div">
-                    Current Recommendations
-                  </Typography>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <TrendingUpIcon sx={{ mr: 1 }} />
+                    <Typography variant="h6" component="div">
+                      Current Recommendations
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {recommendationsLastUpdated && (
+                      <Typography variant="caption" color="textSecondary">
+                        Updated: {formatDate(recommendationsLastUpdated)}
+                      </Typography>
+                    )}
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<RefreshIcon />}
+                      onClick={handleRefreshRecommendations}
+                      disabled={refreshingRecommendations}
+                    >
+                      {refreshingRecommendations ? 'Refreshing...' : 'Refresh'}
+                    </Button>
+                  </Box>
                 </Box>
                 
                 {recommendations.length === 0 ? (

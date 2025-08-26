@@ -30,11 +30,13 @@ This is a production-ready, containerized Wheel Strategy options trading applica
 git clone <repository-url>
 cd wheel1
 
-# Copy environment template
+# Copy environment templates
 cp env.example .env
+cp env.example env.dev
 
-# Edit .env with your API keys
-nano .env
+# Edit environment files with your API keys
+nano .env      # Production environment
+nano env.dev   # Development environment
 ```
 
 ### 3. Required Environment Variables
@@ -73,28 +75,64 @@ When disabled, the system uses default values for qualitative scoring components
 ### 5. Start the Application
 
 ```bash
-# Start all services
+# Start all services with hot-reloading (recommended for development)
 just dev
 
-# Or manually with docker compose
-docker compose -f infra/docker-compose.yml --env-file .env up --build
+# Start without nginx proxy (direct access)
+just dev-direct
+
+# Start only backend services
+just dev-backend
+
+# Start only frontend
+just dev-frontend
 ```
 
 ### 6. Access the Application
 
-- **Web Dashboard**: http://localhost:3000
-- **API Documentation**: http://localhost:8000/docs
-- **Health Check**: http://localhost:8000/health
+- **Web Dashboard**: http://localhost (via nginx proxy)
+- **API Documentation**: http://localhost/api/docs (via nginx proxy)
+- **Health Check**: http://localhost/health (nginx) or http://localhost/api/health (API via nginx)
+- **Direct Frontend**: http://localhost:3000 (bypassing proxy)
+- **Direct API**: http://localhost:8000 (bypassing proxy)
 
 ## Architecture
 
 ### Services
 
-1. **API** (FastAPI) - REST API endpoints
-2. **Worker** (Background) - Scheduled jobs and Telegram bot
-3. **Frontend** (Next.js) - Web dashboard
-4. **Database** (PostgreSQL) - Data persistence
-5. **Redis** - Caching and job queue
+1. **Nginx** (Reverse Proxy) - Handles CORS and routes requests
+2. **API** (FastAPI) - REST API endpoints
+3. **Worker** (Background) - Scheduled jobs and Telegram bot
+4. **Frontend** (Next.js) - Web dashboard
+5. **Database** (PostgreSQL) - Data persistence
+6. **Redis** - Caching and job queue
+
+### Nginx Reverse Proxy
+
+The application includes an nginx reverse proxy that:
+
+- **Eliminates CORS issues** by proxying API requests from the frontend
+- **Provides a single entry point** at `http://localhost` for the entire application
+- **Routes API requests** from `/api/*` to the backend service
+- **Serves the frontend** at the root path
+- **Includes security headers** and rate limiting
+- **Supports WebSocket connections** for Next.js development
+
+**URL Structure:**
+- Frontend: `http://localhost/` (served by nginx)
+- API: `http://localhost/api/*` (proxied to backend)
+- Health Check: `http://localhost/health` (nginx health endpoint)
+
+**Development Options:**
+- Use `just dev` to start with nginx proxy and hot-reloading (recommended)
+- Use `just dev-direct` to start without nginx (direct access)
+- Use `just dev-backend` to start only backend services
+- Use `just dev-frontend` to start only frontend
+
+**Hot Reloading:**
+- Backend changes automatically restart the API server
+- Frontend changes automatically refresh the browser
+- No container rebuilds required for code changes
 
 ### Key Components
 
