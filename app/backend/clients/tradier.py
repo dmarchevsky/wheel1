@@ -159,11 +159,20 @@ class TradierClient:
     
     async def get_account_balances(self) -> Dict[str, Any]:
         """Get account balances."""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"Making Tradier API request to: /accounts/{self.account_id}/balances")
         data = await self._make_request("GET", f"/accounts/{self.account_id}/balances")
+        logger.info(f"Tradier API response: {data}")
+        
         balances = data.get("balances", {})
         # Handle case where balances is "null" string
         if balances == "null":
+            logger.warning("Tradier returned 'null' for balances")
             return {}
+        
+        logger.info(f"Extracted balances: {balances}")
         return balances
     
     async def get_account_history(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:

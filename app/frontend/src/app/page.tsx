@@ -79,34 +79,81 @@ export default function Dashboard() {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      {/* Enhanced Header with Account Info */}
+      <style jsx global>{`
+        @keyframes pulse {
+          0% { opacity: 1; }
+          50% { opacity: 0.5; }
+          100% { opacity: 1; }
+        }
+      `}</style>
+      {/* Header with Account Balances */}
       <AppBar position="static" elevation={0} sx={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)' }}>
-        <Toolbar sx={{ minHeight: '80px' }}>
+        <Toolbar sx={{ minHeight: '60px', py: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
-            <AccountBalanceIcon sx={{ mr: 2, fontSize: 32 }} />
-            <Box>
-              <Typography variant="h5" component="div" sx={{ fontWeight: 600 }}>
-                Wheel Strategy Dashboard
-              </Typography>
-              {accountData && (
-                <Typography variant="body2" color="text.secondary">
-                  Account: {accountData.account_number} • Last Updated: {accountData.last_updated ? formatDate(accountData.last_updated) : 'N/A'}
-                </Typography>
-              )}
-            </Box>
+            <AccountBalanceIcon sx={{ mr: 1.5, fontSize: 24 }} />
+            <Typography variant="h6" component="div" sx={{ fontWeight: 600, mr: 3 }}>
+              Wheel Strategy Dashboard
+            </Typography>
+            {accountData && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Total:
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                    {formatCurrency(accountData.total_value)}
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Cash:
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                    {formatCurrency(accountData.cash)}
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Equity:
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                    {formatCurrency(accountData.equity)}
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Buying Power:
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                    {formatCurrency(accountData.buying_power)}
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Day Trade:
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                    {formatCurrency(accountData.day_trade_buying_power)}
+                  </Typography>
+                </Box>
+              </Box>
+            )}
           </Box>
           
-          <IconButton 
-            color="inherit" 
-            onClick={handleRefresh} 
-            disabled={loading}
-            sx={{ 
-              backgroundColor: 'rgba(255,255,255,0.1)', 
-              '&:hover': { backgroundColor: 'rgba(255,255,255,0.2)' }
-            }}
-          >
-            {loading ? <CircularProgress size={24} color="inherit" /> : <RefreshIcon />}
-          </IconButton>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <IconButton 
+              color="inherit" 
+              onClick={handleRefresh} 
+              disabled={loading}
+              size="small"
+              sx={{ 
+                backgroundColor: 'rgba(255,255,255,0.1)', 
+                '&:hover': { backgroundColor: 'rgba(255,255,255,0.2)' }
+              }}
+            >
+              {loading ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
+            </IconButton>
+          </Box>
         </Toolbar>
       </AppBar>
 
@@ -118,140 +165,6 @@ export default function Dashboard() {
           <Alert severity="error" sx={{ mb: 3 }}>
             {error}
           </Alert>
-        )}
-
-        {/* Enhanced Account Summary Cards */}
-        {accountData && (
-          <Grid container spacing={3} sx={{ mb: 4 }}>
-            <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ 
-                background: 'linear-gradient(135deg, #00d4aa 0%, #00b894 100%)',
-                color: 'white',
-                height: '100%'
-              }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                    <TrendingUpIcon sx={{ mr: 1 }} />
-                    <Typography variant="h6" component="div">
-                      Total Portfolio Value
-                    </Typography>
-                  </Box>
-                  <Typography variant="h3" component="div" sx={{ fontWeight: 700, mb: 1 }}>
-                    {formatCurrency(accountData.total_value)}
-                  </Typography>
-                  <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                    Account: {accountData.account_number}
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            
-            <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ 
-                background: 'linear-gradient(135deg, #3498db 0%, #2980b9 100%)',
-                color: 'white',
-                height: '100%'
-              }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                    <WalletIcon sx={{ mr: 1 }} />
-                    <Typography variant="h6" component="div">
-                      Available Cash
-                    </Typography>
-                  </Box>
-                  <Typography variant="h3" component="div" sx={{ fontWeight: 700, mb: 1 }}>
-                    {formatCurrency(accountData.cash)}
-                  </Typography>
-                  <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                    Ready to deploy
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            
-            <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ 
-                background: 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)',
-                color: 'white',
-                height: '100%'
-              }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                    <ChartIcon sx={{ mr: 1 }} />
-                    <Typography variant="h6" component="div">
-                      Buying Power
-                    </Typography>
-                  </Box>
-                  <Typography variant="h3" component="div" sx={{ fontWeight: 700, mb: 1 }}>
-                    {formatCurrency(accountData.buying_power)}
-                  </Typography>
-                  <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                    Day Trade: {formatCurrency(accountData.day_trade_buying_power)}
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            
-            <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ 
-                background: 'linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%)',
-                color: 'white',
-                height: '100%'
-              }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                    <AccountBalanceIcon sx={{ mr: 1 }} />
-                    <Typography variant="h6" component="div">
-                      Account Equity
-                    </Typography>
-                  </Box>
-                  <Typography variant="h3" component="div" sx={{ fontWeight: 700, mb: 1 }}>
-                    {formatCurrency(accountData.equity)}
-                  </Typography>
-                  <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                    Net Account Value
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
-        )}
-
-        {/* Additional Account Details */}
-        {accountData && (
-          <Card sx={{ mb: 4 }}>
-            <CardContent>
-              <Typography variant="h6" component="div" sx={{ mb: 3 }}>
-                Account Breakdown
-              </Typography>
-              <Grid container spacing={3}>
-                <Grid item xs={12} md={6}>
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                      Stock Positions
-                    </Typography>
-                    <Typography variant="h6">
-                      Long: {formatCurrency(accountData.long_stock_value)} | Short: {formatCurrency(accountData.short_stock_value)}
-                    </Typography>
-                  </Box>
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                      Option Positions
-                    </Typography>
-                    <Typography variant="h6">
-                      Long: {formatCurrency(accountData.long_option_value)} | Short: {formatCurrency(accountData.short_option_value)}
-                    </Typography>
-                  </Box>
-                </Grid>
-              </Grid>
-              <Divider sx={{ my: 2 }} />
-              <Typography variant="body2" color="text.secondary">
-                Data source: Tradier API • Last updated: {accountData.last_updated ? formatDate(accountData.last_updated) : 'N/A'}
-              </Typography>
-            </CardContent>
-          </Card>
         )}
 
         {/* Placeholder for future content */}

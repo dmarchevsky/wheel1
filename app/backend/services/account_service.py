@@ -25,14 +25,20 @@ class AccountService:
             # Get account balances
             balances = await self.tradier_client.get_account_balances()
             
+            # Log raw response for debugging
+            logger.info(f"Raw Tradier balances response: {balances}")
+            
             # Parse balance data
             account_info = self._parse_balance_data(balances)
             
-            logger.info("Successfully fetched account information")
+            logger.info(f"Parsed account info: {account_info}")
             return account_info
             
         except Exception as e:
             logger.error(f"Error fetching account information: {e}")
+            logger.error(f"Exception type: {type(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             # Return fallback data
             return {
                 "account_number": settings.tradier_account_id,
@@ -54,20 +60,28 @@ class AccountService:
             # Extract account number
             account_number = balances.get("account_number", settings.tradier_account_id)
             
-            # Extract cash and buying power
-            cash = float(balances.get("cash", {}).get("cash", 0))
-            buying_power = float(balances.get("cash", {}).get("buying_power", 0))
-            day_trade_buying_power = float(balances.get("cash", {}).get("day_trade_buying_power", 0))
+            # Extract cash values (direct from balances object)
+            cash = float(balances.get("total_cash", 0))
             
-            # Extract equity values
-            equity = float(balances.get("account", {}).get("equity", 0))
-            total_value = float(balances.get("account", {}).get("total_equity", 0))
+            # Extract equity values (direct from balances object)
+            equity = float(balances.get("equity", 0))
+            total_value = float(balances.get("total_equity", 0))
             
-            # Extract position values
-            long_stock_value = float(balances.get("account", {}).get("long_market_value", 0))
-            short_stock_value = float(balances.get("account", {}).get("short_market_value", 0))
-            long_option_value = float(balances.get("account", {}).get("long_option_market_value", 0))
-            short_option_value = float(balances.get("account", {}).get("short_option_market_value", 0))
+            # Extract position values (direct from balances object)
+            long_stock_value = float(balances.get("long_market_value", 0))
+            short_stock_value = float(balances.get("short_market_value", 0))
+            long_option_value = float(balances.get("option_long_value", 0))
+            short_option_value = float(balances.get("option_short_value", 0))
+            
+            # Extract buying power from margin object
+            margin = balances.get("margin", {})
+            buying_power = float(margin.get("stock_buying_power", 0))
+            day_trade_buying_power = float(margin.get("option_buying_power", 0))
+            
+            logger.info(f"Parsed values - Cash: {cash}, Total Value: {total_value}, Equity: {equity}")
+            logger.info(f"Stock values - Long: {long_stock_value}, Short: {short_stock_value}")
+            logger.info(f"Option values - Long: {long_option_value}, Short: {short_option_value}")
+            logger.info(f"Buying power - Stock: {buying_power}, Options: {day_trade_buying_power}")
             
             return {
                 "account_number": account_number,
@@ -85,6 +99,7 @@ class AccountService:
             
         except (ValueError, KeyError, TypeError) as e:
             logger.error(f"Error parsing balance data: {e}")
+            logger.error(f"Raw balances data: {balances}")
             # Return fallback data
             return {
                 "account_number": settings.tradier_account_id,

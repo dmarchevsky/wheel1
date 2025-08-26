@@ -31,12 +31,12 @@ dev-frontend:
 # Check development environment status
 dev-status:
     @echo "Development environment status:"
-    sudo docker compose -f infra/docker-compose.yml ps
+    sudo docker compose -f infra/docker-compose.yml --env-file env.dev ps
 
 # View development logs
 dev-logs:
     @echo "Viewing development logs (press Ctrl+C to exit):"
-    sudo docker compose -f infra/docker-compose.yml logs -f
+    sudo docker compose -f infra/docker-compose.yml --env-file env.dev logs -f
 
 # Stop development environment
 dev-stop:
