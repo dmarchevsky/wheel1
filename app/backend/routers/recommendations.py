@@ -232,14 +232,26 @@ async def refresh_recommendations(
 ):
     """Refresh recommendations by generating new ones."""
     try:
-        # For now, return a success message since database tables need to be set up
-        # TODO: Implement full recommendation generation once database is properly configured
+        logger.info("Manual recommendation refresh requested")
+        
+        # Initialize recommender service and generate recommendations directly
+        recommender_service = RecommenderService()
+        new_recommendations = await recommender_service.generate_recommendations(db)
         
         return {
-            "message": "Recommendations refresh endpoint is working! Database setup required for full functionality.",
-            "new_recommendations_count": 0,
+            "message": "Recommendations refreshed successfully",
+            "status": "success",
+            "new_recommendations_count": len(new_recommendations),
             "timestamp": datetime.utcnow().isoformat(),
-            "note": "Database tables need to be created for full recommendation generation"
+            "recommendations": [
+                {
+                    "symbol": rec.symbol,
+                    "score": rec.score,
+                    "status": rec.status
+                } for rec in new_recommendations
+            ]
         }
+            
     except Exception as e:
+        logger.error(f"Failed to refresh recommendations: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to refresh recommendations: {str(e)}")

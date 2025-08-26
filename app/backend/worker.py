@@ -39,6 +39,7 @@ class Worker:
         self.alert_service = AlertService()
         self.trade_executor = TradeExecutor()
         self.running = False
+        self.recommendation_generation_lock = asyncio.Lock()  # Prevent concurrent recommendation generation
         
         # Register signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -105,6 +106,40 @@ class Worker:
         except Exception as e:
             logger.error(f"Error stopping worker: {e}")
     
+    async def trigger_manual_recommendation_generation(self):
+        """Trigger manual recommendation generation (called from API)."""
+        # Use lock to prevent concurrent recommendation generation
+        if self.recommendation_generation_lock.locked():
+            logger.info("Recommendation generation already in progress, manual request queued")
+            return False, "Recommendation generation already in progress"
+            
+        async with self.recommendation_generation_lock:
+            try:
+                logger.info("Running manual recommendation generation...")
+                
+                # Get database session
+                db = SyncSessionLocal()
+                try:
+                    # Generate recommendations (ignore market hours for manual requests)
+                    recommendations = await self.recommender_service.generate_recommendations(db)
+                    
+                    if recommendations:
+                        logger.info(f"Generated {len(recommendations)} recommendations manually")
+                        
+                        # Send Telegram notifications
+                        await self.telegram_service.send_recommendations(recommendations)
+                        return True, f"Generated {len(recommendations)} recommendations"
+                    else:
+                        logger.info("No recommendations generated manually")
+                        return True, "No recommendations generated"
+                        
+                finally:
+                    db.close()
+                    
+            except Exception as e:
+                logger.error(f"Error in manual recommendation generation: {e}")
+                return False, f"Error generating recommendations: {str(e)}"
+    
     async def _schedule_jobs(self):
         """Schedule background jobs."""
         # Recommender job - runs every 15 minutes during market hours
@@ -115,7 +150,8 @@ class Worker:
             name="Generate recommendations",
             coalesce=True,
             max_instances=1,
-            timezone=market_calendar.timezone
+            timezone=market_calendar.timezone,
+            misfire_grace_time=300  # 5 minutes grace time
         )
         
         # Position sync job - runs every 5 minutes during market hours
@@ -154,33 +190,39 @@ class Worker:
     
     async def _run_recommender_job(self):
         """Run the recommender job."""
-        try:
-            # Check if market is open
-            if not market_calendar.should_run_recommender():
-                logger.debug("Market closed, skipping recommender job")
-                return
+        # Use lock to prevent concurrent recommendation generation
+        if self.recommendation_generation_lock.locked():
+            logger.info("Recommendation generation already in progress, skipping scheduled job")
+            return
             
-            logger.info("Running recommender job...")
-            
-            # Get database session
-            db = SyncSessionLocal()
+        async with self.recommendation_generation_lock:
             try:
-                # Generate recommendations
-                recommendations = await self.recommender_service.generate_recommendations(db)
+                # Check if market is open
+                if not market_calendar.should_run_recommender():
+                    logger.debug("Market closed, skipping recommender job")
+                    return
                 
-                if recommendations:
-                    logger.info(f"Generated {len(recommendations)} recommendations")
-                    
-                    # Send Telegram notifications
-                    await self.telegram_service.send_recommendations(recommendations)
-                else:
-                    logger.info("No recommendations generated")
-                    
-            finally:
-                db.close()
+                logger.info("Running scheduled recommender job...")
                 
-        except Exception as e:
-            logger.error(f"Error in recommender job: {e}")
+                # Get database session
+                db = SyncSessionLocal()
+                try:
+                    # Generate recommendations
+                    recommendations = await self.recommender_service.generate_recommendations(db)
+                    
+                    if recommendations:
+                        logger.info(f"Generated {len(recommendations)} recommendations")
+                        
+                        # Send Telegram notifications
+                        await self.telegram_service.send_recommendations(recommendations)
+                    else:
+                        logger.info("No recommendations generated")
+                        
+                finally:
+                    db.close()
+                    
+            except Exception as e:
+                logger.error(f"Error in recommender job: {e}")
     
     async def _run_position_sync_job(self):
         """Run the position sync job."""
@@ -256,6 +298,16 @@ async def main():
     worker = Worker()
     await worker.start()
 
+
+# Global worker instance for API access
+_worker_instance = None
+
+def get_worker_instance():
+    """Get the global worker instance."""
+    global _worker_instance
+    if _worker_instance is None:
+        _worker_instance = Worker()
+    return _worker_instance
 
 if __name__ == "__main__":
     try:
