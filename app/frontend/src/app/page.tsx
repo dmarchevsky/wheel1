@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { accountApi, positionsApi, recommendationsApi, tradesApi } from '@/lib/api'
-import { AccountBalance, Position, OptionPosition, Recommendation, TradeHistory } from '@/types'
+import { accountApi } from '@/lib/api'
+import { AccountBalance } from '@/types'
 import {
   Box,
   Container,
@@ -13,24 +13,17 @@ import {
   AppBar,
   Toolbar,
   IconButton,
-  Button,
   Alert,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
-  Chip,
   LinearProgress,
   CircularProgress,
+  Divider,
 } from '@mui/material'
 import {
   Refresh as RefreshIcon,
-  TrendingUp as TrendingUpIcon,
   AccountBalance as AccountBalanceIcon,
-  Timeline as TimelineIcon,
+  TrendingUp as TrendingUpIcon,
+  AccountBalanceWallet as WalletIcon,
+  ShowChart as ChartIcon,
 } from '@mui/icons-material'
 
 export default function Dashboard() {
@@ -39,64 +32,19 @@ export default function Dashboard() {
   
   // Account data
   const [accountData, setAccountData] = useState<AccountBalance | null>(null)
-  
-  // Positions data
-  const [equityPositions, setEquityPositions] = useState<Position[]>([])
-  const [optionPositions, setOptionPositions] = useState<OptionPosition[]>([])
-  
-  // Recommendations data
-  const [recommendations, setRecommendations] = useState<Recommendation[]>([])
-  
-  // Trade history data
-  const [tradeHistory, setTradeHistory] = useState<TradeHistory[]>([])
-  
-  // Recommendations refresh state
-  const [recommendationsLastUpdated, setRecommendationsLastUpdated] = useState<string | null>(null)
-  const [refreshingRecommendations, setRefreshingRecommendations] = useState(false)
 
   const fetchAllData = async () => {
     try {
       setLoading(true)
       setError(null)
       
-      // Fetch all data in parallel
-      const [accountRes, equityRes, optionsRes, recsRes, tradesRes] = await Promise.allSettled([
-        accountApi.getAccountInfo(),
-        positionsApi.getAll(),
-        positionsApi.getOptions(),
-        recommendationsApi.getCurrent(),
-        tradesApi.getHistory(),
-      ])
-      
-      // Handle account data
-      if (accountRes.status === 'fulfilled') {
-        setAccountData(accountRes.value.data)
-      }
-      
-      // Handle equity positions
-      if (equityRes.status === 'fulfilled') {
-        setEquityPositions(equityRes.value.data)
-      }
-      
-      // Handle option positions
-      if (optionsRes.status === 'fulfilled') {
-        setOptionPositions(optionsRes.value.data)
-      }
-      
-      // Handle recommendations
-      if (recsRes.status === 'fulfilled') {
-        setRecommendations(recsRes.value.data)
-        setRecommendationsLastUpdated(new Date().toISOString())
-      }
-      
-      // Handle trade history
-      if (tradesRes.status === 'fulfilled') {
-        setTradeHistory(tradesRes.value.data)
-      }
+      // Fetch account data only
+      const accountRes = await accountApi.getAccountInfo()
+      setAccountData(accountRes.data)
       
     } catch (err) {
-      console.error('Error fetching data:', err)
-      setError('Failed to fetch data')
+      console.error('Error fetching account data:', err)
+      setError('Failed to fetch account data')
     } finally {
       setLoading(false)
     }
@@ -108,27 +56,6 @@ export default function Dashboard() {
 
   const handleRefresh = () => {
     fetchAllData()
-  }
-
-  const handleRefreshRecommendations = async () => {
-    try {
-      setRefreshingRecommendations(true)
-      setError(null)
-      
-      // Call the refresh endpoint
-      await recommendationsApi.refresh()
-      
-      // Fetch updated recommendations
-      const recsRes = await recommendationsApi.getCurrent()
-      setRecommendations(recsRes.data)
-      setRecommendationsLastUpdated(new Date().toISOString())
-      
-    } catch (err) {
-      console.error('Error refreshing recommendations:', err)
-      setError('Failed to refresh recommendations')
-    } finally {
-      setRefreshingRecommendations(false)
-    }
   }
 
   const formatCurrency = (value: number) => {
@@ -145,27 +72,47 @@ export default function Dashboard() {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
     })
   }
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      {/* Header */}
-      <AppBar position="static">
-        <Toolbar>
-          <AccountBalanceIcon sx={{ mr: 2 }} />
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            Wheel Strategy Dashboard
-          </Typography>
-          <IconButton color="inherit" onClick={handleRefresh} disabled={loading}>
+      {/* Enhanced Header with Account Info */}
+      <AppBar position="static" elevation={0} sx={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)' }}>
+        <Toolbar sx={{ minHeight: '80px' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
+            <AccountBalanceIcon sx={{ mr: 2, fontSize: 32 }} />
+            <Box>
+              <Typography variant="h5" component="div" sx={{ fontWeight: 600 }}>
+                Wheel Strategy Dashboard
+              </Typography>
+              {accountData && (
+                <Typography variant="body2" color="text.secondary">
+                  Account: {accountData.account_number} • Last Updated: {accountData.last_updated ? formatDate(accountData.last_updated) : 'N/A'}
+                </Typography>
+              )}
+            </Box>
+          </Box>
+          
+          <IconButton 
+            color="inherit" 
+            onClick={handleRefresh} 
+            disabled={loading}
+            sx={{ 
+              backgroundColor: 'rgba(255,255,255,0.1)', 
+              '&:hover': { backgroundColor: 'rgba(255,255,255,0.2)' }
+            }}
+          >
             {loading ? <CircularProgress size={24} color="inherit" /> : <RefreshIcon />}
           </IconButton>
         </Toolbar>
       </AppBar>
 
       {/* Main Content */}
-      <Container maxWidth="xl" sx={{ flexGrow: 1, py: 3 }}>
-        {loading && <LinearProgress sx={{ mb: 2 }} />}
+      <Container maxWidth="xl" sx={{ flexGrow: 1, py: 4 }}>
+        {loading && <LinearProgress sx={{ mb: 3 }} />}
         
         {error && (
           <Alert severity="error" sx={{ mb: 3 }}>
@@ -173,51 +120,49 @@ export default function Dashboard() {
           </Alert>
         )}
 
-        {/* Account Summary Cards */}
+        {/* Enhanced Account Summary Cards */}
         {accountData && (
           <Grid container spacing={3} sx={{ mb: 4 }}>
             <Grid item xs={12} sm={6} md={3}>
-              <Card>
+              <Card sx={{ 
+                background: 'linear-gradient(135deg, #00d4aa 0%, #00b894 100%)',
+                color: 'white',
+                height: '100%'
+              }}>
                 <CardContent>
-                  <Typography color="textSecondary" gutterBottom>
-                    Account Number
-                  </Typography>
-                  <Typography variant="h6" component="div">
-                    {accountData.account_number}
-                  </Typography>
-                  <Typography variant="body2" color="textSecondary">
-                    Tradier Account
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            
-            <Grid item xs={12} sm={6} md={3}>
-              <Card>
-                <CardContent>
-                  <Typography color="textSecondary" gutterBottom>
-                    Total Value
-                  </Typography>
-                  <Typography variant="h4" component="div">
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <TrendingUpIcon sx={{ mr: 1 }} />
+                    <Typography variant="h6" component="div">
+                      Total Portfolio Value
+                    </Typography>
+                  </Box>
+                  <Typography variant="h3" component="div" sx={{ fontWeight: 700, mb: 1 }}>
                     {formatCurrency(accountData.total_value)}
                   </Typography>
-                  <Typography variant="body2" color="textSecondary">
-                    Portfolio Value
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                    Account: {accountData.account_number}
                   </Typography>
                 </CardContent>
               </Card>
             </Grid>
             
             <Grid item xs={12} sm={6} md={3}>
-              <Card>
+              <Card sx={{ 
+                background: 'linear-gradient(135deg, #3498db 0%, #2980b9 100%)',
+                color: 'white',
+                height: '100%'
+              }}>
                 <CardContent>
-                  <Typography color="textSecondary" gutterBottom>
-                    Available Cash
-                  </Typography>
-                  <Typography variant="h4" component="div">
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <WalletIcon sx={{ mr: 1 }} />
+                    <Typography variant="h6" component="div">
+                      Available Cash
+                    </Typography>
+                  </Box>
+                  <Typography variant="h3" component="div" sx={{ fontWeight: 700, mb: 1 }}>
                     {formatCurrency(accountData.cash)}
                   </Typography>
-                  <Typography variant="body2" color="textSecondary">
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>
                     Ready to deploy
                   </Typography>
                 </CardContent>
@@ -225,16 +170,46 @@ export default function Dashboard() {
             </Grid>
             
             <Grid item xs={12} sm={6} md={3}>
-              <Card>
+              <Card sx={{ 
+                background: 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)',
+                color: 'white',
+                height: '100%'
+              }}>
                 <CardContent>
-                  <Typography color="textSecondary" gutterBottom>
-                    Buying Power
-                  </Typography>
-                  <Typography variant="h4" component="div">
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <ChartIcon sx={{ mr: 1 }} />
+                    <Typography variant="h6" component="div">
+                      Buying Power
+                    </Typography>
+                  </Box>
+                  <Typography variant="h3" component="div" sx={{ fontWeight: 700, mb: 1 }}>
                     {formatCurrency(accountData.buying_power)}
                   </Typography>
-                  <Typography variant="body2" color="textSecondary">
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>
                     Day Trade: {formatCurrency(accountData.day_trade_buying_power)}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            
+            <Grid item xs={12} sm={6} md={3}>
+              <Card sx={{ 
+                background: 'linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%)',
+                color: 'white',
+                height: '100%'
+              }}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <AccountBalanceIcon sx={{ mr: 1 }} />
+                    <Typography variant="h6" component="div">
+                      Account Equity
+                    </Typography>
+                  </Box>
+                  <Typography variant="h3" component="div" sx={{ fontWeight: 700, mb: 1 }}>
+                    {formatCurrency(accountData.equity)}
+                  </Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                    Net Account Value
                   </Typography>
                 </CardContent>
               </Card>
@@ -242,273 +217,54 @@ export default function Dashboard() {
           </Grid>
         )}
 
-        {/* Main Content - Vertical Layout */}
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {/* Recommendations */}
-          <Card>
-              <CardContent>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <TrendingUpIcon sx={{ mr: 1 }} />
-                    <Typography variant="h6" component="div">
-                      Current Recommendations
+        {/* Additional Account Details */}
+        {accountData && (
+          <Card sx={{ mb: 4 }}>
+            <CardContent>
+              <Typography variant="h6" component="div" sx={{ mb: 3 }}>
+                Account Breakdown
+              </Typography>
+              <Grid container spacing={3}>
+                <Grid item xs={12} md={6}>
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                      Stock Positions
+                    </Typography>
+                    <Typography variant="h6">
+                      Long: {formatCurrency(accountData.long_stock_value)} | Short: {formatCurrency(accountData.short_stock_value)}
                     </Typography>
                   </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    {recommendationsLastUpdated && (
-                      <Typography variant="caption" color="textSecondary">
-                        Updated: {formatDate(recommendationsLastUpdated)}
-                      </Typography>
-                    )}
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      startIcon={<RefreshIcon />}
-                      onClick={handleRefreshRecommendations}
-                      disabled={refreshingRecommendations}
-                    >
-                      {refreshingRecommendations ? 'Refreshing...' : 'Refresh'}
-                    </Button>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                      Option Positions
+                    </Typography>
+                    <Typography variant="h6">
+                      Long: {formatCurrency(accountData.long_option_value)} | Short: {formatCurrency(accountData.short_option_value)}
+                    </Typography>
                   </Box>
-                </Box>
-                
-                {recommendations.length === 0 ? (
-                  <Typography color="textSecondary" align="center" sx={{ py: 4 }}>
-                    No current recommendations
-                  </Typography>
-                ) : (
-                  <TableContainer component={Paper} variant="outlined">
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>Symbol</TableCell>
-                          <TableCell>Score</TableCell>
-                          <TableCell>Status</TableCell>
-                          <TableCell>Created</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                                                 {recommendations.map((rec: Recommendation) => (
-                          <TableRow key={rec.id}>
-                            <TableCell>
-                              <Typography variant="body2" fontWeight="bold">
-                                {rec.symbol}
-                              </Typography>
-                              {rec.strike && (
-                                <Typography variant="caption" color="textSecondary">
-                                  Strike: {rec.strike}
-                                </Typography>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              <Chip 
-                                label={`${rec.score.toFixed(1)}`}
-                                size="small"
-                                color={rec.score >= 7 ? 'success' : rec.score >= 5 ? 'warning' : 'error'}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Chip 
-                                label={rec.status}
-                                size="small"
-                                variant="outlined"
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Typography variant="body2">
-                                {formatDate(rec.created_at)}
-                              </Typography>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                )}
-              </CardContent>
-            </Card>
+                </Grid>
+              </Grid>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="body2" color="text.secondary">
+                Data source: Tradier API • Last updated: {accountData.last_updated ? formatDate(accountData.last_updated) : 'N/A'}
+              </Typography>
+            </CardContent>
+          </Card>
+        )}
 
-          {/* Current Positions */}
-          <Card>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <AccountBalanceIcon sx={{ mr: 1 }} />
-                  <Typography variant="h6" component="div">
-                    Current Positions
-                  </Typography>
-                </Box>
-                
-                {equityPositions.length === 0 && optionPositions.length === 0 ? (
-                  <Typography color="textSecondary" align="center" sx={{ py: 4 }}>
-                    No current positions
-                  </Typography>
-                ) : (
-                  <TableContainer component={Paper} variant="outlined">
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>Symbol</TableCell>
-                          <TableCell>Type</TableCell>
-                          <TableCell>Quantity</TableCell>
-                          <TableCell>Avg Price</TableCell>
-                          <TableCell>P&L</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {/* Equity Positions */}
-                                                 {equityPositions.map((pos: Position) => (
-                          <TableRow key={`equity-${pos.id}`}>
-                            <TableCell>
-                              <Typography variant="body2" fontWeight="bold">
-                                {pos.symbol}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>
-                              <Chip label="Stock" size="small" color="primary" />
-                            </TableCell>
-                            <TableCell>{pos.shares}</TableCell>
-                            <TableCell>{formatCurrency(pos.avg_price)}</TableCell>
-                            <TableCell>
-                              {pos.pnl !== undefined && (
-                                <Typography
-                                  variant="body2"
-                                  color={pos.pnl >= 0 ? 'success.main' : 'error.main'}
-                                  fontWeight="bold"
-                                >
-                                  {formatCurrency(pos.pnl)}
-                                </Typography>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                        
-                        {/* Option Positions */}
-                                                 {optionPositions.map((pos: OptionPosition) => (
-                          <TableRow key={`option-${pos.id}`}>
-                            <TableCell>
-                              <Typography variant="body2" fontWeight="bold">
-                                {pos.symbol}
-                              </Typography>
-                              <Typography variant="caption" color="textSecondary">
-                                {pos.contract_symbol}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>
-                              <Chip 
-                                label={`${pos.option_type} ${pos.side}`}
-                                size="small"
-                                color="secondary"
-                              />
-                            </TableCell>
-                            <TableCell>{pos.quantity}</TableCell>
-                            <TableCell>{formatCurrency(pos.open_price)}</TableCell>
-                            <TableCell>
-                              {pos.pnl !== undefined && (
-                                <Typography
-                                  variant="body2"
-                                  color={pos.pnl >= 0 ? 'success.main' : 'error.main'}
-                                  fontWeight="bold"
-                                >
-                                  {formatCurrency(pos.pnl)}
-                                </Typography>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                )}
-              </CardContent>
-            </Card>
-
-          {/* Orders History */}
-          <Card>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <TimelineIcon sx={{ mr: 1 }} />
-                  <Typography variant="h6" component="div">
-                    Orders History
-                  </Typography>
-                </Box>
-                
-                {tradeHistory.length === 0 ? (
-                  <Typography color="textSecondary" align="center" sx={{ py: 4 }}>
-                    No trade history available
-                  </Typography>
-                ) : (
-                  <TableContainer component={Paper} variant="outlined">
-                    <Table>
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>Symbol</TableCell>
-                          <TableCell>Action</TableCell>
-                          <TableCell>Quantity</TableCell>
-                          <TableCell>Price</TableCell>
-                          <TableCell>Status</TableCell>
-                          <TableCell>Created</TableCell>
-                          <TableCell>Executed</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                                                 {tradeHistory.map((trade: TradeHistory) => (
-                          <TableRow key={trade.id}>
-                            <TableCell>
-                              <Typography variant="body2" fontWeight="bold">
-                                {trade.symbol}
-                              </Typography>
-                              {trade.option_symbol && (
-                                <Typography variant="caption" color="textSecondary">
-                                  {trade.option_symbol}
-                                </Typography>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              <Chip 
-                                label={trade.action}
-                                size="small"
-                                color={trade.action.includes('buy') ? 'success' : 'error'}
-                              />
-                            </TableCell>
-                            <TableCell>{trade.quantity}</TableCell>
-                            <TableCell>{formatCurrency(trade.price)}</TableCell>
-                            <TableCell>
-                              <Chip 
-                                label={trade.status}
-                                size="small"
-                                variant="outlined"
-                                color={
-                                  trade.status === 'filled' ? 'success' :
-                                  trade.status === 'pending' ? 'warning' :
-                                  trade.status === 'cancelled' ? 'error' : 'default'
-                                }
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Typography variant="body2">
-                                {formatDate(trade.created_at)}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>
-                              {trade.executed_at ? (
-                                <Typography variant="body2">
-                                  {formatDate(trade.executed_at)}
-                                </Typography>
-                              ) : (
-                                <Typography variant="body2" color="textSecondary">
-                                  -
-                                </Typography>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                )}
-              </CardContent>
-            </Card>
-        </Box>
+        {/* Placeholder for future content */}
+        <Card>
+          <CardContent>
+            <Typography variant="h6" component="div" sx={{ mb: 2 }}>
+              Dashboard Overview
+            </Typography>
+            <Typography color="textSecondary" align="center" sx={{ py: 8 }}>
+              Additional dashboard components will be added here as the application evolves.
+            </Typography>
+          </CardContent>
+        </Card>
       </Container>
     </Box>
   )

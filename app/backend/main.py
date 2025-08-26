@@ -3,7 +3,7 @@
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
+
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 import uvicorn
@@ -60,20 +60,8 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        settings.web_base_url,
-        "http://192.168.3.100:3000",
-        "http://localhost:3000",
-        "http://0.0.0.0:3000",
-        "*"  # Allow all origins for development
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS is handled by Nginx reverse proxy
+# No CORS middleware needed here
 
 
 # Global exception handler

@@ -11,22 +11,37 @@ default:
 # Start development environment with hot-reloading
 dev:
     @echo "Starting development environment with hot-reloading..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev up --build
+    sudo docker compose -f infra/docker-compose.yml --env-file env.dev up --build -d
 
 # Start development environment without nginx proxy
 dev-direct:
     @echo "Starting development environment without nginx proxy..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev up --build api worker frontend db redis
+    sudo docker compose -f infra/docker-compose.yml --env-file env.dev up --build -d api worker frontend db redis
 
 # Start only backend services
 dev-backend:
     @echo "Starting backend services only..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev up --build api worker db redis
+    sudo docker compose -f infra/docker-compose.yml --env-file env.dev up --build -d api worker db redis
 
 # Start only frontend
 dev-frontend:
     @echo "Starting frontend only..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev up --build frontend
+    sudo docker compose -f infra/docker-compose.yml --env-file env.dev up --build -d frontend
+
+# Check development environment status
+dev-status:
+    @echo "Development environment status:"
+    sudo docker compose -f infra/docker-compose.yml ps
+
+# View development logs
+dev-logs:
+    @echo "Viewing development logs (press Ctrl+C to exit):"
+    sudo docker compose -f infra/docker-compose.yml logs -f
+
+# Stop development environment
+dev-stop:
+    @echo "Stopping development environment..."
+    sudo docker compose -f infra/docker-compose.yml --env-file env.dev down
 
 # =============================================================================
 # PRODUCTION COMMANDS
@@ -125,8 +140,8 @@ db-migrate:
 # Reset database (drop and recreate)
 db-reset:
     @echo "Resetting database..."
-    sudo docker compose -f infra/docker-compose.yml --env-file .env down -v
-    sudo docker compose -f infra/docker-compose.yml --env-file .env up db -d
+    sudo docker compose -f infra/docker-compose.yml --env-file env.dev down -v
+    sudo docker compose -f infra/docker-compose.yml --env-file env.dev up db -d
     sleep 5
     just db-migrate
     just seed
@@ -267,6 +282,9 @@ help:
     @echo "  dev-direct             - Start without nginx proxy (direct access)"
     @echo "  dev-backend            - Start backend services only"
     @echo "  dev-frontend           - Start frontend only"
+    @echo "  dev-status             - Check development environment status"
+    @echo "  dev-logs               - View development logs"
+    @echo "  dev-stop               - Stop development environment"
     @echo ""
     @echo "PRODUCTION:"
     @echo "  build                  - Build production images"
