@@ -35,8 +35,8 @@ dev-status:
 
 # View development logs
 dev-logs:
-    @echo "Viewing development logs (press Ctrl+C to exit):"
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev logs -f
+    @echo "Viewing development logs:"
+    sudo docker compose -f infra/docker-compose.yml --env-file env.dev logs
 
 # Stop development environment
 dev-stop:
@@ -158,73 +158,102 @@ seed:
 # Show all logs (development)
 logs:
     @echo "Showing all development logs..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev logs -f
+    sudo docker compose -f infra/docker-compose.yml --env-file env.dev logs
 
 # Show specific service logs (development)
 logs-api:
     @echo "Showing API logs (development)..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev logs -f api
+    sudo docker compose -f infra/docker-compose.yml --env-file env.dev logs api
 
 logs-worker:
     @echo "Showing worker logs (development)..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev logs -f worker
+    sudo docker compose -f infra/docker-compose.yml --env-file env.dev logs worker
 
 logs-frontend:
     @echo "Showing frontend logs (development)..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev logs -f frontend
+    sudo docker compose -f infra/docker-compose.yml --env-file env.dev logs frontend
 
 logs-nginx:
     @echo "Showing nginx logs (development)..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev logs -f nginx
+    sudo docker compose -f infra/docker-compose.yml --env-file env.dev logs nginx
 
 # Show production logs
 logs-prod:
     @echo "Showing all production logs..."
-    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env logs -f
+    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env logs
 
 # Show specific production service logs
 logs-prod-api:
     @echo "Showing API logs (production)..."
-    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env logs -f api
+    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env logs api
 
 logs-prod-worker:
     @echo "Showing worker logs (production)..."
-    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env logs -f worker
+    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env logs worker
 
 logs-prod-frontend:
     @echo "Showing frontend logs (production)..."
-    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env logs -f frontend
+    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env logs frontend
 
 logs-prod-nginx:
     @echo "Showing nginx logs (production)..."
-    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env logs -f nginx
+    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env logs nginx
 
 # Check health of all services (development)
 health:
     @echo "Checking development service health..."
-    curl -f http://localhost/health || echo "Nginx not healthy"
-    curl -f http://localhost:8000/health || echo "API not healthy"
-    curl -f http://localhost:3000 || echo "Frontend not healthy"
+    @echo "======================================"
+    @echo "Nginx Health:"
+    curl -s http://localhost/health | jq . | cat || echo "❌ Nginx not healthy"
+    @echo ""
+    @echo "API Health:"
+    curl -s http://localhost:8000/health/ | jq . | cat || echo "❌ API not healthy"
+    @echo ""
+    @echo "API Readiness:"
+    curl -s http://localhost:8000/health/ready | jq . | cat || echo "❌ API not ready"
+    @echo ""
+    @echo "Frontend Health:"
+    curl -s http://localhost:3000 > /dev/null && echo "✅ Frontend healthy" || echo "❌ Frontend not healthy"
+    @echo ""
+    @echo "Recommendations Service:"
+    curl -s http://localhost:8000/health/recommendations | jq . | cat || echo "❌ Recommendations service not healthy"
 
 # Check specific service health (development)
 health-nginx:
     @echo "Checking nginx health (development)..."
-    curl -f http://localhost/health || echo "Nginx not healthy"
+    curl -s http://localhost/health | jq . | cat || echo "❌ Nginx not healthy"
 
 health-api:
     @echo "Checking API health (development)..."
-    curl -f http://localhost/api/health || echo "API not healthy (via nginx)"
+    @echo "Basic health:"
+    curl -s http://localhost:8000/health/ | jq . | cat || echo "❌ API not healthy"
+    @echo ""
+    @echo "Readiness check:"
+    curl -s http://localhost:8000/health/ready | jq . | cat || echo "❌ API not ready"
+    @echo ""
+    @echo "Detailed health:"
+    curl -s http://localhost:8000/health/detailed | jq . | cat || echo "❌ Detailed health check failed"
 
 health-frontend:
     @echo "Checking frontend health (development)..."
-    curl -f http://localhost || echo "Frontend not healthy (via nginx)"
+    curl -s http://localhost:3000 > /dev/null && echo "✅ Frontend healthy" || echo "❌ Frontend not healthy"
+
+health-recommendations:
+    @echo "Checking recommendations service health (development)..."
+    curl -s http://localhost:8000/health/recommendations | jq . | cat || echo "❌ Recommendations service not healthy"
 
 # Check production health
 health-prod:
     @echo "Checking production service health..."
-    curl -f http://localhost/health || echo "Production nginx not healthy"
-    curl -f http://localhost/api/health || echo "Production API not healthy (via nginx)"
-    curl -f http://localhost || echo "Production frontend not healthy (via nginx)"
+    @echo "======================================"
+    @echo "Nginx Health:"
+    curl -s http://localhost/health | jq . | cat || echo "❌ Production nginx not healthy"
+    @echo ""
+    @echo "API Health:"
+    curl -s http://localhost/api/health/ | jq . | cat || echo "❌ Production API not healthy (via nginx)"
+    @echo ""
+    @echo "Frontend Health:"
+    curl -s http://localhost > /dev/null && echo "✅ Production frontend healthy" || echo "❌ Production frontend not healthy (via nginx)"
 
 # =============================================================================
 # SETUP COMMANDS
@@ -312,6 +341,7 @@ help:
     @echo "  logs-{service}         - Show specific development service logs"
     @echo "  health                 - Check development services health"
     @echo "  health-{service}       - Check specific development service health"
+    @echo "  health-recommendations - Check recommendations service health"
     @echo ""
     @echo "MONITORING (Production):"
     @echo "  logs-prod              - Show all production logs"

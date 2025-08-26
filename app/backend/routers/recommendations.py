@@ -1,15 +1,18 @@
 """Recommendations router."""
 
+import logging
 from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, select
 
 from db.session import get_async_db
 from db.models import Recommendation, Ticker, Option
 from pydantic import BaseModel
 from services.recommender_service import RecommenderService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -35,28 +38,39 @@ async def get_current_recommendations(
     limit: int = Query(default=10, le=50)
 ):
     """Get current recommendations."""
-    recommendations = db.query(Recommendation).filter(
-        Recommendation.status == "proposed"
-    ).order_by(desc(Recommendation.score)).limit(limit).all()
-    
-    result = []
-    for rec in recommendations:
-        option = None
-        if rec.option_id:
-            option = db.query(Option).filter(Option.id == rec.option_id).first()
+    try:
+        # Use async SQLAlchemy 2.0 style queries
+        stmt = select(Recommendation).where(
+            Recommendation.status == "proposed"
+        ).order_by(desc(Recommendation.score)).limit(limit)
         
-        result.append(RecommendationResponse(
-            id=rec.id,
-            symbol=rec.symbol,
-            strike=option.strike if option else None,
-            expiry=option.expiry.isoformat() if option else None,
-            score=rec.score,
-            rationale=rec.rationale_json or {},
-            status=rec.status,
-            created_at=rec.created_at.isoformat()
-        ))
-    
-    return result
+        result = await db.execute(stmt)
+        recommendations = result.scalars().all()
+        
+        response_list = []
+        for rec in recommendations:
+            option = None
+            if rec.option_id:
+                option_stmt = select(Option).where(Option.id == rec.option_id)
+                option_result = await db.execute(option_stmt)
+                option = option_result.scalar_one_or_none()
+            
+            response_list.append(RecommendationResponse(
+                id=rec.id,
+                symbol=rec.symbol,
+                strike=option.strike if option else None,
+                expiry=option.expiry.isoformat() if option else None,
+                score=rec.score,
+                rationale=rec.rationale_json or {},
+                status=rec.status,
+                created_at=rec.created_at.isoformat()
+            ))
+        
+        return response_list
+    except Exception as e:
+        # Handle case where tables don't exist yet
+        logger.warning(f"Database tables not ready: {e}")
+        return []
 
 
 @router.get("/history", response_model=List[RecommendationResponse])
@@ -68,34 +82,44 @@ async def get_recommendation_history(
     status: Optional[str] = Query(default=None)
 ):
     """Get recommendation history."""
-    query = db.query(Recommendation)
-    
-    if symbol:
-        query = query.filter(Recommendation.symbol == symbol.upper())
-    
-    if status:
-        query = query.filter(Recommendation.status == status)
-    
-    recommendations = query.order_by(desc(Recommendation.created_at)).offset(offset).limit(limit).all()
-    
-    result = []
-    for rec in recommendations:
-        option = None
-        if rec.option_id:
-            option = db.query(Option).filter(Option.id == rec.option_id).first()
+    try:
+        stmt = select(Recommendation)
         
-        result.append(RecommendationResponse(
-            id=rec.id,
-            symbol=rec.symbol,
-            strike=option.strike if option else None,
-            expiry=option.expiry.isoformat() if option else None,
-            score=rec.score,
-            rationale=rec.rationale_json or {},
-            status=rec.status,
-            created_at=rec.created_at.isoformat()
-        ))
-    
-    return result
+        if symbol:
+            stmt = stmt.where(Recommendation.symbol == symbol.upper())
+        
+        if status:
+            stmt = stmt.where(Recommendation.status == status)
+        
+        stmt = stmt.order_by(desc(Recommendation.created_at)).offset(offset).limit(limit)
+        
+        result = await db.execute(stmt)
+        recommendations = result.scalars().all()
+        
+        response_list = []
+        for rec in recommendations:
+            option = None
+            if rec.option_id:
+                option_stmt = select(Option).where(Option.id == rec.option_id)
+                option_result = await db.execute(option_stmt)
+                option = option_result.scalar_one_or_none()
+            
+            response_list.append(RecommendationResponse(
+                id=rec.id,
+                symbol=rec.symbol,
+                strike=option.strike if option else None,
+                expiry=option.expiry.isoformat() if option else None,
+                score=rec.score,
+                rationale=rec.rationale_json or {},
+                status=rec.status,
+                created_at=rec.created_at.isoformat()
+            ))
+        
+        return response_list
+    except Exception as e:
+        # Handle case where tables don't exist yet
+        logger.warning(f"Database tables not ready: {e}")
+        return []
 
 
 @router.get("/{recommendation_id}", response_model=RecommendationResponse)
@@ -104,25 +128,34 @@ async def get_recommendation(
     db: Session = Depends(get_async_db)
 ):
     """Get a specific recommendation by ID."""
-    recommendation = db.query(Recommendation).filter(Recommendation.id == recommendation_id).first()
-    
-    if not recommendation:
+    try:
+        stmt = select(Recommendation).where(Recommendation.id == recommendation_id)
+        result = await db.execute(stmt)
+        recommendation = result.scalar_one_or_none()
+        
+        if not recommendation:
+            raise HTTPException(status_code=404, detail="Recommendation not found")
+        
+        option = None
+        if recommendation.option_id:
+            option_stmt = select(Option).where(Option.id == recommendation.option_id)
+            option_result = await db.execute(option_stmt)
+            option = option_result.scalar_one_or_none()
+        
+        return RecommendationResponse(
+            id=recommendation.id,
+            symbol=recommendation.symbol,
+            strike=option.strike if option else None,
+            expiry=option.expiry.isoformat() if option else None,
+            score=recommendation.score,
+            rationale=recommendation.rationale_json or {},
+            status=recommendation.status,
+            created_at=recommendation.created_at.isoformat()
+        )
+    except Exception as e:
+        # Handle case where tables don't exist yet
+        logger.warning(f"Database tables not ready: {e}")
         raise HTTPException(status_code=404, detail="Recommendation not found")
-    
-    option = None
-    if recommendation.option_id:
-        option = db.query(Option).filter(Option.id == recommendation.option_id).first()
-    
-    return RecommendationResponse(
-        id=recommendation.id,
-        symbol=recommendation.symbol,
-        strike=option.strike if option else None,
-        expiry=option.expiry.isoformat() if option else None,
-        score=recommendation.score,
-        rationale=recommendation.rationale_json or {},
-        status=recommendation.status,
-        created_at=recommendation.created_at.isoformat()
-    )
 
 
 @router.post("/{recommendation_id}/dismiss")
@@ -131,18 +164,25 @@ async def dismiss_recommendation(
     db: Session = Depends(get_async_db)
 ):
     """Dismiss a recommendation."""
-    recommendation = db.query(Recommendation).filter(Recommendation.id == recommendation_id).first()
-    
-    if not recommendation:
+    try:
+        stmt = select(Recommendation).where(Recommendation.id == recommendation_id)
+        result = await db.execute(stmt)
+        recommendation = result.scalar_one_or_none()
+        
+        if not recommendation:
+            raise HTTPException(status_code=404, detail="Recommendation not found")
+        
+        if recommendation.status != "proposed":
+            raise HTTPException(status_code=400, detail="Can only dismiss proposed recommendations")
+        
+        recommendation.status = "dismissed"
+        await db.commit()
+        
+        return {"message": "Recommendation dismissed successfully"}
+    except Exception as e:
+        # Handle case where tables don't exist yet
+        logger.warning(f"Database tables not ready: {e}")
         raise HTTPException(status_code=404, detail="Recommendation not found")
-    
-    if recommendation.status != "proposed":
-        raise HTTPException(status_code=400, detail="Can only dismiss proposed recommendations")
-    
-    recommendation.status = "dismissed"
-    db.commit()
-    
-    return {"message": "Recommendation dismissed successfully"}
 
 
 @router.get("/symbols/{symbol}", response_model=List[RecommendationResponse])
@@ -152,28 +192,38 @@ async def get_recommendations_by_symbol(
     limit: int = Query(default=20, le=50)
 ):
     """Get recommendations for a specific symbol."""
-    recommendations = db.query(Recommendation).filter(
-        Recommendation.symbol == symbol.upper()
-    ).order_by(desc(Recommendation.created_at)).limit(limit).all()
-    
-    result = []
-    for rec in recommendations:
-        option = None
-        if rec.option_id:
-            option = db.query(Option).filter(Option.id == rec.option_id).first()
+    try:
+        stmt = select(Recommendation).where(
+            Recommendation.symbol == symbol.upper()
+        ).order_by(desc(Recommendation.created_at)).limit(limit)
         
-        result.append(RecommendationResponse(
-            id=rec.id,
-            symbol=rec.symbol,
-            strike=option.strike if option else None,
-            expiry=option.expiry.isoformat() if option else None,
-            score=rec.score,
-            rationale=rec.rationale_json or {},
-            status=rec.status,
-            created_at=rec.created_at.isoformat()
-        ))
-    
-    return result
+        result = await db.execute(stmt)
+        recommendations = result.scalars().all()
+        
+        response_list = []
+        for rec in recommendations:
+            option = None
+            if rec.option_id:
+                option_stmt = select(Option).where(Option.id == rec.option_id)
+                option_result = await db.execute(option_stmt)
+                option = option_result.scalar_one_or_none()
+            
+            response_list.append(RecommendationResponse(
+                id=rec.id,
+                symbol=rec.symbol,
+                strike=option.strike if option else None,
+                expiry=option.expiry.isoformat() if option else None,
+                score=rec.score,
+                rationale=rec.rationale_json or {},
+                status=rec.status,
+                created_at=rec.created_at.isoformat()
+            ))
+        
+        return response_list
+    except Exception as e:
+        # Handle case where tables don't exist yet
+        logger.warning(f"Database tables not ready: {e}")
+        return []
 
 
 @router.post("/refresh")

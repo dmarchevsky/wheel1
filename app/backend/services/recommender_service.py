@@ -19,8 +19,8 @@ class RecommenderService:
     """Service for generating trade recommendations."""
     
     def __init__(self):
-        self.scoring_engine = ScoringEngine()
-        self.tradier_data = TradierDataManager()
+        # Services will be initialized with db when needed
+        pass
     
     async def generate_recommendations(self, db: Session) -> List[Recommendation]:
         """Generate new recommendations."""
@@ -52,10 +52,20 @@ class RecommenderService:
                         continue
                     
                     # Score options
-                    scored_options = self.scoring_engine.get_top_recommendations(
-                        options, 
-                        max_recommendations=1
-                    )
+                    scoring_engine = ScoringEngine(db)
+                    # Get current price for the ticker
+                    current_price = ticker.current_price or 0
+                    
+                    # Score each option
+                    scored_options = []
+                    for option in options:
+                        score_data = scoring_engine.score_option(option, current_price)
+                        if score_data["score"] > 0:
+                            scored_options.append((option, score_data))
+                    
+                    # Sort by score and take top recommendations
+                    scored_options.sort(key=lambda x: x[1]["score"], reverse=True)
+                    scored_options = scored_options[:1]  # max_recommendations=1
                     
                     if not scored_options:
                         continue
@@ -108,7 +118,8 @@ class RecommenderService:
         """Get suitable put options for a ticker."""
         # Get current market data
         try:
-            await self.tradier_data.sync_ticker_data(db, ticker.symbol)
+            tradier_data = TradierDataManager(db)
+            await tradier_data.sync_ticker_data(db, ticker.symbol)
         except Exception as e:
             logger.warning(f"Failed to sync data for {ticker.symbol}: {e}")
             return []
@@ -137,8 +148,11 @@ class RecommenderService:
     ) -> Optional[Recommendation]:
         """Create a recommendation for an option."""
         try:
-            # Calculate score
-            score = self.scoring_engine.calculate_score(option)
+            # Calculate score using the scoring engine
+            scoring_engine = ScoringEngine(db)
+            current_price = ticker.current_price or 0
+            score_data = scoring_engine.score_option(option, current_price)
+            score = score_data["score"]
             
             if score < 0.5:  # Minimum score threshold
                 return None
@@ -155,19 +169,16 @@ class RecommenderService:
                 except Exception as e:
                     logger.warning(f"Failed to get OpenAI analysis for {ticker.symbol}: {e}")
             
-            # Create rationale
-            rationale = {
-                "annualized_yield": self.scoring_engine.calculate_annualized_yield(option),
+            # Create rationale using the score data
+            rationale = score_data["rationale"]
+            rationale.update({
                 "dte": option.dte,
                 "delta": option.delta,
                 "iv_rank": option.iv_rank,
-                "spread_pct": self.scoring_engine.calculate_bid_ask_spread(option),
                 "open_interest": option.open_interest,
                 "volume": option.volume,
-                "liquidity_score": self.scoring_engine.calculate_liquidity_score(option),
-                "risk_adjustment": self.scoring_engine.calculate_risk_adjustment(option),
                 "qualitative_score": analysis.qualitative_score if analysis else 0.5
-            }
+            })
             
             # Create recommendation
             recommendation = Recommendation(

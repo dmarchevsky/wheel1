@@ -152,8 +152,8 @@ class Trade(Base):
     
     # Indexes
     __table_args__ = (
-        Index('idx_symbol_time', 'symbol', 'created_at'),
-        Index('idx_status_time', 'status', 'created_at'),
+        Index('idx_trades_symbol_time', 'symbol', 'created_at'),
+        Index('idx_trades_status_time', 'status', 'created_at'),
     )
 
 
@@ -222,8 +222,8 @@ class Alert(Base):
     
     # Indexes
     __table_args__ = (
-        Index('idx_type_status', 'type', 'status'),
-        Index('idx_symbol_time', 'symbol', 'created_at'),
+        Index('idx_alerts_type_status', 'type', 'status'),
+        Index('idx_alerts_symbol_time', 'symbol', 'created_at'),
     )
 
 

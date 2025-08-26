@@ -25,6 +25,7 @@ import {
   AccountBalanceWallet as WalletIcon,
   ShowChart as ChartIcon,
 } from '@mui/icons-material'
+import RecommendationsPanel from '@/components/RecommendationsPanel'
 
 export default function Dashboard() {
   const [loading, setLoading] = useState(false)
@@ -167,17 +168,41 @@ export default function Dashboard() {
           </Alert>
         )}
 
-        {/* Placeholder for future content */}
-        <Card>
-          <CardContent>
-            <Typography variant="h6" component="div" sx={{ mb: 2 }}>
-              Dashboard Overview
-            </Typography>
-            <Typography color="textSecondary" align="center" sx={{ py: 8 }}>
-              Additional dashboard components will be added here as the application evolves.
-            </Typography>
-          </CardContent>
-        </Card>
+        {/* Dashboard Grid Layout */}
+        <Grid container spacing={3}>
+          {/* Recommendations Panel */}
+          <Grid item xs={12} md={6}>
+            <RecommendationsPanel maxRecommendations={5} />
+          </Grid>
+          
+          {/* Additional Dashboard Panels */}
+          <Grid item xs={12} md={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" component="div" sx={{ mb: 2 }}>
+                  Portfolio Summary
+                </Typography>
+                <Typography color="textSecondary" align="center" sx={{ py: 8 }}>
+                  Portfolio performance and analytics will be displayed here.
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          
+          {/* Recent Activity */}
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" component="div" sx={{ mb: 2 }}>
+                  Recent Activity
+                </Typography>
+                <Typography color="textSecondary" align="center" sx={{ py: 8 }}>
+                  Recent trades and position changes will be displayed here.
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
       </Container>
     </Box>
   )
