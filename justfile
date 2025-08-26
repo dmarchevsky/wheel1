@@ -133,9 +133,22 @@ format-frontend:
 # =============================================================================
 
 # Run database migrations
+# Database migration commands
 db-migrate:
     @echo "Running database migrations..."
     cd app/backend && alembic upgrade head
+
+db-migrate-create:
+    @echo "Creating new migration..."
+    cd app/backend && alembic revision --autogenerate -m "$(message)"
+
+db-migrate-status:
+    @echo "Checking migration status..."
+    cd app/backend && alembic current
+
+db-migrate-history:
+    @echo "Migration history..."
+    cd app/backend && alembic history
 
 # Reset database (drop and recreate)
 db-reset:

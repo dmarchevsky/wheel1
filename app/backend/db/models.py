@@ -40,6 +40,17 @@ class Ticker(Base):
     symbol = Column(String, unique=True, index=True, nullable=False)
     name = Column(String, nullable=True)
     sector = Column(String, nullable=True)
+    industry = Column(String, nullable=True)
+    market_cap = Column(Float, nullable=True)  # Market capitalization in billions
+    current_price = Column(Float, nullable=True)
+    volume_avg_20d = Column(Float, nullable=True)  # 20-day average volume
+    volatility_30d = Column(Float, nullable=True)  # 30-day historical volatility
+    beta = Column(Float, nullable=True)  # Beta vs S&P 500
+    pe_ratio = Column(Float, nullable=True)  # P/E ratio
+    dividend_yield = Column(Float, nullable=True)  # Dividend yield percentage
+    active = Column(Boolean, default=True)  # Whether ticker is active for analysis
+    universe_score = Column(Float, nullable=True)  # Composite score for universe selection
+    last_analysis_date = Column(DateTime, nullable=True)  # Last time universe score was calculated
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
@@ -66,6 +77,8 @@ class Option(Base):
     theta = Column(Float, nullable=True)
     vega = Column(Float, nullable=True)
     implied_volatility = Column(Float, nullable=True)
+    iv_rank = Column(Float, nullable=True)  # Implied volatility rank
+    dte = Column(Integer, nullable=True)  # Days to expiration
     open_interest = Column(Integer, nullable=True)
     volume = Column(Integer, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

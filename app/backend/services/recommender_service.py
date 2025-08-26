@@ -11,6 +11,7 @@ from db.models import Recommendation, Ticker, Option, Position
 from core.scoring import ScoringEngine
 from clients.openai_client import OpenAICacheManager
 from clients.tradier import TradierDataManager
+from services.universe_service import UniverseService
 
 logger = logging.getLogger(__name__)
 
@@ -91,15 +92,29 @@ class RecommenderService:
             return []
     
     async def _get_universe(self, db: Session) -> List[Ticker]:
-        """Get universe of tickers to analyze."""
-        # Get active tickers
-        tickers = db.query(Ticker).filter(
-            Ticker.active == True
-        ).order_by(Ticker.symbol).all()
-        
-        # TODO: Implement more sophisticated universe selection
-        # For now, return all active tickers
-        return tickers
+        """Get universe of tickers to analyze using sophisticated filtering."""
+        try:
+            universe_service = UniverseService(db)
+            tickers = await universe_service.get_filtered_universe()
+            
+            # Apply sector diversification if we have enough tickers
+            if len(tickers) > settings.max_tickers_per_cycle:
+                tickers = universe_service.optimize_for_diversification(
+                    tickers, settings.max_tickers_per_cycle
+                )
+            
+            # Log sector distribution
+            sector_dist = universe_service.get_sector_diversification(tickers)
+            logger.info(f"Selected universe sector distribution: {sector_dist}")
+            
+            return tickers
+            
+        except Exception as e:
+            logger.error(f"Error in universe selection: {e}")
+            # Fallback to basic selection
+            return db.query(Ticker).filter(
+                Ticker.active == True
+            ).order_by(Ticker.symbol).limit(settings.max_tickers_per_cycle).all()
     
     def _get_current_positions(self, db: Session) -> List[str]:
         """Get symbols of current positions."""

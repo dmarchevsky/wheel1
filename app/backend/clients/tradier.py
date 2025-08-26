@@ -1,6 +1,7 @@
 """Tradier API client with retry logic and rate limiting."""
 
 import asyncio
+import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 import httpx
@@ -9,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from db.models import Option, Ticker, Position, OptionPosition, Trade
+
+logger = logging.getLogger(__name__)
 
 
 class TradierAPIError(Exception):
@@ -196,6 +199,43 @@ class TradierDataManager:
     def __init__(self, db: Session):
         self.db = db
         self.client = TradierClient()
+    
+    async def sync_ticker_data(self, db: Session, symbol: str) -> Ticker:
+        """Sync ticker data including fundamental and technical indicators."""
+        try:
+            # Get quote data
+            quote_data = await self.client.get_quote(symbol)
+            
+            # Get or create ticker
+            ticker = db.query(Ticker).filter(Ticker.symbol == symbol).first()
+            if not ticker:
+                ticker = Ticker(symbol=symbol)
+                db.add(ticker)
+            
+            # Update basic quote data
+            if quote_data:
+                ticker.current_price = float(quote_data.get("last", 0)) if quote_data.get("last") else None
+                ticker.name = quote_data.get("description", ticker.name)
+                
+                # Calculate volume average (simplified - would need historical data)
+                volume = int(quote_data.get("volume", 0)) if quote_data.get("volume") else None
+                if volume:
+                    # For now, use current volume as average (would need historical data)
+                    ticker.volume_avg_20d = volume
+            
+            # TODO: Add fundamental data fetching (market cap, P/E, beta, etc.)
+            # This would require additional API calls to fundamental data providers
+            # For now, we'll use placeholder values or leave as None
+            
+            ticker.updated_at = datetime.utcnow()
+            db.commit()
+            
+            return ticker
+            
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error syncing ticker data for {symbol}: {e}")
+            raise e
     
     async def sync_options_data(self, symbol: str, expiration: str) -> List[Option]:
         """Sync options chain data for a symbol and expiration."""
