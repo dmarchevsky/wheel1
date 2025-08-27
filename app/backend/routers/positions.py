@@ -8,7 +8,7 @@ from sqlalchemy import desc, select
 from datetime import datetime
 
 from db.session import get_async_db
-from db.models import Position, OptionPosition, Ticker
+from db.models import Position, OptionPosition, InterestingTicker
 from pydantic import BaseModel
 from clients.tradier import TradierClient
 from config import settings

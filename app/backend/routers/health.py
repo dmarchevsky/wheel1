@@ -3,11 +3,11 @@
 import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text, select
 
 from db.session import get_async_db
-from db.models import Recommendation, Ticker, Option
+from db.models import Recommendation, InterestingTicker, Option
 from services.recommender_service import RecommenderService
 
 logger = logging.getLogger(__name__)
@@ -25,12 +25,12 @@ async def health_check():
 
 
 @router.get("/ready")
-async def readiness_check(db: Session = Depends(get_async_db)):
+async def readiness_check(db: AsyncSession = Depends(get_async_db)):
     """Readiness check with database connectivity and core services."""
     try:
         # Test database connection
         result = await db.execute(text("SELECT 1"))
-        result.fetchone()
+        result.scalar()
         
         # Check core tables exist and are accessible
         try:
@@ -39,7 +39,7 @@ async def readiness_check(db: Session = Depends(get_async_db)):
             rec_result = await db.execute(rec_stmt)
             rec_count = len(rec_result.scalars().all())
             
-            ticker_stmt = select(Ticker)
+            ticker_stmt = select(InterestingTicker)
             ticker_result = await db.execute(ticker_stmt)
             ticker_count = len(ticker_result.scalars().all())
             
@@ -90,7 +90,7 @@ async def liveness_check():
 
 
 @router.get("/detailed")
-async def detailed_health_check(db: Session = Depends(get_async_db)):
+async def detailed_health_check(db: AsyncSession = Depends(get_async_db)):
     """Detailed health check including all services and components."""
     health_status = {
         "status": "healthy",
@@ -101,7 +101,7 @@ async def detailed_health_check(db: Session = Depends(get_async_db)):
     # Database health
     try:
         result = await db.execute(text("SELECT 1"))
-        result.fetchone()
+        result.scalar()
         health_status["services"]["database"] = {"status": "healthy", "connection": "established"}
     except Exception as e:
         health_status["services"]["database"] = {"status": "unhealthy", "error": str(e)}
@@ -138,7 +138,7 @@ async def detailed_health_check(db: Session = Depends(get_async_db)):
     
     # Data counts
     try:
-        ticker_stmt = select(Ticker)
+        ticker_stmt = select(InterestingTicker)
         ticker_result = await db.execute(ticker_stmt)
         ticker_count = len(ticker_result.scalars().all())
         
@@ -167,7 +167,7 @@ async def detailed_health_check(db: Session = Depends(get_async_db)):
 
 
 @router.get("/recommendations")
-async def recommendations_health_check(db: Session = Depends(get_async_db)):
+async def recommendations_health_check(db: AsyncSession = Depends(get_async_db)):
     """Specific health check for recommendations service."""
     try:
         # Test recommender service initialization

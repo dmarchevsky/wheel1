@@ -9,7 +9,7 @@ from sqlalchemy import and_, func
 
 from db.session import get_async_db
 from services.market_data_service import MarketDataService
-from db.models import Ticker
+from db.models import InterestingTicker, TickerQuote
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,8 @@ async def update_sp500_universe(
                     "name": ticker.name,
                     "sector": ticker.sector,
                     "market_cap": ticker.market_cap,
-                    "current_price": ticker.current_price
+                    "source": ticker.source,
+                    "active": ticker.active
                 } for ticker in updated_tickers[:10]  # Show first 10
             ]
         }
@@ -70,7 +71,6 @@ async def refresh_market_data(
                 {
                     "symbol": ticker.symbol,
                     "name": ticker.name,
-                    "current_price": ticker.current_price,
                     "updated_at": ticker.updated_at.isoformat() if ticker.updated_at else None
                 } for ticker in refreshed_tickers[:10]  # Show first 10
             ]
@@ -306,7 +306,7 @@ async def get_market_data_status(
         
         # Get ticker count
         ticker_result = await db.execute(
-            select(func.count(Ticker.id)).where(Ticker.active == True)
+            select(func.count(InterestingTicker.id)).where(InterestingTicker.active == True)
         )
         ticker_count = ticker_result.scalar()
         
@@ -336,5 +336,233 @@ async def get_market_data_status(
     except Exception as e:
         logger.error(f"Failed to get market data status: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get status: {str(e)}")
+
+
+# Interesting Tickers Management Endpoints
+
+@router.get("/interesting-tickers")
+async def get_interesting_tickers(
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get all interesting tickers with their data."""
+    try:
+        from sqlalchemy import select
+        
+        # Get interesting tickers with their quotes
+        result = await db.execute(
+            select(InterestingTicker, TickerQuote)
+            .outerjoin(TickerQuote, InterestingTicker.symbol == TickerQuote.symbol)
+            .order_by(InterestingTicker.symbol)
+        )
+        rows = result.all()
+        
+        tickers = []
+        for ticker, quote in rows:
+            ticker_data = {
+                "symbol": ticker.symbol,
+                "name": ticker.name,
+                "sector": ticker.sector,
+                "industry": ticker.industry,
+                "market_cap": ticker.market_cap,
+                "beta": ticker.beta,
+                "pe_ratio": ticker.pe_ratio,
+                "dividend_yield": ticker.dividend_yield,
+                "next_earnings_date": ticker.next_earnings_date.isoformat() if ticker.next_earnings_date else None,
+                "active": ticker.active,
+                "universe_score": ticker.universe_score,
+                "source": ticker.source,
+                "added_at": ticker.added_at.isoformat() if ticker.added_at else None,
+                "updated_at": ticker.updated_at.isoformat() if ticker.updated_at else None,
+                "current_price": quote.current_price if quote else None,
+                "volume_avg_20d": quote.volume_avg_20d if quote else None,
+                "volatility_30d": quote.volatility_30d if quote else None,
+                "quote_updated_at": quote.updated_at.isoformat() if quote and quote.updated_at else None
+            }
+            tickers.append(ticker_data)
+        
+        return {
+            "status": "success",
+            "data": tickers,
+            "count": len(tickers),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get interesting tickers: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get interesting tickers: {str(e)}")
+
+
+@router.post("/interesting-tickers")
+async def add_interesting_ticker(
+    request: dict,
+    db: AsyncSession = Depends(get_async_db)
+):
+    symbol = request.get("symbol")
+    if not symbol:
+        raise HTTPException(status_code=400, detail="Symbol is required")
+    """Add a new interesting ticker and populate its data."""
+    try:
+        from sqlalchemy import select
+        
+        # Check if ticker already exists
+        result = await db.execute(
+            select(InterestingTicker).where(InterestingTicker.symbol == symbol.upper())
+        )
+        existing_ticker = result.scalar_one_or_none()
+        
+        if existing_ticker:
+            raise HTTPException(status_code=400, detail=f"Ticker {symbol.upper()} already exists")
+        
+        # Create new ticker
+        ticker = InterestingTicker(
+            symbol=symbol.upper(),
+            active=True,
+            source="manual",
+            added_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
+        db.add(ticker)
+        
+        # Populate data using market data service
+        market_data_service = MarketDataService(db)
+        await market_data_service._update_ticker_market_data(ticker)
+        
+        await db.commit()
+        
+        return {
+            "status": "success",
+            "message": f"Successfully added ticker {symbol.upper()}",
+            "symbol": symbol.upper(),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed to add interesting ticker {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to add ticker: {str(e)}")
+
+
+@router.put("/interesting-tickers/{symbol}/toggle")
+async def toggle_ticker_active(
+    symbol: str,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Toggle ticker active status."""
+    try:
+        from sqlalchemy import select
+        
+        result = await db.execute(
+            select(InterestingTicker).where(InterestingTicker.symbol == symbol.upper())
+        )
+        ticker = result.scalar_one_or_none()
+        
+        if not ticker:
+            raise HTTPException(status_code=404, detail=f"Ticker {symbol.upper()} not found")
+        
+        # Toggle active status
+        ticker.active = not ticker.active
+        ticker.updated_at = datetime.utcnow()
+        
+        await db.commit()
+        
+        return {
+            "status": "success",
+            "message": f"Ticker {symbol.upper()} {'activated' if ticker.active else 'deactivated'}",
+            "symbol": symbol.upper(),
+            "active": ticker.active,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed to toggle ticker {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to toggle ticker: {str(e)}")
+
+
+@router.delete("/interesting-tickers/{symbol}")
+async def remove_interesting_ticker(
+    symbol: str,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Remove an interesting ticker."""
+    try:
+        from sqlalchemy import select, delete
+        
+        # Check if ticker exists
+        result = await db.execute(
+            select(InterestingTicker).where(InterestingTicker.symbol == symbol.upper())
+        )
+        ticker = result.scalar_one_or_none()
+        
+        if not ticker:
+            raise HTTPException(status_code=404, detail=f"Ticker {symbol.upper()} not found")
+        
+        # Delete associated quote first (due to foreign key constraint)
+        await db.execute(
+            delete(TickerQuote).where(TickerQuote.symbol == symbol.upper())
+        )
+        
+        # Delete the ticker
+        await db.execute(
+            delete(InterestingTicker).where(InterestingTicker.symbol == symbol.upper())
+        )
+        
+        await db.commit()
+        
+        return {
+            "status": "success",
+            "message": f"Successfully removed ticker {symbol.upper()}",
+            "symbol": symbol.upper(),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed to remove ticker {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to remove ticker: {str(e)}")
+
+
+@router.post("/interesting-tickers/{symbol}/refresh")
+async def refresh_ticker_data(
+    symbol: str,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Refresh data for a specific ticker."""
+    try:
+        from sqlalchemy import select
+        
+        result = await db.execute(
+            select(InterestingTicker).where(InterestingTicker.symbol == symbol.upper())
+        )
+        ticker = result.scalar_one_or_none()
+        
+        if not ticker:
+            raise HTTPException(status_code=404, detail=f"Ticker {symbol.upper()} not found")
+        
+        # Refresh data using market data service
+        market_data_service = MarketDataService(db)
+        await market_data_service._update_ticker_market_data(ticker)
+        
+        await db.commit()
+        
+        return {
+            "status": "success",
+            "message": f"Successfully refreshed data for {symbol.upper()}",
+            "symbol": symbol.upper(),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed to refresh ticker {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to refresh ticker: {str(e)}")
 
 

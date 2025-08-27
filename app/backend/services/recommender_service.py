@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import and_, desc, select
 
 from config import settings
-from db.models import Recommendation, Ticker, Option, Position
+from db.models import Recommendation, InterestingTicker, TickerQuote, Option, Position
 from core.scoring import ScoringEngine
 from clients.openai_client import OpenAICacheManager
 from clients.tradier import TradierDataManager
@@ -92,7 +92,7 @@ class RecommenderService:
             logger.error(f"Error generating recommendations: {e}")
             return []
     
-    async def _get_universe(self, db: AsyncSession) -> List[Ticker]:
+    async def _get_universe(self, db: AsyncSession) -> List[InterestingTicker]:
         """Get universe of tickers to analyze using sophisticated filtering."""
         try:
             universe_service = UniverseService(db)
@@ -112,10 +112,10 @@ class RecommenderService:
             
         except Exception as e:
             logger.error(f"Error in universe selection: {e}")
-            # Fallback to basic selection
+                        # Fallback to basic selection
             result = await db.execute(
-                select(Ticker).where(Ticker.active == True)
-                .order_by(Ticker.symbol)
+                select(InterestingTicker).where(InterestingTicker.active == True)
+                .order_by(InterestingTicker.symbol)
                 .limit(settings.max_tickers_per_cycle)
             )
             return result.scalars().all()
@@ -134,7 +134,7 @@ class RecommenderService:
             # Return empty list if table doesn't exist
             return []
     
-    async def _get_options_for_ticker(self, db: AsyncSession, ticker: Ticker) -> List[Option]:
+    async def _get_options_for_ticker(self, db: AsyncSession, ticker: InterestingTicker) -> List[Option]:
         """Get suitable put options for a ticker."""
         # Get current market data
         try:
@@ -180,14 +180,20 @@ class RecommenderService:
     async def _create_recommendation(
         self, 
         db: AsyncSession, 
-        ticker: Ticker, 
+        ticker: InterestingTicker, 
         option: Option
     ) -> Optional[Recommendation]:
         """Create a recommendation for an option."""
         try:
             # Calculate score using the scoring engine
             scoring_engine = ScoringEngine(db)
-            current_price = ticker.current_price or 0
+            
+            # Get current price from quote data
+            quote_result = await db.execute(
+                select(TickerQuote).where(TickerQuote.symbol == ticker.symbol)
+            )
+            quote = quote_result.scalar_one_or_none()
+            current_price = quote.current_price if quote else 0
             score_data = scoring_engine.score_option(option, current_price)
             score = score_data["score"]
             
@@ -201,7 +207,7 @@ class RecommenderService:
                     cache_manager = OpenAICacheManager(db)
                     analysis = await cache_manager.get_or_create_analysis(
                         ticker.symbol, 
-                        ticker.current_price or 0
+                        current_price
                     )
                 except Exception as e:
                     logger.warning(f"Failed to get OpenAI analysis for {ticker.symbol}: {e}")

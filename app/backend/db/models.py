@@ -104,7 +104,7 @@ class Option(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    ticker = relationship("Ticker", back_populates="options")
+    ticker = relationship("InterestingTicker", back_populates="options")
     recommendations = relationship("Recommendation", back_populates="option")
     
     # Composite unique constraint
@@ -126,7 +126,7 @@ class Recommendation(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
-    ticker = relationship("Ticker", back_populates="recommendations")
+    ticker = relationship("InterestingTicker", back_populates="recommendations")
     option = relationship("Option", back_populates="recommendations")
     trades = relationship("Trade", back_populates="recommendation")
 
@@ -142,7 +142,7 @@ class Position(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    ticker = relationship("Ticker", back_populates="positions")
+    ticker = relationship("InterestingTicker", back_populates="positions")
 
 
 class OptionPosition(Base):

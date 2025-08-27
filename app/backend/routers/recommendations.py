@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import desc, select
 
 from db.session import get_async_db
-from db.models import Recommendation, Ticker, Option
+from db.models import Recommendation, InterestingTicker, Option
 from pydantic import BaseModel
 from services.recommender_service import RecommenderService
 

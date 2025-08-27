@@ -7,7 +7,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from db.session import SyncSessionLocal
-from db.models import User, Setting, Ticker, Option, Recommendation, Position, OptionPosition
+from db.models import User, Setting, InterestingTicker, Option, Recommendation, Position, OptionPosition
 from config import settings
 
 
@@ -56,9 +56,9 @@ def seed_database():
             ("JNJ", "Johnson & Johnson", "Healthcare"),
         ]
         
-        for symbol, name, sector in sample_tickers:
-            ticker = Ticker(symbol=symbol, name=name, sector=sector)
-            db.add(ticker)
+            for symbol, name, sector in sample_tickers:
+        ticker = InterestingTicker(symbol=symbol, name=name, sector=sector, source="manual")
+        db.add(ticker)
         print("✓ Created sample tickers")
         
         # Create sample options (for AAPL)

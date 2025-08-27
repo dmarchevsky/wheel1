@@ -8,7 +8,7 @@ import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from db.models import Option, Ticker
+from db.models import Option, InterestingTicker
 from config import settings
 
 
@@ -282,8 +282,8 @@ class ScoringEngine:
         
         for option, score_result in scored_options:
             # Note: This query would need to be async, but for now we'll use a default sector
-            # ticker = await self.db.execute(select(Ticker).where(Ticker.symbol == option.symbol)).scalar_one_or_none()
-            # sector = ticker.sector if ticker else "unknown"
+                    # ticker = await self.db.execute(select(InterestingTicker).where(InterestingTicker.symbol == option.symbol)).scalar_one_or_none()
+        # sector = ticker.sector if ticker else "unknown"
             sector = "unknown"  # Default for now
             
             # Prefer different sectors

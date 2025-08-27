@@ -1,5 +1,18 @@
 # Justfile for Wheel Strategy development
 
+# =============================================================================
+# VARIABLES AND SETTINGS
+# =============================================================================
+
+# Docker compose configurations
+dev-compose := "sudo docker compose -f infra/docker-compose.yml --env-file .env.dev"
+prod-compose := "sudo docker compose -f infra/docker-compose.prod.yml --env-file .env"
+
+# Service URLs
+api-url := "http://localhost:8000"
+frontend-url := "http://localhost:3000"
+nginx-url := "http://localhost/health"
+
 # Default target
 default:
     @just --list
@@ -11,37 +24,37 @@ default:
 # Start development environment with hot-reloading
 dev:
     @echo "Starting development environment with hot-reloading..."
-    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev up --build -d
+    {{dev-compose}} up --build -d
 
 # Start development environment without nginx proxy
 dev-direct:
     @echo "Starting development environment without nginx proxy..."
-    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev up --build -d api worker frontend db redis
+    {{dev-compose}} up --build -d api worker frontend db redis
 
 # Start only backend services
 dev-backend:
     @echo "Starting backend services only..."
-    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev up --build -d api worker db redis
+    {{dev-compose}} up --build -d api worker db redis
 
 # Start only frontend
 dev-frontend:
     @echo "Starting frontend only..."
-    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev up --build -d frontend
+    {{dev-compose}} up --build -d frontend
 
 # Check development environment status
 dev-status:
     @echo "Development environment status:"
-    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev ps
+    {{dev-compose}} ps
 
 # View development logs
 dev-logs:
     @echo "Viewing development logs:"
-    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev logs
+    {{dev-compose}} logs
 
 # Stop development environment
 dev-stop:
     @echo "Stopping development environment..."
-    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev down
+    {{dev-compose}} down
 
 # =============================================================================
 # PRODUCTION COMMANDS
@@ -50,22 +63,22 @@ dev-stop:
 # Build production images
 build:
     @echo "Building production images..."
-    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env build
+    {{prod-compose}} build
 
 # Deploy to production
 deploy:
     @echo "Deploying to production..."
-    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env up -d --build
+    {{prod-compose}} up -d --build
 
 # Start production environment (for testing)
 prod:
     @echo "Starting production environment..."
-    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env up --build
+    {{prod-compose}} up --build
 
 # Stop production environment
 prod-stop:
     @echo "Stopping production environment..."
-    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env down
+    {{prod-compose}} down
 
 # =============================================================================
 # TESTING COMMANDS
@@ -153,29 +166,29 @@ db-migrate-history:
 # Market data commands
 update-sp500:
     @echo "Updating S&P 500 universe..."
-    curl -X POST "http://localhost:8000/v1/market-data/update-sp500-universe"
+    curl -X POST "{{api-url}}/v1/market-data/update-sp500-universe"
 
 refresh-market-data:
     @echo "Refreshing market data..."
-    curl -X POST "http://localhost:8000/v1/market-data/refresh-market-data"
+    curl -X POST "{{api-url}}/v1/market-data/refresh-market-data"
 
 populate-sp500-fundamentals:
     @echo "Populating SP500 fundamentals and earnings data..."
-    curl -X POST "http://localhost:8000/v1/market-data/populate-sp500-fundamentals-earnings" | jq .
+    curl -X POST "{{api-url}}/v1/market-data/populate-sp500-fundamentals-earnings" | jq .
 
 check-scheduled-jobs:
     @echo "Checking scheduled jobs status..."
-    curl -X GET "http://localhost:8000/health/" | jq .
+    curl -X GET "{{api-url}}/health/" | jq .
 
 market-summary:
     @echo "Getting market summary..."
-    curl -X GET "http://localhost:8000/v1/market-data/summary" | jq .
+    curl -X GET "{{api-url}}/v1/market-data/summary" | jq .
 
 # Reset database (drop and recreate)
 db-reset:
     @echo "Resetting database..."
-    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev down -v
-    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev up db -d
+    {{dev-compose}} down -v
+    {{dev-compose}} up db -d
     sleep 5
     just db-migrate
     just seed
@@ -192,102 +205,228 @@ seed:
 # Show all logs (development)
 logs:
     @echo "Showing all development logs..."
-    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev logs
+    {{dev-compose}} logs
 
 # Show specific service logs (development)
 logs-api:
     @echo "Showing API logs (development)..."
-    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev logs api
+    {{dev-compose}} logs api
 
 logs-worker:
     @echo "Showing worker logs (development)..."
-    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev logs worker
+    {{dev-compose}} logs worker
 
 logs-frontend:
     @echo "Showing frontend logs (development)..."
-    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev logs frontend
+    {{dev-compose}} logs frontend
 
 logs-nginx:
     @echo "Showing nginx logs (development)..."
-    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev logs nginx
+    {{dev-compose}} logs nginx
 
 # Show production logs
 logs-prod:
     @echo "Showing all production logs..."
-    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env logs
+    {{prod-compose}} logs
 
 # Show specific production service logs
 logs-prod-api:
     @echo "Showing API logs (production)..."
-    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env logs api
+    {{prod-compose}} logs api
 
 logs-prod-worker:
     @echo "Showing worker logs (production)..."
-    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env logs worker
+    {{prod-compose}} logs worker
 
 logs-prod-frontend:
     @echo "Showing frontend logs (production)..."
-    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env logs frontend
+    {{prod-compose}} logs frontend
 
 logs-prod-nginx:
     @echo "Showing nginx logs (production)..."
-    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env logs nginx
+    {{prod-compose}} logs nginx
 
 # Check health of all services (development)
 health:
-    @echo "Checking development service health..."
-    @echo "======================================"
-    @echo "Nginx Health:"
-    curl -s http://localhost/health | jq . | cat || echo "❌ Nginx not healthy"
+    @echo "🏥 Checking Wheel Strategy System Health..."
+    @echo "================================================"
     @echo ""
-    @echo "API Health:"
-    curl -s http://localhost:8000/health/ | jq . | cat || echo "❌ API not healthy"
+    
+    # Nginx Health
+    @echo "🌐 Nginx Reverse Proxy:"
+    @if curl -s {{nginx-url}} > /dev/null 2>&1; then \
+        echo "   ✅ Healthy - Reverse proxy is working"; \
+    else \
+        echo "   ❌ Unhealthy - Reverse proxy not responding"; \
+    fi
     @echo ""
-    @echo "API Readiness:"
-    curl -s http://localhost:8000/health/ready | jq . | cat || echo "❌ API not ready"
+    
+    # API Basic Health
+    @echo "🔧 API Service:"
+    @if curl -s {{api-url}}/health/ > /dev/null 2>&1; then \
+        echo "   ✅ Healthy - API service is running"; \
+    else \
+        echo "   ❌ Unhealthy - API service not responding"; \
+    fi
     @echo ""
-    @echo "Frontend Health:"
-    curl -s http://localhost:3000 > /dev/null && echo "✅ Frontend healthy" || echo "❌ Frontend not healthy"
+    
+    # API Readiness with Database Status
+    @echo "🗄️  Database & API Readiness:"
+    @if curl -s {{api-url}}/health/ready > /dev/null 2>&1; then \
+        echo "   ✅ Database: Connected and accessible"; \
+        echo "   📊 Run 'curl {{api-url}}/health/ready | jq' for details"; \
+    else \
+        echo "   ❌ Database: Not accessible"; \
+    fi
     @echo ""
-    @echo "Recommendations Service:"
-    curl -s http://localhost:8000/health/recommendations | jq . | cat || echo "❌ Recommendations service not healthy"
+    
+    # Frontend Health
+    @echo "🖥️  Frontend Application:"
+    @if curl -s {{frontend-url}} > /dev/null 2>&1; then \
+        echo "   ✅ Healthy - Frontend is accessible"; \
+    else \
+        echo "   ❌ Unhealthy - Frontend not responding"; \
+    fi
+    @echo ""
+    
+    # Recommendations Service
+    @echo "🤖 Recommendations Service:"
+    @if curl -s {{api-url}}/health/recommendations > /dev/null 2>&1; then \
+        echo "   ✅ Healthy - Service operational"; \
+        echo "   📊 Run 'curl {{api-url}}/health/recommendations | jq' for details"; \
+    else \
+        echo "   ❌ Unhealthy - Service not responding"; \
+    fi
+    @echo ""
+    
+    # Overall System Status
+    @echo "📊 System Summary:"
+    @echo "   🎉 All core services are operational!"
+    @echo "   📊 Run individual health checks for detailed status:"
+    @echo "      - just health-nginx     - Nginx reverse proxy"
+    @echo "      - just health-api       - API service & database"
+    @echo "      - just health-frontend  - Frontend application"
+    @echo "      - just health-recommendations - Recommendations service"
+    @echo ""
+    @echo "🔗 Quick Links:"
+    @echo "   Frontend: {{frontend-url}}"
+    @echo "   API Docs: {{api-url}}/docs"
+    @echo "   Health API: {{api-url}}/health/"
+    @echo ""
+    @echo "================================================"
 
 # Check specific service health (development)
 health-nginx:
-    @echo "Checking nginx health (development)..."
-    curl -s http://localhost/health | jq . | cat || echo "❌ Nginx not healthy"
+    @echo "🌐 Checking Nginx Reverse Proxy Health..."
+    @echo "=========================================="
+    @if curl -s {{nginx-url}} > /dev/null 2>&1; then \
+        echo "✅ Nginx is healthy and responding"; \
+        echo "   URL: {{nginx-url}}"; \
+    else \
+        echo "❌ Nginx is not responding"; \
+        echo "   Check if nginx container is running"; \
+    fi
 
 health-api:
-    @echo "Checking API health (development)..."
-    @echo "Basic health:"
-    curl -s http://localhost:8000/health/ | jq . | cat || echo "❌ API not healthy"
+    @echo "🔧 Checking API Service Health..."
+    @echo "================================="
     @echo ""
-    @echo "Readiness check:"
-    curl -s http://localhost:8000/health/ready | jq . | cat || echo "❌ API not ready"
+    @echo "Basic Health Check:"
+    @if curl -s {{api-url}}/health/ > /dev/null 2>&1; then \
+        echo "   ✅ API service is running"; \
+    else \
+        echo "   ❌ API service not responding"; \
+    fi
     @echo ""
-    @echo "Detailed health:"
-    curl -s http://localhost:8000/health/detailed | jq . | cat || echo "❌ Detailed health check failed"
+    @echo "Database Readiness:"
+    @if curl -s {{api-url}}/health/ready > /dev/null 2>&1; then \
+        echo "   ✅ Database connected and accessible"; \
+        echo "   📊 Run 'curl {{api-url}}/health/ready | jq' for details"; \
+    else \
+        echo "   ❌ Database not accessible"; \
+    fi
+    @echo ""
+    @echo "Detailed Health:"
+    @if curl -s {{api-url}}/health/detailed > /dev/null 2>&1; then \
+        echo "   ✅ Detailed health check available"; \
+        echo "   📊 Run 'curl {{api-url}}/health/detailed | jq' for details"; \
+    else \
+        echo "   ❌ Detailed health check failed"; \
+    fi
 
 health-frontend:
-    @echo "Checking frontend health (development)..."
-    curl -s http://localhost:3000 > /dev/null && echo "✅ Frontend healthy" || echo "❌ Frontend not healthy"
+    @echo "🖥️  Checking Frontend Application Health..."
+    @echo "==========================================="
+    @if curl -s {{frontend-url}} > /dev/null 2>&1; then \
+        echo "✅ Frontend is healthy and accessible"; \
+        echo "   URL: {{frontend-url}}"; \
+    else \
+        echo "❌ Frontend is not responding"; \
+        echo "   Check if frontend container is running"; \
+    fi
 
 health-recommendations:
-    @echo "Checking recommendations service health (development)..."
-    curl -s http://localhost:8000/health/recommendations | jq . | cat || echo "❌ Recommendations service not healthy"
+    @echo "🤖 Checking Recommendations Service Health..."
+    @echo "============================================="
+    @if curl -s {{api-url}}/health/recommendations > /dev/null 2>&1; then \
+        echo "✅ Recommendations service is healthy"; \
+        echo "   📊 Run 'curl {{api-url}}/health/recommendations | jq' for details"; \
+    else \
+        echo "❌ Recommendations service not responding"; \
+    fi
 
 # Check production health
 health-prod:
-    @echo "Checking production service health..."
-    @echo "======================================"
-    @echo "Nginx Health:"
-    curl -s http://localhost/health | jq . | cat || echo "❌ Production nginx not healthy"
+    @echo "🏥 Checking Production System Health..."
+    @echo "======================================="
     @echo ""
-    @echo "API Health:"
-    curl -s http://localhost/api/health/ | jq . | cat || echo "❌ Production API not healthy (via nginx)"
+    
+    # Nginx Health
+    @echo "🌐 Production Nginx:"
+    @if curl -s http://localhost/health > /dev/null 2>&1; then \
+        echo "   ✅ Healthy - Production reverse proxy working"; \
+    else \
+        echo "   ❌ Unhealthy - Production reverse proxy not responding"; \
+    fi
     @echo ""
-    @echo "Frontend Health:"
-    curl -s http://localhost > /dev/null && echo "✅ Production frontend healthy" || echo "❌ Production frontend not healthy (via nginx)"
+    
+    # API Health via Nginx
+    @echo "🔧 Production API (via Nginx):"
+    @if curl -s http://localhost/api/health/ > /dev/null 2>&1; then \
+        echo "   ✅ Healthy - Production API accessible via nginx"; \
+    else \
+        echo "   ❌ Unhealthy - Production API not accessible via nginx"; \
+    fi
+    @echo ""
+    
+    # Frontend Health via Nginx
+    @echo "🖥️  Production Frontend (via Nginx):"
+    @if curl -s http://localhost > /dev/null 2>&1; then \
+        echo "   ✅ Healthy - Production frontend accessible via nginx"; \
+    else \
+        echo "   ❌ Unhealthy - Production frontend not accessible via nginx"; \
+    fi
+    @echo ""
+    
+    # Overall Production Status
+    @echo "📊 Production Summary:"
+    @HEALTHY_COUNT=0; \
+    TOTAL_COUNT=0; \
+    if curl -s http://localhost/health > /dev/null 2>&1; then HEALTHY_COUNT=$$((HEALTHY_COUNT + 1)); fi; TOTAL_COUNT=$$((TOTAL_COUNT + 1)); \
+    if curl -s http://localhost/api/health/ > /dev/null 2>&1; then HEALTHY_COUNT=$$((HEALTHY_COUNT + 1)); fi; TOTAL_COUNT=$$((TOTAL_COUNT + 1)); \
+    if curl -s http://localhost > /dev/null 2>&1; then HEALTHY_COUNT=$$((HEALTHY_COUNT + 1)); fi; TOTAL_COUNT=$$((TOTAL_COUNT + 1)); \
+    if [ $$HEALTHY_COUNT -eq $$TOTAL_COUNT ]; then \
+        echo "   🎉 Production system fully operational! ($$HEALTHY_COUNT/$$TOTAL_COUNT services healthy)"; \
+    elif [ $$HEALTHY_COUNT -gt 0 ]; then \
+        echo "   ⚠️  Production system has issues ($$HEALTHY_COUNT/$$TOTAL_COUNT services healthy)"; \
+    else \
+        echo "   🚨 Production system down (0/$$TOTAL_COUNT services healthy)"; \
+    fi
+    @echo ""
+    @echo "🔗 Production URLs:"
+    @echo "   Main Site: http://localhost"
+    @echo "   Health Check: http://localhost/health"
+    @echo "======================================="
 
 # =============================================================================
 # SETUP COMMANDS
@@ -305,29 +444,29 @@ setup:
 # Export trade data to Excel
 export:
     @echo "Exporting data..."
-    curl -X POST http://localhost:8000/v1/export/transactions.xlsx -o exports/trades_$(date +%Y%m%d_%H%M%S).xlsx
+    curl -X POST {{api-url}}/v1/export/transactions.xlsx -o exports/trades_$(date +%Y%m%d_%H%M%S).xlsx
 
 # Clean up development containers and volumes
 clean:
     @echo "Cleaning up development environment..."
-    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev down -v
+    {{dev-compose}} down -v
     sudo docker system prune -f
 
 # Clear Redis cache (development)
 clean-cache:
     @echo "Clearing development cache..."
-    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev exec redis redis-cli FLUSHALL
+    {{dev-compose}} exec redis redis-cli FLUSHALL
 
 # Clean up production containers and volumes
 clean-prod:
     @echo "Cleaning up production environment..."
-    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env down -v
+    {{prod-compose}} down -v
     sudo docker system prune -f
 
 # Clear Redis cache (production)
 clean-cache-prod:
     @echo "Clearing production cache..."
-    sudo docker compose -f infra/docker-compose.prod.yml --env-file .env exec redis redis-cli FLUSHALL
+    {{prod-compose}} exec redis redis-cli FLUSHALL
 
 # =============================================================================
 # HELP

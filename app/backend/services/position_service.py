@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
 from config import settings
-from db.models import Position, OptionPosition, Ticker
+from db.models import Position, OptionPosition, InterestingTicker
 from clients.tradier import TradierClient
 
 logger = logging.getLogger(__name__)
