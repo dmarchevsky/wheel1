@@ -26,18 +26,18 @@ async def test_market_data_service():
         print("   ✅ Market data service initialized")
         
         print("\n2. Testing S&P 500 constituents fetching...")
-        sp500_tickers = await market_data_service._get_sp500_constituents()
-        print(f"   📊 Found {len(sp500_tickers)} S&P 500 constituents")
+        sp500_symbols = await market_data_service.api_ninjas.get_sp500_tickers()
+        print(f"   📊 Found {len(sp500_symbols)} S&P 500 constituents")
         
-        if sp500_tickers:
+        if sp500_symbols:
             print("   📋 Sample constituents:")
-            for ticker in sp500_tickers[:5]:
-                print(f"      - {ticker['symbol']}")
+            for symbol in sp500_symbols[:5]:
+                print(f"      - {symbol}")
         
         print("\n3. Testing ticker upsert...")
-        if sp500_tickers:
+        if sp500_symbols:
             # Test with first ticker
-            test_ticker = sp500_tickers[0]
+            test_ticker = {"symbol": sp500_symbols[0]}
             print(f"   🧪 Testing with {test_ticker['symbol']}...")
             
             try:

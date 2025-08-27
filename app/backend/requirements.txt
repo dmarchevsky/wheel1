@@ -32,7 +32,7 @@ openpyxl==3.1.2
 
 # Market Data
 pandas-market-calendars==4.3.1
-yfinance==0.2.28
+
 
 # Utilities
 python-dotenv==1.0.0

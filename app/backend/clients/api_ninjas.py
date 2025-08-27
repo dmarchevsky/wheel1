@@ -109,3 +109,74 @@ class APINinjasClient:
         except Exception as e:
             logger.error(f"Failed to get company info for {ticker}: {e}")
             return None
+    
+    async def get_earnings_calendar(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Get earnings calendar data for a ticker using API Ninjas."""
+        try:
+            # Get upcoming earnings dates
+            earnings_data = await self._make_request("/earningscalendar", {
+                "ticker": ticker,
+                "show_upcoming": "true"
+            })
+            
+            if earnings_data and len(earnings_data) > 0:
+                # Find the next upcoming earnings date
+                from datetime import datetime
+                current_date = datetime.utcnow().date()
+                
+                for earnings in earnings_data:
+                    earnings_date_str = earnings.get("date")
+                    if earnings_date_str:
+                        try:
+                            earnings_date = datetime.strptime(earnings_date_str, "%Y-%m-%d").date()
+                            if earnings_date > current_date:
+                                logger.info(f"Found next earnings date for {ticker}: {earnings_date}")
+                                return {
+                                    "earnings_date": earnings_date,
+                                    "estimated_eps": earnings.get("estimated_eps"),
+                                    "actual_eps": earnings.get("actual_eps"),
+                                    "estimated_revenue": earnings.get("estimated_revenue"),
+                                    "actual_revenue": earnings.get("actual_revenue")
+                                }
+                        except ValueError:
+                            continue
+                
+                logger.debug(f"No upcoming earnings found for {ticker}")
+                return None
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get earnings calendar for {ticker}: {e}")
+            return None
+    
+    async def get_market_cap(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Get market cap data for a ticker using API Ninjas."""
+        try:
+            # Get market cap data
+            market_cap_data = await self._make_request("/marketcap", {"ticker": ticker})
+            
+            if market_cap_data and isinstance(market_cap_data, dict):
+                # Convert market cap from USD to billions for consistency
+                market_cap_usd = market_cap_data.get("market_cap")
+                if market_cap_usd:
+                    market_cap_billions = float(market_cap_usd) / 1e9
+                    logger.info(f"Got market cap for {ticker}: ${market_cap_billions:.1f}B")
+                    return {
+                        "ticker": market_cap_data.get("ticker"),
+                        "name": market_cap_data.get("name"),
+                        "market_cap": market_cap_billions,  # In billions
+                        "market_cap_usd": market_cap_usd,   # Original USD value
+                        "updated": market_cap_data.get("updated")
+                    }
+                else:
+                    logger.warning(f"No market cap data found for {ticker}")
+                    return None
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get market cap for {ticker}: {e}")
+            return None
+    
+

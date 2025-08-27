@@ -5,14 +5,12 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import and_, or_, desc, func, select
-import httpx
-import yfinance as yf
-import pandas as pd
+from sqlalchemy import and_, or_, func, select
 
 from config import settings
-from db.models import Ticker, Option, EarningsCalendar
+from db.models import Ticker, EarningsCalendar
 from clients.tradier import TradierDataManager
+from clients.api_ninjas import APINinjasClient
 
 logger = logging.getLogger(__name__)
 
@@ -23,40 +21,42 @@ class MarketDataService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.tradier_data = TradierDataManager(db)
+        self.api_ninjas = APINinjasClient()
     
     async def update_sp500_universe(self) -> List[Ticker]:
         """Update the ticker universe with current S&P 500 constituents."""
         logger.info("Updating S&P 500 universe...")
         
         try:
-            # Get current S&P 500 constituents
-            sp500_tickers = await self._get_sp500_constituents()
+            # Get current S&P 500 constituents using API Ninjas
+            sp500_symbols = await self.api_ninjas.get_sp500_tickers()
             
-            if not sp500_tickers:
+            if not sp500_symbols:
                 logger.error("Failed to fetch S&P 500 constituents")
                 return []
             
-            logger.info(f"Found {len(sp500_tickers)} S&P 500 constituents")
-            logger.info(f"First few tickers: {sp500_tickers[:5]}")
+            logger.info(f"Found {len(sp500_symbols)} S&P 500 constituents")
+            logger.info(f"First few tickers: {sp500_symbols[:5]}")
             
             # Update tickers table with rate limiting
             updated_tickers = []
-            for i, ticker_data in enumerate(sp500_tickers):
-                logger.info(f"Processing ticker {i+1}/{len(sp500_tickers)}: {ticker_data}")
+            for i, symbol in enumerate(sp500_symbols):
+                logger.info(f"Processing ticker {i+1}/{len(sp500_symbols)}: {symbol}")
+                ticker_data = {"symbol": symbol}
                 ticker = await self._upsert_ticker(ticker_data)
                 if ticker:
                     updated_tickers.append(ticker)
                     logger.info(f"Successfully processed ticker: {ticker.symbol}")
                 else:
-                    logger.warning(f"Failed to process ticker: {ticker_data}")
+                    logger.warning(f"Failed to process ticker: {symbol}")
                 
                 # Rate limiting: pause every 10 requests to avoid hitting API limits
                 if (i + 1) % 10 == 0:
-                    logger.info(f"Processed {i + 1}/{len(sp500_tickers)} tickers, pausing for rate limiting...")
+                    logger.info(f"Processed {i + 1}/{len(sp500_symbols)} tickers, pausing for rate limiting...")
                     await asyncio.sleep(2)  # 2 second pause every 10 requests
             
             # Deactivate tickers no longer in S&P 500
-            await self._deactivate_old_tickers(sp500_tickers)
+            await self._deactivate_old_tickers(sp500_symbols)
             
             logger.info(f"Successfully updated {len(updated_tickers)} tickers")
             return updated_tickers
@@ -65,27 +65,7 @@ class MarketDataService:
             logger.error(f"Error updating S&P 500 universe: {e}")
             return []
     
-    async def _get_sp500_constituents(self) -> List[Dict[str, Any]]:
-        """Get current S&P 500 constituents with basic info."""
-        try:
-            # Method 1: Try using yfinance to get S&P 500 constituents
-            sp500 = yf.Ticker("^GSPC")
-            constituents = sp500.info.get('constituents', [])
-            
-            if constituents:
-                logger.info(f"Found {len(constituents)} constituents via yfinance")
-                return [{"symbol": symbol} for symbol in constituents]
-            
-            # Method 2: Fallback to a curated list of major S&P 500 stocks
-            logger.error("Failed to fetch S&P 500 constituents")
-            return []
-            
-        except Exception as e:
-            logger.error(f"Error fetching S&P 500 constituents: {e}")
-            return []
-    
 
-    
     async def _upsert_ticker(self, ticker_data: Dict[str, Any]) -> Optional[Ticker]:
         """Create or update a ticker with market data."""
         try:
@@ -126,15 +106,17 @@ class MarketDataService:
             return None
     
     async def _update_ticker_market_data(self, ticker: Ticker) -> Ticker:
-        """Update ticker market data using Tradier API."""
+        """Update ticker market data using Tradier API and API Ninjas."""
         try:
-            # Use TradierDataManager to get comprehensive data
-            tradier_manager = TradierDataManager(self.db)
-            updated_ticker = await tradier_manager.sync_ticker_data(ticker.symbol)
+            # Step 1: Get Tradier data (price, volume, fundamentals)
+            updated_ticker = await self.tradier_data.sync_ticker_data(ticker.symbol)
+            
+            # Step 2: Get API Ninjas data (sector, industry, market cap, earnings)
+            await self._enrich_with_api_ninjas_data(updated_ticker)
             
             logger.info(f"Updated market data for {ticker.symbol}: price=${updated_ticker.current_price}, "
-                       f"volume={updated_ticker.volume_avg_20d}, market_cap=${updated_ticker.market_cap}, "
-                       f"beta={updated_ticker.beta}, pe_ratio={updated_ticker.pe_ratio}")
+                       f"sector={updated_ticker.sector}, market_cap=${updated_ticker.market_cap}, "
+                       f"next_earnings={updated_ticker.next_earnings_date}")
             
             return updated_ticker    
         except Exception as e:
@@ -142,17 +124,103 @@ class MarketDataService:
             # Return the original ticker if update fails
             return ticker
     
-    async def _deactivate_old_tickers(self, current_tickers: List[Dict[str, Any]]) -> None:
+    async def _enrich_with_api_ninjas_data(self, ticker: Ticker) -> None:
+        """Enrich ticker data with API Ninjas information."""
+        try:
+            symbol = ticker.symbol
+            
+            # Get company information (sector, industry, name)
+            try:
+                company_info = await self.api_ninjas.get_company_info(symbol)
+                if company_info:
+                    if not ticker.name and company_info.get('company_name'):
+                        ticker.name = company_info['company_name']
+                    
+                    if not ticker.sector and company_info.get('sector'):
+                        ticker.sector = company_info['sector']
+                        logger.info(f"Got sector from API Ninjas for {symbol}: {ticker.sector}")
+                    
+                    if not ticker.industry and company_info.get('sub_industry'):
+                        ticker.industry = company_info['sub_industry']
+                        logger.info(f"Got industry from API Ninjas for {symbol}: {ticker.industry}")
+                    
+                    logger.info(f"Successfully got API Ninjas company data for {symbol}")
+            except Exception as e:
+                logger.warning(f"Failed to get API Ninjas company data for {symbol}: {e}")
+            
+            # Get market cap data
+            try:
+                market_cap_data = await self.api_ninjas.get_market_cap(symbol)
+                if market_cap_data and market_cap_data.get("market_cap"):
+                    ticker.market_cap = market_cap_data["market_cap"]
+                    logger.info(f"Got market cap from API Ninjas for {symbol}: ${ticker.market_cap:.1f}B")
+                else:
+                    logger.debug(f"No market cap data available for {symbol} from API Ninjas")
+            except Exception as e:
+                logger.warning(f"Failed to get market cap data for {symbol}: {e}")
+            
+            # Get earnings calendar data
+            try:
+                earnings_data = await self.api_ninjas.get_earnings_calendar(symbol)
+                if earnings_data and earnings_data.get("earnings_date"):
+                    ticker.next_earnings_date = earnings_data["earnings_date"]
+                    logger.info(f"Got earnings date from API Ninjas for {symbol}: {earnings_data['earnings_date']}")
+                    
+                    # Also create/update earnings calendar record
+                    await self._sync_earnings_calendar_record(symbol, earnings_data["earnings_date"])
+                else:
+                    logger.debug(f"No upcoming earnings found for {symbol}")
+            except Exception as e:
+                logger.warning(f"Failed to get earnings data for {symbol}: {e}")
+                
+        except Exception as e:
+            logger.error(f"Error enriching data with API Ninjas for {ticker.symbol}: {e}")
+    
+    async def _sync_earnings_calendar_record(self, symbol: str, earnings_date) -> None:
+        """Sync earnings calendar record in database."""
+        try:
+            # Check if earnings record already exists
+            result = await self.db.execute(
+                select(EarningsCalendar).where(
+                    and_(
+                        EarningsCalendar.symbol == symbol,
+                        EarningsCalendar.earnings_date == earnings_date
+                    )
+                )
+            )
+            existing_earnings = result.scalar_one_or_none()
+            
+            if existing_earnings:
+                # Update existing record
+                existing_earnings.updated_at = datetime.utcnow()
+                await self.db.commit()
+                logger.debug(f"Updated existing earnings record for {symbol}: {earnings_date}")
+            else:
+                # Create new earnings record
+                earnings_record = EarningsCalendar(
+                    symbol=symbol,
+                    earnings_date=earnings_date,
+                    source="api_ninjas",
+                    updated_at=datetime.utcnow()
+                )
+                self.db.add(earnings_record)
+                await self.db.commit()
+                logger.info(f"Created earnings record for {symbol}: {earnings_date}")
+                
+        except Exception as e:
+            logger.error(f"Error syncing earnings calendar record for {symbol}: {e}")
+    
+    async def _deactivate_old_tickers(self, current_symbols: List[str]) -> None:
         """Deactivate tickers no longer in the current universe."""
         try:
-            current_symbols = {t["symbol"] for t in current_tickers}
+            current_symbols_set = set(current_symbols)
             
             # Find tickers not in current universe
             result = await self.db.execute(
                 select(Ticker).where(
                     and_(
                         Ticker.active == True,
-                        ~Ticker.symbol.in_(current_symbols)
+                        ~Ticker.symbol.in_(current_symbols_set)
                     )
                 )
             )
@@ -245,8 +313,8 @@ class MarketDataService:
         logger.info("Starting weekly SP500 fundamentals and earnings population...")
         
         try:
-            # Get current SP500 constituents
-            sp500_symbols = await self.tradier_data.get_sp500_constituents()
+            # Get current SP500 constituents using API Ninjas
+            sp500_symbols = await self.api_ninjas.get_sp500_tickers()
             
             if not sp500_symbols:
                 logger.error("Failed to fetch SP500 constituents")
