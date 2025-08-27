@@ -230,22 +230,7 @@ class TradierClient:
         data = await self._make_request("GET", "/beta/markets/fundamentals/calendar", params)
         return data
     
-    async def get_sp500_constituents(self) -> List[str]:
-        """Get current S&P 500 constituents list using API Ninjas."""
-        try:
-            # Use API Ninjas to get current S&P 500 constituents
-            tickers = await self.api_ninjas.get_sp500_tickers()
-            
-            if tickers and len(tickers) > 400:  # SP500 should have ~500 constituents
-                logger.info(f"Found {len(tickers)} SP500 constituents via API Ninjas")
-                return tickers
-            
-            logger.error("API Ninjas returned insufficient data for S&P 500 constituents")
-            return []
-            
-        except Exception as e:
-            logger.error(f"Error fetching SP500 constituents from API Ninjas: {e}")
-            return []
+
     
     def _map_morningstar_sector_code(self, sector_code: int) -> str:
         """Map Morningstar sector codes to readable sector names."""
@@ -275,6 +260,23 @@ class TradierDataManager:
         self.db = db
         self.client = TradierClient()
         self.api_ninjas = APINinjasClient()
+    
+    async def get_sp500_constituents(self) -> List[str]:
+        """Get current S&P 500 constituents list using API Ninjas."""
+        try:
+            # Use API Ninjas to get current S&P 500 constituents
+            tickers = await self.api_ninjas.get_sp500_tickers()
+            
+            if tickers and len(tickers) > 400:  # SP500 should have ~500 constituents
+                logger.info(f"Found {len(tickers)} SP500 constituents via API Ninjas")
+                return tickers
+            
+            logger.error("API Ninjas returned insufficient data for S&P 500 constituents")
+            return []
+            
+        except Exception as e:
+            logger.error(f"Error fetching SP500 constituents from API Ninjas: {e}")
+            return []
     
     async def sync_ticker_data(self, symbol: str) -> Ticker:
         """Sync comprehensive ticker data from Tradier API including fundamentals."""

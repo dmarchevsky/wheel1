@@ -122,7 +122,7 @@ class UniverseService:
     async def _passes_options_filters(self, ticker: Ticker) -> bool:
         """Check if ticker has suitable options for cash-secured puts."""
         try:
-    g    # Check if we have any options data (relaxed filter for development)
+            # Check if we have any options data (relaxed filter for development)
             result = await self.db.execute(
                 select(func.count(Option.id)).where(
                     and_(

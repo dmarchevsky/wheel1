@@ -246,7 +246,7 @@ class MarketDataService:
         
         try:
             # Get current SP500 constituents
-            sp500_symbols = await self.tradier_data.client.get_sp500_constituents()
+            sp500_symbols = await self.tradier_data.get_sp500_constituents()
             
             if not sp500_symbols:
                 logger.error("Failed to fetch SP500 constituents")

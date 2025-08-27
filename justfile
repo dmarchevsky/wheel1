@@ -11,37 +11,37 @@ default:
 # Start development environment with hot-reloading
 dev:
     @echo "Starting development environment with hot-reloading..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev up --build -d
+    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev up --build -d
 
 # Start development environment without nginx proxy
 dev-direct:
     @echo "Starting development environment without nginx proxy..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev up --build -d api worker frontend db redis
+    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev up --build -d api worker frontend db redis
 
 # Start only backend services
 dev-backend:
     @echo "Starting backend services only..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev up --build -d api worker db redis
+    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev up --build -d api worker db redis
 
 # Start only frontend
 dev-frontend:
     @echo "Starting frontend only..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev up --build -d frontend
+    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev up --build -d frontend
 
 # Check development environment status
 dev-status:
     @echo "Development environment status:"
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev ps
+    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev ps
 
 # View development logs
 dev-logs:
     @echo "Viewing development logs:"
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev logs
+    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev logs
 
 # Stop development environment
 dev-stop:
     @echo "Stopping development environment..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev down
+    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev down
 
 # =============================================================================
 # PRODUCTION COMMANDS
@@ -174,8 +174,8 @@ market-summary:
 # Reset database (drop and recreate)
 db-reset:
     @echo "Resetting database..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev down -v
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev up db -d
+    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev down -v
+    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev up db -d
     sleep 5
     just db-migrate
     just seed
@@ -192,24 +192,24 @@ seed:
 # Show all logs (development)
 logs:
     @echo "Showing all development logs..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev logs
+    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev logs
 
 # Show specific service logs (development)
 logs-api:
     @echo "Showing API logs (development)..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev logs api
+    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev logs api
 
 logs-worker:
     @echo "Showing worker logs (development)..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev logs worker
+    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev logs worker
 
 logs-frontend:
     @echo "Showing frontend logs (development)..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev logs frontend
+    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev logs frontend
 
 logs-nginx:
     @echo "Showing nginx logs (development)..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev logs nginx
+    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev logs nginx
 
 # Show production logs
 logs-prod:
@@ -310,13 +310,13 @@ export:
 # Clean up development containers and volumes
 clean:
     @echo "Cleaning up development environment..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev down -v
+    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev down -v
     sudo docker system prune -f
 
 # Clear Redis cache (development)
 clean-cache:
     @echo "Clearing development cache..."
-    sudo docker compose -f infra/docker-compose.yml --env-file env.dev exec redis redis-cli FLUSHALL
+    sudo docker compose -f infra/docker-compose.yml --env-file .env.dev exec redis redis-cli FLUSHALL
 
 # Clean up production containers and volumes
 clean-prod:
