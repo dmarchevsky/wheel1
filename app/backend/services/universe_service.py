@@ -8,7 +8,7 @@ from sqlalchemy import and_, or_, desc, func, select
 import numpy as np
 
 from config import settings
-from db.models import Ticker, Option, EarningsCalendar, Trade
+from db.models import Ticker, Option, Trade
 from clients.tradier import TradierDataManager
 
 logger = logging.getLogger(__name__)
@@ -150,23 +150,19 @@ class UniverseService:
     async def _passes_earnings_filters(self, ticker: Ticker) -> bool:
         """Check if ticker is not in earnings blackout period."""
         try:
-            # Check for upcoming earnings
+            # Check for upcoming earnings using ticker's next_earnings_date
+            if ticker.next_earnings_date is None:
+                return True  # No earnings date, allow trading
+            
             blackout_start = datetime.utcnow() - timedelta(days=settings.earnings_blackout_days)
             blackout_end = datetime.utcnow() + timedelta(days=settings.earnings_blackout_days)
             
-            result = await self.db.execute(
-                select(EarningsCalendar).where(
-                    and_(
-                        EarningsCalendar.symbol == ticker.symbol,
-                        EarningsCalendar.earnings_date >= blackout_start,
-                        EarningsCalendar.earnings_date <= blackout_end
-                    )
-                )
-            )
-            upcoming_earnings = result.scalar_one_or_none()
+            # Check if next earnings date is within blackout period
+            if blackout_start <= ticker.next_earnings_date <= blackout_end:
+                logger.debug(f"Ticker {ticker.symbol} in earnings blackout period: {ticker.next_earnings_date}")
+                return False
             
-            # Skip if earnings are within blackout period
-            return upcoming_earnings is None
+            return True
             
         except Exception as e:
             logger.warning(f"Error checking earnings for {ticker.symbol}: {e}")

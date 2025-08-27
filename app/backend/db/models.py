@@ -58,7 +58,6 @@ class Ticker(Base):
     options = relationship("Option", back_populates="ticker")
     recommendations = relationship("Recommendation", back_populates="ticker")
     positions = relationship("Position", back_populates="ticker")
-    earnings = relationship("EarningsCalendar", back_populates="ticker")
 
 
 class Option(Base):
@@ -187,23 +186,7 @@ class Notification(Base):
     user = relationship("User", back_populates="notifications")
 
 
-class EarningsCalendar(Base):
-    """Earnings calendar data."""
-    __tablename__ = "earnings_calendar"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    symbol = Column(String, ForeignKey("tickers.symbol"), nullable=False)
-    earnings_date = Column(DateTime, nullable=False)
-    source = Column(String, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Relationships
-    ticker = relationship("Ticker", back_populates="earnings")
-    
-    # Indexes
-    __table_args__ = (
-        Index('idx_symbol_earnings_date', 'symbol', 'earnings_date'),
-    )
+
 
 
 class Telemetry(Base):

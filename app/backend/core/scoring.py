@@ -8,7 +8,7 @@ import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from db.models import Option, Ticker, EarningsCalendar
+from db.models import Option, Ticker
 from config import settings
 
 

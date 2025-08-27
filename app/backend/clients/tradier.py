@@ -10,7 +10,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
-from db.models import Option, Ticker, Position, OptionPosition, Trade, EarningsCalendar
+from db.models import Option, Ticker, Position, OptionPosition, Trade
 
 
 logger = logging.getLogger(__name__)

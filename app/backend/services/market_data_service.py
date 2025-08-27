@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import and_, or_, func, select
 
 from config import settings
-from db.models import Ticker, EarningsCalendar
+from db.models import Ticker
 from clients.tradier import TradierDataManager
 from clients.api_ninjas import APINinjasClient
 
@@ -165,9 +165,6 @@ class MarketDataService:
                 if earnings_data and earnings_data.get("earnings_date"):
                     ticker.next_earnings_date = earnings_data["earnings_date"]
                     logger.info(f"Got earnings date from API Ninjas for {symbol}: {earnings_data['earnings_date']}")
-                    
-                    # Also create/update earnings calendar record
-                    await self._sync_earnings_calendar_record(symbol, earnings_data["earnings_date"])
                 else:
                     logger.debug(f"No upcoming earnings found for {symbol}")
             except Exception as e:
@@ -175,40 +172,6 @@ class MarketDataService:
                 
         except Exception as e:
             logger.error(f"Error enriching data with API Ninjas for {ticker.symbol}: {e}")
-    
-    async def _sync_earnings_calendar_record(self, symbol: str, earnings_date) -> None:
-        """Sync earnings calendar record in database."""
-        try:
-            # Check if earnings record already exists
-            result = await self.db.execute(
-                select(EarningsCalendar).where(
-                    and_(
-                        EarningsCalendar.symbol == symbol,
-                        EarningsCalendar.earnings_date == earnings_date
-                    )
-                )
-            )
-            existing_earnings = result.scalar_one_or_none()
-            
-            if existing_earnings:
-                # Update existing record
-                existing_earnings.updated_at = datetime.utcnow()
-                await self.db.commit()
-                logger.debug(f"Updated existing earnings record for {symbol}: {earnings_date}")
-            else:
-                # Create new earnings record
-                earnings_record = EarningsCalendar(
-                    symbol=symbol,
-                    earnings_date=earnings_date,
-                    source="api_ninjas",
-                    updated_at=datetime.utcnow()
-                )
-                self.db.add(earnings_record)
-                await self.db.commit()
-                logger.info(f"Created earnings record for {symbol}: {earnings_date}")
-                
-        except Exception as e:
-            logger.error(f"Error syncing earnings calendar record for {symbol}: {e}")
     
     async def _deactivate_old_tickers(self, current_symbols: List[str]) -> None:
         """Deactivate tickers no longer in the current universe."""
