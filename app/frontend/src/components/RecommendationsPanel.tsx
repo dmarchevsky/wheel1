@@ -41,9 +41,15 @@ export default function RecommendationsPanel({ maxRecommendations = 5 }: Recomme
       setError(null)
       const response = await recommendationsApi.getCurrent()
       setRecommendations(response.data.slice(0, maxRecommendations))
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching recommendations:', err)
-      setError('Failed to fetch recommendations')
+      if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+        setError('Request timed out. The server is taking too long to respond.')
+      } else if (err.response?.status === 500) {
+        setError('Server error. Please try again later.')
+      } else {
+        setError('Failed to fetch recommendations')
+      }
     } finally {
       setLoading(false)
     }
@@ -55,9 +61,15 @@ export default function RecommendationsPanel({ maxRecommendations = 5 }: Recomme
       setError(null)
       await recommendationsApi.refresh()
       await fetchRecommendations()
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error refreshing recommendations:', err)
-      setError('Failed to refresh recommendations')
+      if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+        setError('Refresh timed out. This operation can take up to 30 seconds.')
+      } else if (err.response?.status === 500) {
+        setError('Server error during refresh. Please try again later.')
+      } else {
+        setError('Failed to refresh recommendations')
+      }
     } finally {
       setRefreshing(false)
     }
@@ -132,13 +144,13 @@ export default function RecommendationsPanel({ maxRecommendations = 5 }: Recomme
         title="Latest Recommendations"
         action={
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Tooltip title="Refresh recommendations">
+            <Tooltip title="Refresh recommendations (may take up to 30 seconds)">
               <IconButton
                 onClick={handleRefresh}
                 disabled={refreshing}
                 size="small"
               >
-                <RefreshIcon />
+                {refreshing ? <CircularProgress size={20} /> : <RefreshIcon />}
               </IconButton>
             </Tooltip>
           </Box>

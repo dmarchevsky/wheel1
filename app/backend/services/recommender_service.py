@@ -23,13 +23,13 @@ class RecommenderService:
         # Services will be initialized with db when needed
         pass
     
-    async def generate_recommendations(self, db: AsyncSession) -> List[Recommendation]:
+    async def generate_recommendations(self, db: AsyncSession, fast_mode: bool = True) -> List[Recommendation]:
         """Generate new recommendations."""
         try:
-            logger.info("Starting recommendation generation...")
+            logger.info(f"Starting recommendation generation (fast_mode={fast_mode})...")
             
             # Get universe of tickers
-            tickers = await self._get_universe(db)
+            tickers = await self._get_universe(db, fast_mode=fast_mode)
             if not tickers:
                 logger.warning("No tickers found in universe")
                 return []
@@ -92,11 +92,11 @@ class RecommenderService:
             logger.error(f"Error generating recommendations: {e}")
             return []
     
-    async def _get_universe(self, db: AsyncSession) -> List[InterestingTicker]:
+    async def _get_universe(self, db: AsyncSession, fast_mode: bool = True) -> List[InterestingTicker]:
         """Get universe of tickers to analyze using sophisticated filtering."""
         try:
             universe_service = UniverseService(db)
-            tickers = await universe_service.get_filtered_universe()
+            tickers = await universe_service.get_filtered_universe(fast_mode=fast_mode)
             
             # Apply sector diversification if we have enough tickers
             if len(tickers) > settings.max_tickers_per_cycle:

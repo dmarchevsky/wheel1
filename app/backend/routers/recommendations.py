@@ -228,15 +228,16 @@ async def get_recommendations_by_symbol(
 
 @router.post("/refresh")
 async def refresh_recommendations(
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    fast_mode: bool = True
 ):
     """Refresh recommendations by generating new ones."""
     try:
-        logger.info("Manual recommendation refresh requested")
+        logger.info(f"Manual recommendation refresh requested (fast_mode={fast_mode})")
         
         # Initialize recommender service and generate recommendations directly
         recommender_service = RecommenderService()
-        new_recommendations = await recommender_service.generate_recommendations(db)
+        new_recommendations = await recommender_service.generate_recommendations(db, fast_mode=fast_mode)
         
         return {
             "message": "Recommendations refreshed successfully",

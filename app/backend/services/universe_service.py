@@ -9,7 +9,7 @@ import numpy as np
 
 from config import settings
 from db.models import InterestingTicker, TickerQuote, Option, Trade
-from clients.tradier import TradierDataManager
+from services.market_data_service import MarketDataService
 
 logger = logging.getLogger(__name__)
 
@@ -19,14 +19,21 @@ class UniverseService:
     
     def __init__(self, db: AsyncSession):
         self.db = db
-        self.tradier_data = TradierDataManager(db)
+        self.market_data_service = MarketDataService(db)
     
-    async def get_filtered_universe(self, max_tickers: int = None) -> List[InterestingTicker]:
+    async def get_filtered_universe(self, max_tickers: int = None, refresh_data: bool = True, fast_mode: bool = False) -> List[InterestingTicker]:
         """Get filtered universe of tickers for analysis."""
         if max_tickers is None:
             max_tickers = settings.max_tickers_per_cycle
         
-        logger.info(f"Selecting universe of up to {max_tickers} tickers")
+        logger.info(f"Selecting universe of up to {max_tickers} tickers (fast_mode={fast_mode})")
+        
+        # Optionally refresh market data first (skip in fast mode)
+        if refresh_data and not fast_mode:
+            logger.info("Refreshing market data before universe selection")
+            await self.refresh_universe_data(max_tickers)
+        elif fast_mode:
+            logger.info("Fast mode: skipping data refresh")
         
         # Get all active tickers
         result = await self.db.execute(
@@ -38,21 +45,23 @@ class UniverseService:
             logger.warning("No active tickers found")
             return []
         
+        logger.info(f"Processing {len(all_tickers)} active tickers for universe selection")
+        
         # Apply filters and scoring
         filtered_tickers = []
         for ticker in all_tickers:
             try:
-                # Update ticker data if needed
-                await self._update_ticker_data(ticker)
-                
-                # Apply filters
+                # Apply filters (data should already be fresh from refresh_universe_data)
                 if not await self._passes_basic_filters(ticker):
+                    logger.debug(f"Ticker {ticker.symbol} failed basic filters")
                     continue
                 
                 if not await self._passes_options_filters(ticker):
+                    logger.debug(f"Ticker {ticker.symbol} failed options filters")
                     continue
                 
                 if not await self._passes_earnings_filters(ticker):
+                    logger.debug(f"Ticker {ticker.symbol} failed earnings filters")
                     continue
                 
                 # Calculate universe score
@@ -61,6 +70,7 @@ class UniverseService:
                 ticker.last_analysis_date = datetime.utcnow()
                 
                 filtered_tickers.append(ticker)
+                logger.debug(f"Ticker {ticker.symbol} passed all filters with score {universe_score:.3f}")
                 
             except Exception as e:
                 logger.warning(f"Error processing ticker {ticker.symbol}: {e}")
@@ -73,19 +83,43 @@ class UniverseService:
         await self.db.commit()
         
         selected_tickers = filtered_tickers[:max_tickers]
-        logger.info(f"Selected {len(selected_tickers)} tickers for analysis")
+        logger.info(f"Selected {len(selected_tickers)} tickers for analysis from {len(filtered_tickers)} filtered tickers")
+        
+        # Log top tickers for debugging
+        if selected_tickers:
+            top_tickers = [(t.symbol, t.universe_score or 0) for t in selected_tickers[:5]]
+            logger.info(f"Top 5 tickers: {top_tickers}")
         
         return selected_tickers
     
+    async def refresh_universe_data(self, max_tickers: int = None) -> List[InterestingTicker]:
+        """Refresh market data for the entire universe using MarketDataService."""
+        if max_tickers is None:
+            max_tickers = settings.max_tickers_per_cycle
+        
+        logger.info(f"Refreshing universe data for up to {max_tickers} tickers")
+        
+        try:
+            # Use MarketDataService to refresh data for active tickers
+            updated_tickers = await self.market_data_service.refresh_market_data(max_tickers)
+            
+            logger.info(f"Refreshed data for {len(updated_tickers)} tickers in universe")
+            return updated_tickers
+            
+        except Exception as e:
+            logger.error(f"Error refreshing universe data: {e}")
+            return []
+    
     async def _update_ticker_data(self, ticker: InterestingTicker) -> None:
-        """Update ticker market data if stale."""
+        """Update ticker market data if stale using MarketDataService."""
         try:
             # Update if data is older than 1 hour
             if (ticker.updated_at is None or 
                 datetime.utcnow() - ticker.updated_at > timedelta(hours=1)):
                 
-                await self.tradier_data.sync_ticker_data(ticker.symbol)
-                logger.debug(f"Updated data for {ticker.symbol}")
+                # Use MarketDataService to update both fundamental and quote data
+                await self.market_data_service._update_ticker_market_data(ticker)
+                logger.debug(f"Updated comprehensive data for {ticker.symbol}")
                 
         except Exception as e:
             logger.warning(f"Failed to update data for {ticker.symbol}: {e}")
@@ -266,6 +300,110 @@ class UniverseService:
             sector = ticker.sector or "Unknown"
             sector_counts[sector] = sector_counts.get(sector, 0) + 1
         return sector_counts
+    
+    async def get_universe_statistics(self) -> Dict[str, Any]:
+        """Get comprehensive statistics about the current universe."""
+        try:
+            # Get all active tickers
+            result = await self.db.execute(
+                select(InterestingTicker).where(InterestingTicker.active == True)
+            )
+            all_tickers = result.scalars().all()
+            
+            if not all_tickers:
+                return {
+                    "total_tickers": 0,
+                    "data_completeness": {},
+                    "sector_distribution": {},
+                    "market_cap_distribution": {},
+                    "average_scores": {},
+                    "data_freshness": {}
+                }
+            
+            # Data completeness statistics
+            data_completeness = {
+                "with_sector": sum(1 for t in all_tickers if t.sector),
+                "with_industry": sum(1 for t in all_tickers if t.industry),
+                "with_market_cap": sum(1 for t in all_tickers if t.market_cap),
+                "with_pe_ratio": sum(1 for t in all_tickers if t.pe_ratio),
+                "with_beta": sum(1 for t in all_tickers if t.beta),
+                "with_earnings_date": sum(1 for t in all_tickers if t.next_earnings_date),
+                "with_universe_score": sum(1 for t in all_tickers if t.universe_score),
+            }
+            
+            # Sector distribution
+            sector_dist = self.get_sector_diversification(all_tickers)
+            
+            # Market cap distribution
+            market_cap_dist = {"small": 0, "mid": 0, "large": 0, "mega": 0}
+            for ticker in all_tickers:
+                if ticker.market_cap:
+                    if ticker.market_cap < 5.0:
+                        market_cap_dist["small"] += 1
+                    elif ticker.market_cap < 50.0:
+                        market_cap_dist["mid"] += 1
+                    elif ticker.market_cap < 200.0:
+                        market_cap_dist["large"] += 1
+                    else:
+                        market_cap_dist["mega"] += 1
+            
+            # Average scores
+            scores_with_values = [t.universe_score for t in all_tickers if t.universe_score]
+            average_scores = {
+                "universe_score": sum(scores_with_values) / len(scores_with_values) if scores_with_values else 0,
+                "pe_ratio": sum(t.pe_ratio for t in all_tickers if t.pe_ratio) / len([t for t in all_tickers if t.pe_ratio]) if any(t.pe_ratio for t in all_tickers) else 0,
+                "beta": sum(t.beta for t in all_tickers if t.beta) / len([t for t in all_tickers if t.beta]) if any(t.beta for t in all_tickers) else 0,
+            }
+            
+            # Data freshness
+            now = datetime.utcnow()
+            recent_updates = sum(1 for t in all_tickers if t.updated_at and (now - t.updated_at) < timedelta(hours=1))
+            data_freshness = {
+                "updated_last_hour": recent_updates,
+                "total_tickers": len(all_tickers),
+                "freshness_percentage": (recent_updates / len(all_tickers)) * 100 if all_tickers else 0
+            }
+            
+            return {
+                "total_tickers": len(all_tickers),
+                "data_completeness": data_completeness,
+                "sector_distribution": sector_dist,
+                "market_cap_distribution": market_cap_dist,
+                "average_scores": average_scores,
+                "data_freshness": data_freshness
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting universe statistics: {e}")
+            return {}
+    
+    async def get_tickers_needing_updates(self, max_tickers: int = None) -> List[InterestingTicker]:
+        """Get tickers that need market data updates."""
+        if max_tickers is None:
+            max_tickers = settings.max_tickers_per_cycle
+        
+        try:
+            # Get active tickers that need updating (older than 1 hour)
+            cutoff_time = datetime.utcnow() - timedelta(hours=1)
+            result = await self.db.execute(
+                select(InterestingTicker).where(
+                    and_(
+                        InterestingTicker.active == True,
+                        or_(
+                            InterestingTicker.updated_at == None,
+                            InterestingTicker.updated_at < cutoff_time
+                        )
+                    )
+                ).limit(max_tickers)
+            )
+            tickers_needing_updates = result.scalars().all()
+            
+            logger.info(f"Found {len(tickers_needing_updates)} tickers needing updates")
+            return tickers_needing_updates
+            
+        except Exception as e:
+            logger.error(f"Error getting tickers needing updates: {e}")
+            return []
     
     def optimize_for_diversification(self, tickers: List[InterestingTicker], max_tickers: int) -> List[InterestingTicker]:
         """Optimize selection for sector diversification."""

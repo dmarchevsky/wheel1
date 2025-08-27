@@ -9,6 +9,7 @@ from sqlalchemy import and_, func
 
 from db.session import get_async_db
 from services.market_data_service import MarketDataService
+from services.universe_service import UniverseService
 from db.models import InterestingTicker, TickerQuote
 
 logger = logging.getLogger(__name__)
@@ -566,3 +567,131 @@ async def refresh_ticker_data(
         raise HTTPException(status_code=500, detail=f"Failed to refresh ticker: {str(e)}")
 
 
+# Universe Management Endpoints
+
+@router.get("/universe")
+async def get_filtered_universe(
+    max_tickers: int = 10,
+    refresh_data: bool = True,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get filtered universe of tickers for analysis."""
+    try:
+        universe_service = UniverseService(db)
+        tickers = await universe_service.get_filtered_universe(max_tickers, refresh_data)
+        
+        return {
+            "status": "success",
+            "data": {
+                "tickers": [
+                    {
+                        "symbol": ticker.symbol,
+                        "name": ticker.name,
+                        "sector": ticker.sector,
+                        "industry": ticker.industry,
+                        "market_cap": ticker.market_cap,
+                        "pe_ratio": ticker.pe_ratio,
+                        "beta": ticker.beta,
+                        "dividend_yield": ticker.dividend_yield,
+                        "next_earnings_date": ticker.next_earnings_date.isoformat() if ticker.next_earnings_date else None,
+                        "universe_score": ticker.universe_score,
+                        "active": ticker.active,
+                        "source": ticker.source,
+                        "updated_at": ticker.updated_at.isoformat() if ticker.updated_at else None,
+                        "last_analysis_date": ticker.last_analysis_date.isoformat() if ticker.last_analysis_date else None
+                    } for ticker in tickers
+                ],
+                "count": len(tickers),
+                "max_tickers": max_tickers,
+                "refresh_data": refresh_data
+            },
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get filtered universe: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get filtered universe: {str(e)}")
+
+
+@router.post("/universe/refresh")
+async def refresh_universe_data(
+    max_tickers: int = 10,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Refresh market data for the universe."""
+    try:
+        universe_service = UniverseService(db)
+        updated_tickers = await universe_service.refresh_universe_data(max_tickers)
+        
+        return {
+            "status": "success",
+            "message": "Universe data refresh completed",
+            "data": {
+                "updated_tickers_count": len(updated_tickers),
+                "max_tickers": max_tickers,
+                "tickers": [
+                    {
+                        "symbol": ticker.symbol,
+                        "name": ticker.name,
+                        "updated_at": ticker.updated_at.isoformat() if ticker.updated_at else None
+                    } for ticker in updated_tickers[:10]  # Show first 10
+                ]
+            },
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to refresh universe data: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to refresh universe data: {str(e)}")
+
+
+@router.get("/universe/statistics")
+async def get_universe_statistics(
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get comprehensive statistics about the current universe."""
+    try:
+        universe_service = UniverseService(db)
+        statistics = await universe_service.get_universe_statistics()
+        
+        return {
+            "status": "success",
+            "data": statistics,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get universe statistics: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get universe statistics: {str(e)}")
+
+
+@router.get("/universe/tickers-needing-updates")
+async def get_tickers_needing_updates(
+    max_tickers: int = 10,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get tickers that need market data updates."""
+    try:
+        universe_service = UniverseService(db)
+        tickers = await universe_service.get_tickers_needing_updates(max_tickers)
+        
+        return {
+            "status": "success",
+            "data": {
+                "tickers": [
+                    {
+                        "symbol": ticker.symbol,
+                        "name": ticker.name,
+                        "updated_at": ticker.updated_at.isoformat() if ticker.updated_at else None,
+                        "active": ticker.active
+                    } for ticker in tickers
+                ],
+                "count": len(tickers),
+                "max_tickers": max_tickers
+            },
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get tickers needing updates: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get tickers needing updates: {str(e)}")
