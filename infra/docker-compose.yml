@@ -12,8 +12,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-wheel}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wheel}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - /home/dm/projects/wheel1/pg:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:

@@ -308,3 +308,6 @@ settings.local.*
 # Local development
 .local/
 local/
+
+#postgres
+pg/

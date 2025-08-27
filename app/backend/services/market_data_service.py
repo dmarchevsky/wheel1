@@ -308,20 +308,25 @@ class MarketDataService:
                         # Basic quote data was successfully updated
                         successful_updates += 1
                         successful_tickers.append(symbol)
-                        logger.info(f"✅ Successfully updated data for {symbol} (price: ${ticker.current_price})")
                         
-                        # Also try to update earnings calendar
-                        try:
-                            earnings = await self.tradier_data.sync_earnings_calendar(symbol)
-                            if earnings:
-                                logger.info(f"✅ Successfully updated earnings for {symbol}: {earnings.earnings_date}")
-                            else:
-                                logger.debug(f"No earnings data available for {symbol}")
-                        except Exception as e:
-                            logger.warning(f"Failed to update earnings for {symbol}: {e}")
+                        # Log additional data if available
+                        data_log = f"✅ Successfully updated data for {symbol} (price: ${ticker.current_price})"
+                        if ticker.sector:
+                            data_log += f", sector: {ticker.sector}"
+                        if ticker.market_cap:
+                            data_log += f", market cap: ${ticker.market_cap:.1f}B"
+                        if ticker.pe_ratio:
+                            data_log += f", P/E: {ticker.pe_ratio:.1f}"
+                        if ticker.next_earnings_date:
+                            data_log += f", next earnings: {ticker.next_earnings_date.strftime('%Y-%m-%d')}"
+                        
+                        logger.info(data_log)
+                        
+                        # Also try to update earnings calendar (already done in sync_ticker_data)
+                        # This is now handled within sync_ticker_data method
                     else:
                         failed_tickers.append(symbol)
-                        logger.warning(f"❌ Failed to update fundamentals for {symbol}")
+                        logger.warning(f"❌ Failed to update data for {symbol}")
                     
                     # Rate limiting: pause every 10 requests
                     if (i + 1) % 10 == 0:

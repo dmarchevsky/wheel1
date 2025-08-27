@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     market_timezone: str = Field(default="America/New_York", env="MARKET_TIMEZONE")
     recommender_interval_min: int = Field(default=15, env="RECOMMENDER_INTERVAL_MIN")
     
+    # API Ninjas
+    api_ninjas_api_key: str = Field(env="API_NINJAS_API_KEY")
+    
     # Risk/Scoring Thresholds
     put_delta_min: float = Field(default=0.25, env="PUT_DELTA_MIN")
     put_delta_max: float = Field(default=0.35, env="PUT_DELTA_MAX")

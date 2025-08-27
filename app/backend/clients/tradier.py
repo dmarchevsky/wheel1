@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from db.models import Option, Ticker, Position, OptionPosition, Trade, EarningsCalendar
+from clients.api_ninjas import APINinjasClient
 
 logger = logging.getLogger(__name__)
 
@@ -209,59 +210,73 @@ class TradierClient:
         return history
     
     async def get_fundamentals_company(self, symbol: str) -> Dict[str, Any]:
-        """Get company fundamental data from beta API."""
+        """Get company fundamental data from Tradier API beta endpoint."""
         params = {"symbols": symbol}
+        # Only beta endpoint provides fundamentals data
         data = await self._make_request("GET", "/beta/markets/fundamentals/company", params)
         return data
     
     async def get_fundamentals_ratios(self, symbol: str) -> Dict[str, Any]:
-        """Get financial ratios from beta API."""
+        """Get financial ratios from Tradier API beta endpoint."""
         params = {"symbols": symbol}
+        # Only beta endpoint provides ratios data
         data = await self._make_request("GET", "/beta/markets/fundamentals/ratios", params)
         return data
     
     async def get_earnings_calendar(self, symbol: str) -> Dict[str, Any]:
-        """Get earnings calendar data for a symbol."""
+        """Get earnings calendar data for a symbol from Tradier API beta endpoint."""
         params = {"symbols": symbol}
+        # Only beta endpoint provides earnings calendar data
         data = await self._make_request("GET", "/beta/markets/fundamentals/calendar", params)
         return data
     
     async def get_sp500_constituents(self) -> List[str]:
-        """Get current S&P 500 constituents list."""
+        """Get current S&P 500 constituents list using API Ninjas."""
         try:
-            # Try to get SP500 constituents from Tradier API
-            # Note: This endpoint may not exist in Tradier API, so we'll use a fallback
-            data = await self._make_request("GET", "/markets/sp500", {})
+            # Use API Ninjas to get current S&P 500 constituents
+            tickers = await self.api_ninjas.get_sp500_tickers()
             
-            if data and "symbols" in data:
-                symbols = data["symbols"]
-                if isinstance(symbols, list):
-                    return symbols
-                elif isinstance(symbols, dict) and "symbol" in symbols:
-                    return symbols["symbol"] if isinstance(symbols["symbol"], list) else [symbols["symbol"]]
+            if tickers and len(tickers) > 400:  # SP500 should have ~500 constituents
+                logger.info(f"Found {len(tickers)} SP500 constituents via API Ninjas")
+                return tickers
             
-            # Fallback to a curated list if API doesn't provide SP500
-            logger.warning("SP500 constituents not available from Tradier API, using fallback list")
-            return self._get_fallback_sp500_list()
+            # Fallback to comprehensive list if API Ninjas fails
+            logger.warning("API Ninjas failed, using comprehensive SP500 fallback list")
+            return self._get_comprehensive_sp500_list()
             
         except Exception as e:
-            logger.error(f"Error fetching SP500 constituents: {e}")
-            return self._get_fallback_sp500_list()
+            logger.error(f"Error fetching SP500 constituents from API Ninjas: {e}")
+            logger.warning("Using comprehensive SP500 fallback list")
+            return self._get_comprehensive_sp500_list()
     
-    def _get_fallback_sp500_list(self) -> List[str]:
-        """Fallback list of major S&P 500 stocks."""
+    def _map_morningstar_sector_code(self, sector_code: int) -> str:
+        """Map Morningstar sector codes to readable sector names."""
+        sector_mapping = {
+            -1: "Misc",
+            101: "Basic Materials",
+            102: "Consumer Cyclical",
+            103: "Financial Services",
+            104: "Real Estate",
+            205: "Consumer Defensive",
+            206: "Healthcare",
+            207: "Utilities",
+            308: "Communication Services",
+            309: "Energy",
+            310: "Industrials",
+            311: "Technology"
+        }
+        return sector_mapping.get(sector_code, f"Unknown_Sector_{sector_code}")
+    
+    def _get_comprehensive_sp500_list(self) -> List[str]:
+        """Fallback list of major S&P 500 stocks (used when API Ninjas fails)."""
+        # This is a minimal fallback list - API Ninjas should provide the full list
         return [
-            "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "BRK-B", "LLY", "TSLA", "V",
+            "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK-B", "LLY", "V",
             "UNH", "XOM", "JNJ", "WMT", "JPM", "PG", "MA", "HD", "CVX", "AVGO",
             "ABBV", "PFE", "KO", "BAC", "PEP", "COST", "TMO", "ACN", "DHR", "VZ",
             "MRK", "ABT", "WFC", "CMCSA", "ADBE", "NFLX", "CRM", "PM", "TXN", "NEE",
             "RTX", "HON", "QCOM", "LOW", "UNP", "UPS", "IBM", "MS", "BMY", "CAT",
-            "GS", "AMAT", "SPGI", "INTU", "AXP", "GILD", "ISRG", "VRTX", "ADI", "TGT",
-            "PLD", "SCHW", "ITW", "BDX", "TJX", "CB", "SO", "DUK", "NSC", "CME",
-            "EOG", "SLB", "USB", "PGR", "CI", "AON", "ETN", "MMC", "APD", "SHW",
-            "TFC", "PNC", "COF", "BLK", "MO", "GE", "FIS", "ICE", "NOC", "SRE",
-            "PSA", "AIG", "MET", "PRU", "ALL", "TRV", "C", "WBA", "GM", "F",
-            "DAL", "UAL", "AAL", "LUV"
+            "GS", "AMAT", "SPGI", "INTU", "AXP", "GILD", "ISRG", "VRTX", "ADI", "TGT"
         ]
 
 
@@ -271,12 +286,19 @@ class TradierDataManager:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.client = TradierClient()
+        self.api_ninjas = APINinjasClient()
     
     async def sync_ticker_data(self, symbol: str) -> Ticker:
         """Sync comprehensive ticker data from Tradier API including fundamentals."""
         try:
-            # Get quote data
-            quote_data = await self.client.get_quote(symbol)
+            # Get quote data from Tradier API
+            quote_data = None
+            try:
+                quote_data = await self.client.get_quote(symbol)
+                logger.info(f"Successfully got Tradier quote data for {symbol}")
+            except Exception as e:
+                logger.warning(f"Tradier quote data failed for {symbol}: {e}")
+                quote_data = None
             
             # Get fundamental data (with fallback handling)
             fundamentals_data = None
@@ -336,10 +358,17 @@ class TradierDataManager:
                         # Asset classification (industry/sector)
                         if "asset_classification" in tables and tables["asset_classification"]:
                             classification = tables["asset_classification"]
-                            # Morningstar codes for industry classification
-                            # Could map these to sector/industry names
-                            ticker.sector = f"Sector_{classification.get('morningstar_sector_code', 'Unknown')}"
-                            ticker.industry = f"Industry_{classification.get('morningstar_industry_code', 'Unknown')}"
+                            # Map Morningstar sector codes to readable sector names
+                            sector_code = classification.get('morningstar_sector_code')
+                            if sector_code:
+                                ticker.sector = self._map_morningstar_sector_code(sector_code)
+                                logger.info(f"Mapped sector for {symbol}: {ticker.sector}")
+                            
+                            # Map Morningstar industry codes to readable industry names
+                            industry_code = classification.get('morningstar_industry_code')
+                            if industry_code:
+                                ticker.industry = f"Industry_{industry_code}"
+                                logger.info(f"Mapped industry for {symbol}: {ticker.industry}")
                         
                         # Long description
                         if "long_descriptions" in tables and tables["long_descriptions"]:
@@ -353,6 +382,65 @@ class TradierDataManager:
                         if "share_class_profile" in tables and tables["share_class_profile"]:
                             profile = tables["share_class_profile"]
                             ticker.market_cap = float(profile.get("market_cap", 0)) if profile.get("market_cap") else None
+            
+            # If Tradier quote data failed or fundamentals data is not available, try fallbacks
+            if not quote_data or not ticker.sector or ticker.sector == "Sector_Unknown" or not ticker.current_price:
+                # Try API Ninjas for sector information first
+                try:
+                    company_info = await self.api_ninjas.get_company_info(symbol)
+                    if company_info:
+                        if not ticker.name and company_info.get('company_name'):
+                            ticker.name = company_info['company_name']
+                        
+                        if not ticker.sector and company_info.get('sector'):
+                            ticker.sector = company_info['sector']
+                            logger.info(f"Got sector from API Ninjas for {symbol}: {ticker.sector}")
+                        
+                        if not ticker.industry and company_info.get('sub_industry'):
+                            ticker.industry = company_info['sub_industry']
+                            logger.info(f"Got industry from API Ninjas for {symbol}: {ticker.industry}")
+                        
+                        logger.info(f"Successfully got API Ninjas data for {symbol}")
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to get API Ninjas data for {symbol}: {e}")
+                
+                # Fallback to yfinance for price and other data
+                if not ticker.current_price:
+                    try:
+                        import yfinance as yf
+                        yf_ticker = yf.Ticker(symbol)
+                        info = yf_ticker.info
+                        
+                        # Use yfinance data as primary source if Tradier failed
+                        if not ticker.current_price and info.get('currentPrice'):
+                            ticker.current_price = float(info['currentPrice'])
+                            logger.info(f"Got price from yfinance for {symbol}: ${ticker.current_price}")
+                        
+                        if not ticker.name and info.get('longName'):
+                            ticker.name = info['longName']
+                        
+                        if not ticker.sector and info.get('sector'):
+                            ticker.sector = info['sector']
+                        if not ticker.industry and info.get('industry'):
+                            ticker.industry = info['industry']
+                        
+                        if not ticker.market_cap and info.get('marketCap'):
+                            ticker.market_cap = float(info['marketCap']) / 1e9  # Convert to billions
+                        
+                        if not ticker.pe_ratio and info.get('trailingPE'):
+                            ticker.pe_ratio = float(info['trailingPE'])
+                        
+                        if not ticker.volume_avg_20d and info.get('averageVolume'):
+                            ticker.volume_avg_20d = int(info['averageVolume'])
+                        
+                        if not ticker.beta and info.get('beta'):
+                            ticker.beta = float(info['beta'])
+                            
+                        logger.info(f"Successfully got yfinance data for {symbol}")
+                            
+                    except Exception as e:
+                        logger.warning(f"Failed to get yfinance data for {symbol}: {e}")
             
             # Extract ratios data
             if ratios_data and isinstance(ratios_data, list) and len(ratios_data) > 0:
@@ -417,8 +505,25 @@ class TradierDataManager:
             ticker.last_analysis_date = datetime.utcnow()
             ticker.updated_at = datetime.utcnow()
             
-            await self.db.commit()
-            return ticker
+            # Try to get next earnings date (but don't fail the entire sync if this fails)
+            try:
+                earnings = await self.sync_earnings_calendar(symbol)
+                if earnings:
+                    ticker.next_earnings_date = earnings.earnings_date
+                    logger.info(f"Updated next earnings date for {symbol}: {earnings.earnings_date}")
+            except Exception as e:
+                logger.warning(f"Failed to get earnings date for {symbol}: {e}")
+                # Continue with the ticker sync even if earnings fails
+            
+            # Only commit if we have at least basic price data
+            if ticker.current_price is not None:
+                await self.db.commit()
+                logger.info(f"Successfully committed ticker data for {symbol}")
+                return ticker
+            else:
+                logger.warning(f"No price data available for {symbol}, skipping commit")
+                await self.db.rollback()
+                return None
             
         except Exception as e:
             await self.db.rollback()
@@ -494,7 +599,8 @@ class TradierDataManager:
                 
         except Exception as e:
             logger.error(f"Error syncing earnings calendar for {symbol}: {e}")
-            await self.db.rollback()
+            # Don't rollback here - let the main transaction handle it
+            # This prevents rolling back successful ticker updates
             return None
     
     async def sync_options_data(self, symbol: str, expiration: str) -> List[Option]:

@@ -48,6 +48,7 @@ class Ticker(Base):
     beta = Column(Float, nullable=True)  # Beta vs S&P 500
     pe_ratio = Column(Float, nullable=True)  # P/E ratio
     dividend_yield = Column(Float, nullable=True)  # Dividend yield percentage
+    next_earnings_date = Column(DateTime, nullable=True)  # Next upcoming earnings date
     active = Column(Boolean, default=True)  # Whether ticker is active for analysis
     universe_score = Column(Float, nullable=True)  # Composite score for universe selection
     last_analysis_date = Column(DateTime, nullable=True)  # Last time universe score was calculated
