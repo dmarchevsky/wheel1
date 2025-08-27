@@ -46,7 +46,7 @@ services:
       dockerfile: ../../infra/Dockerfile.backend.dev
     container_name: wheel_api
     env_file:
-      - ../env.dev
+      - ../.env.dev
     environment:
       - MODE=api
       - ENV=${ENV:-dev}
@@ -116,7 +116,7 @@ services:
       dockerfile: ../../infra/Dockerfile.backend.dev
     container_name: wheel_worker
     env_file:
-      - ../env.dev
+      - ../.env.dev
     environment:
       - MODE=worker
       - ENV=${ENV:-dev}
