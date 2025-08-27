@@ -29,6 +29,10 @@ import {
   CircularProgress,
   Container,
   Grid,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -38,6 +42,8 @@ import {
   VisibilityOff as VisibilityOffIcon,
   Search as SearchIcon,
   Close as CloseIcon,
+  ArrowUpward as ArrowUpwardIcon,
+  ArrowDownward as ArrowDownwardIcon,
 } from '@mui/icons-material';
 
 interface TickerData {
@@ -75,6 +81,9 @@ export default function TickersPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [filterSymbol, setFilterSymbol] = useState('');
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [sortField, setSortField] = useState<string>('symbol');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   const fetchTickers = async () => {
     try {
@@ -87,7 +96,6 @@ export default function TickersPage() {
       const data = await response.json();
       const tickersData = data.data || [];
       setTickers(tickersData);
-      setFilteredTickers(tickersData);
     } catch (error) {
       console.error('Error fetching tickers:', error);
       setError('Failed to fetch tickers');
@@ -96,23 +104,82 @@ export default function TickersPage() {
     }
   };
 
+  // Apply filters and sorting
+  const applyFiltersAndSort = () => {
+    let filtered = [...tickers];
+
+    // Apply symbol/name filter
+    if (filterSymbol.trim()) {
+      filtered = filtered.filter(ticker =>
+        ticker.symbol.toLowerCase().includes(filterSymbol.toLowerCase()) ||
+        (ticker.name && ticker.name.toLowerCase().includes(filterSymbol.toLowerCase()))
+      );
+    }
+
+    // Apply status filter
+    if (filterStatus !== 'all') {
+      filtered = filtered.filter(ticker => {
+        if (filterStatus === 'active') return ticker.active;
+        if (filterStatus === 'inactive') return !ticker.active;
+        return true;
+      });
+    }
+
+    // Apply sorting
+    filtered.sort((a, b) => {
+      let aValue: any = a[sortField as keyof TickerData];
+      let bValue: any = b[sortField as keyof TickerData];
+
+      // Handle null/undefined values
+      if (aValue === null || aValue === undefined) aValue = '';
+      if (bValue === null || bValue === undefined) bValue = '';
+
+      // Handle numeric values
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+      }
+
+      // Handle string values
+      const aStr = String(aValue).toLowerCase();
+      const bStr = String(bValue).toLowerCase();
+      
+      if (sortDirection === 'asc') {
+        return aStr.localeCompare(bStr);
+      } else {
+        return bStr.localeCompare(aStr);
+      }
+    });
+
+    setFilteredTickers(filtered);
+  };
+
   // Filter tickers based on symbol
   const handleFilterChange = (value: string) => {
     setFilterSymbol(value);
-    if (!value.trim()) {
-      setFilteredTickers(tickers);
+  };
+
+  // Filter tickers based on status
+  const handleStatusFilterChange = (value: string) => {
+    setFilterStatus(value);
+  };
+
+  // Handle sorting
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
-      const filtered = tickers.filter(ticker =>
-        ticker.symbol.toLowerCase().includes(value.toLowerCase()) ||
-        (ticker.name && ticker.name.toLowerCase().includes(value.toLowerCase()))
-      );
-      setFilteredTickers(filtered);
+      setSortField(field);
+      setSortDirection('asc');
     }
   };
 
   useEffect(() => {
     fetchTickers();
   }, []);
+
+  useEffect(() => {
+    applyFiltersAndSort();
+  }, [tickers, filterSymbol, filterStatus, sortField, sortDirection]);
 
   const addTicker = async () => {
     if (!newTickerSymbol.trim()) {
@@ -140,6 +207,7 @@ export default function TickersPage() {
       setSuccess(data.message);
       setNewTickerSymbol('');
       setFilterSymbol(''); // Clear filter
+      setFilterStatus('all'); // Clear status filter
       fetchTickers(); // Refresh the list
     } catch (error) {
       console.error('Error adding ticker:', error);
@@ -165,6 +233,7 @@ export default function TickersPage() {
       const data = await response.json();
       setSuccess(data.message);
       setFilterSymbol(''); // Clear filter
+      setFilterStatus('all'); // Clear status filter
       fetchTickers(); // Refresh the list
     } catch (error) {
       console.error('Error toggling ticker:', error);
@@ -190,6 +259,7 @@ export default function TickersPage() {
       const data = await response.json();
       setSuccess(data.message);
       setFilterSymbol(''); // Clear filter
+      setFilterStatus('all'); // Clear status filter
       fetchTickers(); // Refresh the list
     } catch (error) {
       console.error('Error refreshing ticker:', error);
@@ -217,6 +287,7 @@ export default function TickersPage() {
       setDeleteDialogOpen(false);
       setTickerToDelete(null);
       setFilterSymbol(''); // Clear filter
+      setFilterStatus('all'); // Clear status filter
       fetchTickers(); // Refresh the list
     } catch (error) {
       console.error('Error removing ticker:', error);
@@ -320,13 +391,13 @@ export default function TickersPage() {
             <Typography variant="h6" component="h2">
               Tickers ({filteredTickers.length} of {tickers.length})
             </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <TextField
                 placeholder="Filter by symbol or name..."
                 value={filterSymbol}
                 onChange={(e) => handleFilterChange(e.target.value)}
                 size="small"
-                sx={{ width: 300 }}
+                sx={{ width: 250 }}
                 InputProps={{
                   startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />,
                 }}
@@ -340,6 +411,18 @@ export default function TickersPage() {
                   <CloseIcon />
                 </IconButton>
               )}
+              <FormControl size="small" sx={{ minWidth: 120 }}>
+                <InputLabel>Status</InputLabel>
+                <Select
+                  value={filterStatus}
+                  onChange={(e) => handleStatusFilterChange(e.target.value)}
+                  label="Status"
+                >
+                  <MenuItem value="all">All</MenuItem>
+                  <MenuItem value="active">Active</MenuItem>
+                  <MenuItem value="inactive">Inactive</MenuItem>
+                </Select>
+              </FormControl>
             </Box>
           </Box>
           {loading ? (
@@ -360,15 +443,105 @@ export default function TickersPage() {
               <Table>
                 <TableHead>
                   <TableRow>
-                    <TableCell sx={{ fontWeight: 'bold' }}>Symbol</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold' }}>Name</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold' }}>Sector</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold' }}>Market Cap</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold' }}>Price</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold' }}>P/E Ratio</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold' }}>Next Earnings</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold' }}>Source</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold' }}>Status</TableCell>
+                    <TableCell 
+                      sx={{ fontWeight: 'bold', cursor: 'pointer' }}
+                      onClick={() => handleSort('symbol')}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        Symbol
+                        {sortField === 'symbol' && (
+                          sortDirection === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                        )}
+                      </Box>
+                    </TableCell>
+                    <TableCell 
+                      sx={{ fontWeight: 'bold', cursor: 'pointer' }}
+                      onClick={() => handleSort('name')}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        Name
+                        {sortField === 'name' && (
+                          sortDirection === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                        )}
+                      </Box>
+                    </TableCell>
+                    <TableCell 
+                      sx={{ fontWeight: 'bold', cursor: 'pointer' }}
+                      onClick={() => handleSort('sector')}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        Sector
+                        {sortField === 'sector' && (
+                          sortDirection === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                        )}
+                      </Box>
+                    </TableCell>
+                    <TableCell 
+                      sx={{ fontWeight: 'bold', cursor: 'pointer' }}
+                      onClick={() => handleSort('market_cap')}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        Market Cap
+                        {sortField === 'market_cap' && (
+                          sortDirection === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                        )}
+                      </Box>
+                    </TableCell>
+                    <TableCell 
+                      sx={{ fontWeight: 'bold', cursor: 'pointer' }}
+                      onClick={() => handleSort('current_price')}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        Price
+                        {sortField === 'current_price' && (
+                          sortDirection === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                        )}
+                      </Box>
+                    </TableCell>
+                    <TableCell 
+                      sx={{ fontWeight: 'bold', cursor: 'pointer' }}
+                      onClick={() => handleSort('pe_ratio')}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        P/E Ratio
+                        {sortField === 'pe_ratio' && (
+                          sortDirection === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                        )}
+                      </Box>
+                    </TableCell>
+                    <TableCell 
+                      sx={{ fontWeight: 'bold', cursor: 'pointer' }}
+                      onClick={() => handleSort('next_earnings_date')}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        Next Earnings
+                        {sortField === 'next_earnings_date' && (
+                          sortDirection === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                        )}
+                      </Box>
+                    </TableCell>
+                    <TableCell 
+                      sx={{ fontWeight: 'bold', cursor: 'pointer' }}
+                      onClick={() => handleSort('source')}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        Source
+                        {sortField === 'source' && (
+                          sortDirection === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                        )}
+                      </Box>
+                    </TableCell>
+                    <TableCell 
+                      sx={{ fontWeight: 'bold', cursor: 'pointer' }}
+                      onClick={() => handleSort('active')}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        Status
+                        {sortField === 'active' && (
+                          sortDirection === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                        )}
+                      </Box>
+                    </TableCell>
                     <TableCell sx={{ fontWeight: 'bold' }}>Actions</TableCell>
                   </TableRow>
                 </TableHead>
