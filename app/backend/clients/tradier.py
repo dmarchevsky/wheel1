@@ -10,7 +10,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
-from db.models import Option, Ticker, Position, OptionPosition, Trade
+from db.models import Option, InterestingTicker, TickerQuote, Position, OptionPosition, Trade
 
 
 logger = logging.getLogger(__name__)
@@ -236,7 +236,7 @@ class TradierDataManager:
     
 
     
-    async def sync_ticker_data(self, symbol: str) -> Ticker:
+    async def sync_ticker_data(self, symbol: str) -> Dict[str, Any]:
         """Sync comprehensive ticker data from Tradier API including fundamentals."""
         try:
             # Get quote data from Tradier API
@@ -267,36 +267,41 @@ class TradierDataManager:
             
 
             
-            # Get or create ticker
-            result = await self.db.execute(
-                select(Ticker).where(Ticker.symbol == symbol)
-            )
-            ticker = result.scalar_one_or_none()
-            if not ticker:
-                ticker = Ticker(symbol=symbol)
-                self.db.add(ticker)
+            # Initialize data dictionary
+            ticker_data = {
+                "symbol": symbol,
+                "current_price": None,
+                "name": None,
+                "volume_avg_20d": None,
+                "volatility_30d": None,
+                "market_cap": None,
+                "pe_ratio": None,
+                "dividend_yield": None,
+                "beta": None,
+                "universe_score": 0.0
+            }
             
             # Update comprehensive quote data
             if quote_data:
                 # Basic price data
-                ticker.current_price = float(quote_data.get("last", 0)) if quote_data.get("last") else None
-                ticker.name = quote_data.get("description", ticker.name)
+                ticker_data["current_price"] = float(quote_data.get("last", 0)) if quote_data.get("last") else None
+                ticker_data["name"] = quote_data.get("description", ticker_data["name"])
                 
                 # Volume data
                 volume = int(quote_data.get("volume", 0)) if quote_data.get("volume") else None
                 if volume:
-                    ticker.volume_avg_20d = volume  # Use current volume as approximation
+                    ticker_data["volume_avg_20d"] = volume  # Use current volume as approximation
                 
                 # Calculate volatility from 52-week range
                 week_52_high = float(quote_data.get("week_52_high", 0)) if quote_data.get("week_52_high") else None
                 week_52_low = float(quote_data.get("week_52_low", 0)) if quote_data.get("week_52_low") else None
-                if week_52_high and week_52_low and ticker.current_price:
+                if week_52_high and week_52_low and ticker_data["current_price"]:
                     # Calculate 30-day volatility approximation using 52-week range
                     price_range = week_52_high - week_52_low
                     mid_price = (week_52_high + week_52_low) / 2
                     if mid_price > 0:
                         # Approximate volatility as percentage of mid-price
-                        ticker.volatility_30d = (price_range / mid_price) * 100
+                        ticker_data["volatility_30d"] = (price_range / mid_price) * 100
             
 
             
@@ -326,10 +331,10 @@ class TradierDataManager:
                         # Share class profile (market cap, shares outstanding)
                         if "share_class_profile" in tables and tables["share_class_profile"]:
                             profile = tables["share_class_profile"]
-                            ticker.market_cap = float(profile.get("market_cap", 0)) if profile.get("market_cap") else None
+                            ticker_data["market_cap"] = float(profile.get("market_cap", 0)) if profile.get("market_cap") else None
             
             # Check if we have essential data from Tradier API
-            if not ticker.current_price:
+            if not ticker_data["current_price"]:
                 logger.warning(f"No price data available for {symbol} from Tradier API")
             
             # Extract ratios data
@@ -348,15 +353,15 @@ class TradierDataManager:
                             if isinstance(ratios, dict):
                                 p_e_ratio = ratios.get("p_e_ratio")
                                 if p_e_ratio is not None:
-                                    ticker.pe_ratio = float(p_e_ratio)
-                                    logger.info(f"Set P/E ratio for {symbol}: {ticker.pe_ratio}")
+                                    ticker_data["pe_ratio"] = float(p_e_ratio)
+                                    logger.info(f"Set P/E ratio for {symbol}: {ticker_data['pe_ratio']}")
                                 else:
                                     logger.debug(f"No P/E ratio found for {symbol}")
                                 
                                 dividend_yield = ratios.get("dividend_yield")
                                 if dividend_yield is not None:
-                                    ticker.dividend_yield = float(dividend_yield)
-                                    logger.info(f"Set dividend yield for {symbol}: {ticker.dividend_yield}")
+                                    ticker_data["dividend_yield"] = float(dividend_yield)
+                                    logger.info(f"Set dividend yield for {symbol}: {ticker_data['dividend_yield']}")
                         else:
                             logger.debug(f"No valuation_ratios found for {symbol}")
                         
@@ -365,70 +370,62 @@ class TradierDataManager:
                             alpha_beta = tables["alpha_beta"]
                             # Use 60-month beta if available, otherwise 36-month
                             if "period_60m" in alpha_beta:
-                                ticker.beta = float(alpha_beta["period_60m"].get("beta", 0)) if alpha_beta["period_60m"].get("beta") else None
+                                ticker_data["beta"] = float(alpha_beta["period_60m"].get("beta", 0)) if alpha_beta["period_60m"].get("beta") else None
                             elif "period_36m" in alpha_beta:
-                                ticker.beta = float(alpha_beta["period_36m"].get("beta", 0)) if alpha_beta["period_36m"].get("beta") else None
+                                ticker_data["beta"] = float(alpha_beta["period_36m"].get("beta", 0)) if alpha_beta["period_36m"].get("beta") else None
             else:
                 logger.warning(f"No ratios data available for {symbol}")
-            
-            # Set active status
-            ticker.active = True
             
             # Calculate a comprehensive universe score
             score = 0.0
             
             # Price criteria
-            if ticker.current_price and ticker.current_price > 10:  # Prefer stocks > $10
+            if ticker_data["current_price"] and ticker_data["current_price"] > 10:  # Prefer stocks > $10
                 score += 1.0
-            elif ticker.current_price and ticker.current_price > 5:  # Accept stocks > $5
+            elif ticker_data["current_price"] and ticker_data["current_price"] > 5:  # Accept stocks > $5
                 score += 0.5
             
             # Volume criteria
-            if ticker.volume_avg_20d and ticker.volume_avg_20d > 1000000:  # Prefer liquid stocks
+            if ticker_data["volume_avg_20d"] and ticker_data["volume_avg_20d"] > 1000000:  # Prefer liquid stocks
                 score += 1.0
-            elif ticker.volume_avg_20d and ticker.volume_avg_20d > 500000:  # Accept moderately liquid
+            elif ticker_data["volume_avg_20d"] and ticker_data["volume_avg_20d"] > 500000:  # Accept moderately liquid
                 score += 0.5
             
             # Volatility criteria (good for options)
-            if ticker.volatility_30d and ticker.volatility_30d > 15:  # Prefer volatile stocks
+            if ticker_data["volatility_30d"] and ticker_data["volatility_30d"] > 15:  # Prefer volatile stocks
                 score += 1.0
-            elif ticker.volatility_30d and ticker.volatility_30d > 10:  # Accept moderately volatile
+            elif ticker_data["volatility_30d"] and ticker_data["volatility_30d"] > 10:  # Accept moderately volatile
                 score += 0.5
             
             # Market cap criteria
-            if ticker.market_cap and ticker.market_cap > 10000000000:  # Prefer large caps > $10B
+            if ticker_data["market_cap"] and ticker_data["market_cap"] > 10000000000:  # Prefer large caps > $10B
                 score += 1.0
-            elif ticker.market_cap and ticker.market_cap > 1000000000:  # Accept mid caps > $1B
+            elif ticker_data["market_cap"] and ticker_data["market_cap"] > 1000000000:  # Accept mid caps > $1B
                 score += 0.5
             
             # Beta criteria (prefer stocks with reasonable beta)
-            if ticker.beta and 0.5 <= ticker.beta <= 2.0:  # Reasonable beta range
+            if ticker_data["beta"] and 0.5 <= ticker_data["beta"] <= 2.0:  # Reasonable beta range
                 score += 0.5
             
             # P/E ratio criteria (avoid extremely high P/E)
-            if ticker.pe_ratio and ticker.pe_ratio < 50:  # Reasonable P/E
+            if ticker_data["pe_ratio"] and ticker_data["pe_ratio"] < 50:  # Reasonable P/E
                 score += 0.5
             
-            ticker.universe_score = score
-            ticker.last_analysis_date = datetime.utcnow()
-            ticker.updated_at = datetime.utcnow()
+            ticker_data["universe_score"] = score
             
 
             
-            # Only commit if we have at least basic price data
-            if ticker.current_price is not None:
-                await self.db.commit()
-                logger.info(f"Successfully committed ticker data for {symbol}")
-                return ticker
+            # Return data if we have at least basic price data
+            if ticker_data["current_price"] is not None:
+                logger.info(f"Successfully collected ticker data for {symbol}")
+                return ticker_data
             else:
-                logger.warning(f"No price data available for {symbol}, skipping commit")
-                await self.db.rollback()
+                logger.warning(f"No price data available for {symbol}")
                 return None
             
         except Exception as e:
-            await self.db.rollback()
             logger.error(f"Error syncing ticker data for {symbol}: {e}")
-            raise e
+            return None
     
 
     

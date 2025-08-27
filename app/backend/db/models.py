@@ -32,9 +32,9 @@ class Setting(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
-class Ticker(Base):
-    """Stock ticker information."""
-    __tablename__ = "tickers"
+class InterestingTicker(Base):
+    """Fundamental ticker information - infrequently updated (weekly)."""
+    __tablename__ = "interesting_tickers"
     
     id = Column(Integer, primary_key=True, index=True)
     symbol = Column(String, unique=True, index=True, nullable=False)
@@ -42,9 +42,6 @@ class Ticker(Base):
     sector = Column(String, nullable=True)
     industry = Column(String, nullable=True)
     market_cap = Column(Float, nullable=True)  # Market capitalization in billions
-    current_price = Column(Float, nullable=True)
-    volume_avg_20d = Column(Float, nullable=True)  # 20-day average volume
-    volatility_30d = Column(Float, nullable=True)  # 30-day historical volatility
     beta = Column(Float, nullable=True)  # Beta vs S&P 500
     pe_ratio = Column(Float, nullable=True)  # P/E ratio
     dividend_yield = Column(Float, nullable=True)  # Dividend yield percentage
@@ -52,12 +49,35 @@ class Ticker(Base):
     active = Column(Boolean, default=True)  # Whether ticker is active for analysis
     universe_score = Column(Float, nullable=True)  # Composite score for universe selection
     last_analysis_date = Column(DateTime, nullable=True)  # Last time universe score was calculated
+    source = Column(String, default="sp500")  # 'sp500', 'manual', etc.
+    added_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
+    quotes = relationship("TickerQuote", back_populates="ticker")
     options = relationship("Option", back_populates="ticker")
     recommendations = relationship("Recommendation", back_populates="ticker")
     positions = relationship("Position", back_populates="ticker")
+
+
+class TickerQuote(Base):
+    """Frequently changing ticker market data - real-time updates."""
+    __tablename__ = "ticker_quotes"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String, ForeignKey("interesting_tickers.symbol"), nullable=False)
+    current_price = Column(Float, nullable=True)
+    volume_avg_20d = Column(Float, nullable=True)  # 20-day average volume
+    volatility_30d = Column(Float, nullable=True)  # 30-day historical volatility
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    ticker = relationship("InterestingTicker", back_populates="quotes")
+    
+    # Composite unique constraint - one quote per symbol
+    __table_args__ = (
+        Index('idx_symbol_unique', 'symbol', unique=True),
+    )
 
 
 class Option(Base):
@@ -65,7 +85,7 @@ class Option(Base):
     __tablename__ = "options"
     
     id = Column(Integer, primary_key=True, index=True)
-    symbol = Column(String, ForeignKey("tickers.symbol"), nullable=False)
+    symbol = Column(String, ForeignKey("interesting_tickers.symbol"), nullable=False)
     expiry = Column(DateTime, nullable=False)
     strike = Column(Float, nullable=False)
     option_type = Column(String, nullable=False)  # 'put' or 'call'
@@ -98,7 +118,7 @@ class Recommendation(Base):
     __tablename__ = "recommendations"
     
     id = Column(Integer, primary_key=True, index=True)
-    symbol = Column(String, ForeignKey("tickers.symbol"), nullable=False)
+    symbol = Column(String, ForeignKey("interesting_tickers.symbol"), nullable=False)
     option_id = Column(Integer, ForeignKey("options.id"), nullable=True)
     rationale_json = Column(JSONB, nullable=True)  # Scoring breakdown
     score = Column(Float, nullable=False)
@@ -116,7 +136,7 @@ class Position(Base):
     __tablename__ = "positions"
     
     id = Column(Integer, primary_key=True, index=True)
-    symbol = Column(String, ForeignKey("tickers.symbol"), nullable=False)
+    symbol = Column(String, ForeignKey("interesting_tickers.symbol"), nullable=False)
     shares = Column(Integer, nullable=False)
     avg_price = Column(Float, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

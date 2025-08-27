@@ -8,7 +8,7 @@ from sqlalchemy import and_, or_, desc, func, select
 import numpy as np
 
 from config import settings
-from db.models import Ticker, Option, Trade
+from db.models import InterestingTicker, TickerQuote, Option, Trade
 from clients.tradier import TradierDataManager
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ class UniverseService:
         self.db = db
         self.tradier_data = TradierDataManager(db)
     
-    async def get_filtered_universe(self, max_tickers: int = None) -> List[Ticker]:
+    async def get_filtered_universe(self, max_tickers: int = None) -> List[InterestingTicker]:
         """Get filtered universe of tickers for analysis."""
         if max_tickers is None:
             max_tickers = settings.max_tickers_per_cycle
@@ -30,7 +30,7 @@ class UniverseService:
         
         # Get all active tickers
         result = await self.db.execute(
-            select(Ticker).where(Ticker.active == True)
+            select(InterestingTicker).where(InterestingTicker.active == True)
         )
         all_tickers = result.scalars().all()
         
@@ -46,7 +46,7 @@ class UniverseService:
                 await self._update_ticker_data(ticker)
                 
                 # Apply filters
-                if not self._passes_basic_filters(ticker):
+                if not await self._passes_basic_filters(ticker):
                     continue
                 
                 if not await self._passes_options_filters(ticker):
@@ -56,7 +56,7 @@ class UniverseService:
                     continue
                 
                 # Calculate universe score
-                universe_score = self._calculate_universe_score(ticker)
+                universe_score = await self._calculate_universe_score(ticker)
                 ticker.universe_score = universe_score
                 ticker.last_analysis_date = datetime.utcnow()
                 
@@ -77,7 +77,7 @@ class UniverseService:
         
         return selected_tickers
     
-    async def _update_ticker_data(self, ticker: Ticker) -> None:
+    async def _update_ticker_data(self, ticker: InterestingTicker) -> None:
         """Update ticker market data if stale."""
         try:
             # Update if data is older than 1 hour
@@ -90,11 +90,17 @@ class UniverseService:
         except Exception as e:
             logger.warning(f"Failed to update data for {ticker.symbol}: {e}")
     
-    def _passes_basic_filters(self, ticker: Ticker) -> bool:
+    async def _passes_basic_filters(self, ticker: InterestingTicker) -> bool:
         """Apply basic fundamental and technical filters."""
         
+        # Get quote data for market data filters
+        result = await self.db.execute(
+            select(TickerQuote).where(TickerQuote.symbol == ticker.symbol)
+        )
+        quote = result.scalar_one_or_none()
+        
         # Price filter - avoid penny stocks and very expensive stocks
-        if ticker.current_price is None or ticker.current_price < 5.0 or ticker.current_price > 500.0:
+        if quote is None or quote.current_price is None or quote.current_price < 5.0 or quote.current_price > 500.0:
             return False
         
         # Market cap filter - focus on mid to large cap
@@ -102,11 +108,11 @@ class UniverseService:
             return False
         
         # Volume filter - ensure sufficient liquidity
-        if ticker.volume_avg_20d is None or ticker.volume_avg_20d < 500000:  # 500k shares/day
+        if quote.volume_avg_20d is None or quote.volume_avg_20d < 500000:  # 500k shares/day
             return False
         
         # Volatility filter - avoid extremely volatile stocks
-        if ticker.volatility_30d is not None and ticker.volatility_30d > 0.8:  # >80% annualized
+        if quote.volatility_30d is not None and quote.volatility_30d > 0.8:  # >80% annualized
             return False
         
         # Beta filter - avoid extremely high beta stocks
@@ -119,7 +125,7 @@ class UniverseService:
         
         return True
     
-    async def _passes_options_filters(self, ticker: Ticker) -> bool:
+    async def _passes_options_filters(self, ticker: InterestingTicker) -> bool:
         """Check if ticker has suitable options for cash-secured puts."""
         try:
             # Check if we have any options data (relaxed filter for development)
@@ -147,7 +153,7 @@ class UniverseService:
             logger.warning(f"Error checking options for {ticker.symbol}: {e}")
             return False
     
-    async def _passes_earnings_filters(self, ticker: Ticker) -> bool:
+    async def _passes_earnings_filters(self, ticker: InterestingTicker) -> bool:
         """Check if ticker is not in earnings blackout period."""
         try:
             # Check for upcoming earnings using ticker's next_earnings_date
@@ -168,10 +174,16 @@ class UniverseService:
             logger.warning(f"Error checking earnings for {ticker.symbol}: {e}")
             return True  # Default to allowing if we can't check
     
-    def _calculate_universe_score(self, ticker: Ticker) -> float:
+    async def _calculate_universe_score(self, ticker: InterestingTicker) -> float:
         """Calculate composite universe score for ticker."""
         score = 0.0
         weights = 0.0
+        
+        # Get quote data for market data scoring
+        result = await self.db.execute(
+            select(TickerQuote).where(TickerQuote.symbol == ticker.symbol)
+        )
+        quote = result.scalar_one_or_none()
         
         # 1. Market Cap Score (25% weight) - prefer mid-cap to large-cap
         if ticker.market_cap is not None:
@@ -188,18 +200,18 @@ class UniverseService:
             weights += 0.25
         
         # 2. Volume Score (20% weight) - prefer higher volume
-        if ticker.volume_avg_20d is not None:
-            volume_score = min(1.0, ticker.volume_avg_20d / 2000000)  # Normalize to 2M shares
+        if quote and quote.volume_avg_20d is not None:
+            volume_score = min(1.0, quote.volume_avg_20d / 2000000)  # Normalize to 2M shares
             score += volume_score * 0.20
             weights += 0.20
         
         # 3. Volatility Score (20% weight) - prefer moderate volatility
-        if ticker.volatility_30d is not None:
-            if 0.2 <= ticker.volatility_30d <= 0.4:  # Sweet spot for options
+        if quote and quote.volatility_30d is not None:
+            if 0.2 <= quote.volatility_30d <= 0.4:  # Sweet spot for options
                 vol_score = 1.0
-            elif 0.1 <= ticker.volatility_30d < 0.2:
+            elif 0.1 <= quote.volatility_30d < 0.2:
                 vol_score = 0.7
-            elif 0.4 < ticker.volatility_30d <= 0.6:
+            elif 0.4 < quote.volatility_30d <= 0.6:
                 vol_score = 0.8
             else:
                 vol_score = 0.3
@@ -247,7 +259,7 @@ class UniverseService:
         else:
             return 0.0
     
-    def get_sector_diversification(self, selected_tickers: List[Ticker]) -> Dict[str, int]:
+    def get_sector_diversification(self, selected_tickers: List[InterestingTicker]) -> Dict[str, int]:
         """Get sector distribution of selected tickers."""
         sector_counts = {}
         for ticker in selected_tickers:
@@ -255,7 +267,7 @@ class UniverseService:
             sector_counts[sector] = sector_counts.get(sector, 0) + 1
         return sector_counts
     
-    def optimize_for_diversification(self, tickers: List[Ticker], max_tickers: int) -> List[Ticker]:
+    def optimize_for_diversification(self, tickers: List[InterestingTicker], max_tickers: int) -> List[InterestingTicker]:
         """Optimize selection for sector diversification."""
         if len(tickers) <= max_tickers:
             return tickers

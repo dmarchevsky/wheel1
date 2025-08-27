@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import and_, or_, func, select
 
 from config import settings
-from db.models import Ticker
+from db.models import InterestingTicker, TickerQuote
 from clients.tradier import TradierDataManager
 from clients.api_ninjas import APINinjasClient
 
@@ -23,7 +23,7 @@ class MarketDataService:
         self.tradier_data = TradierDataManager(db)
         self.api_ninjas = APINinjasClient()
     
-    async def update_sp500_universe(self) -> List[Ticker]:
+    async def update_sp500_universe(self) -> List[InterestingTicker]:
         """Update the ticker universe with current S&P 500 constituents."""
         logger.info("Updating S&P 500 universe...")
         
@@ -66,22 +66,24 @@ class MarketDataService:
             return []
     
 
-    async def _upsert_ticker(self, ticker_data: Dict[str, Any]) -> Optional[Ticker]:
+    async def _upsert_ticker(self, ticker_data: Dict[str, Any]) -> Optional[InterestingTicker]:
         """Create or update a ticker with market data."""
         try:
             symbol = ticker_data["symbol"]
             
             # Check if ticker exists
             result = await self.db.execute(
-                select(Ticker).where(Ticker.symbol == symbol)
+                select(InterestingTicker).where(InterestingTicker.symbol == symbol)
             )
             ticker = result.scalar_one_or_none()
             
             if not ticker:
                 # Create new ticker
-                ticker = Ticker(
+                ticker = InterestingTicker(
                     symbol=symbol,
                     active=True,
+                    source="sp500",
+                    added_at=datetime.utcnow(),
                     updated_at=datetime.utcnow()
                 )
                 self.db.add(ticker)
@@ -105,26 +107,39 @@ class MarketDataService:
             await self.db.rollback()
             return None
     
-    async def _update_ticker_market_data(self, ticker: Ticker) -> Ticker:
+    async def _update_ticker_market_data(self, ticker: InterestingTicker) -> InterestingTicker:
         """Update ticker market data using Tradier API and API Ninjas."""
         try:
             # Step 1: Get Tradier data (price, volume, fundamentals)
-            updated_ticker = await self.tradier_data.sync_ticker_data(ticker.symbol)
+            tradier_data = await self.tradier_data.sync_ticker_data(ticker.symbol)
             
-            # Step 2: Get API Ninjas data (sector, industry, market cap, earnings)
-            await self._enrich_with_api_ninjas_data(updated_ticker)
+            # Step 2: Update fundamental data in InterestingTicker
+            if tradier_data:
+                # Update fundamental data (P/E ratio, dividend yield, beta)
+                if tradier_data.get("pe_ratio") is not None:
+                    ticker.pe_ratio = tradier_data["pe_ratio"]
+                if tradier_data.get("dividend_yield") is not None:
+                    ticker.dividend_yield = tradier_data["dividend_yield"]
+                if tradier_data.get("beta") is not None:
+                    ticker.beta = tradier_data["beta"]
             
-            logger.info(f"Updated market data for {ticker.symbol}: price=${updated_ticker.current_price}, "
-                       f"sector={updated_ticker.sector}, market_cap=${updated_ticker.market_cap}, "
-                       f"next_earnings={updated_ticker.next_earnings_date}")
+            # Step 3: Get API Ninjas data (sector, industry, market cap, earnings)
+            await self._enrich_with_api_ninjas_data(ticker)
             
-            return updated_ticker    
+            # Step 4: Update or create TickerQuote for market data
+            await self._update_ticker_quote(ticker.symbol, tradier_data)
+            
+            logger.info(f"Updated fundamental data for {ticker.symbol}: "
+                       f"sector={ticker.sector}, market_cap=${ticker.market_cap}, "
+                       f"next_earnings={ticker.next_earnings_date}")
+            
+            return ticker    
         except Exception as e:
             logger.error(f"Error updating market data for {ticker.symbol}: {e}")
             # Return the original ticker if update fails
             return ticker
     
-    async def _enrich_with_api_ninjas_data(self, ticker: Ticker) -> None:
+    async def _enrich_with_api_ninjas_data(self, ticker: InterestingTicker) -> None:
         """Enrich ticker data with API Ninjas information."""
         try:
             symbol = ticker.symbol
@@ -173,6 +188,42 @@ class MarketDataService:
         except Exception as e:
             logger.error(f"Error enriching data with API Ninjas for {ticker.symbol}: {e}")
     
+    async def _update_ticker_quote(self, symbol: str, tradier_data) -> None:
+        """Update or create TickerQuote with frequently changing market data."""
+        try:
+            # Check if quote exists
+            result = await self.db.execute(
+                select(TickerQuote).where(TickerQuote.symbol == symbol)
+            )
+            quote = result.scalar_one_or_none()
+            
+            if not quote:
+                # Create new quote
+                quote = TickerQuote(
+                    symbol=symbol,
+                    updated_at=datetime.utcnow()
+                )
+                self.db.add(quote)
+                logger.info(f"Created new quote for {symbol}")
+            else:
+                quote.updated_at = datetime.utcnow()
+                logger.debug(f"Updated existing quote for {symbol}")
+            
+            # Update market data from Tradier
+            if tradier_data:
+                if tradier_data.get("current_price") is not None:
+                    quote.current_price = tradier_data["current_price"]
+                if tradier_data.get("volume_avg_20d") is not None:
+                    quote.volume_avg_20d = tradier_data["volume_avg_20d"]
+                if tradier_data.get("volatility_30d") is not None:
+                    quote.volatility_30d = tradier_data["volatility_30d"]
+            
+            logger.info(f"Updated quote for {symbol}: price=${quote.current_price}, "
+                       f"volume_avg_20d={quote.volume_avg_20d}, volatility_30d={quote.volatility_30d}")
+            
+        except Exception as e:
+            logger.error(f"Error updating quote for {symbol}: {e}")
+    
     async def _deactivate_old_tickers(self, current_symbols: List[str]) -> None:
         """Deactivate tickers no longer in the current universe."""
         try:
@@ -180,10 +231,10 @@ class MarketDataService:
             
             # Find tickers not in current universe
             result = await self.db.execute(
-                select(Ticker).where(
+                select(InterestingTicker).where(
                     and_(
-                        Ticker.active == True,
-                        ~Ticker.symbol.in_(current_symbols_set)
+                        InterestingTicker.active == True,
+                        ~InterestingTicker.symbol.in_(current_symbols_set)
                     )
                 )
             )
@@ -200,7 +251,7 @@ class MarketDataService:
         except Exception as e:
             logger.error(f"Error deactivating old tickers: {e}")
     
-    async def refresh_market_data(self, max_tickers: int = None) -> List[Ticker]:
+    async def refresh_market_data(self, max_tickers: int = None) -> List[InterestingTicker]:
         """Refresh market data for active tickers."""
         if max_tickers is None:
             max_tickers = settings.max_tickers_per_cycle
@@ -210,12 +261,12 @@ class MarketDataService:
         # Get active tickers that need updating (older than 1 hour)
         cutoff_time = datetime.utcnow() - timedelta(hours=1)
         result = await self.db.execute(
-            select(Ticker).where(
+            select(InterestingTicker).where(
                 and_(
-                    Ticker.active == True,
+                    InterestingTicker.active == True,
                     or_(
-                        Ticker.updated_at == None,
-                        Ticker.updated_at < cutoff_time
+                        InterestingTicker.updated_at == None,
+                        InterestingTicker.updated_at < cutoff_time
                     )
                 )
             ).limit(max_tickers)
@@ -240,23 +291,23 @@ class MarketDataService:
         try:
             # Get total active tickers
             result = await self.db.execute(
-                select(func.count(Ticker.id)).where(Ticker.active == True)
+                select(func.count(InterestingTicker.id)).where(InterestingTicker.active == True)
             )
             total_tickers = result.scalar()
             
             # Get recently updated tickers
             result = await self.db.execute(
-                select(func.count(Ticker.id)).where(
-                    Ticker.updated_at >= datetime.utcnow() - timedelta(hours=24)
+                select(func.count(InterestingTicker.id)).where(
+                    InterestingTicker.updated_at >= datetime.utcnow() - timedelta(hours=24)
                 )
             )
             recent_updates = result.scalar()
             
             # Sector distribution
             result = await self.db.execute(
-                select(Ticker.sector, func.count(Ticker.id)).where(
-                    Ticker.active == True
-                ).group_by(Ticker.sector)
+                select(InterestingTicker.sector, func.count(InterestingTicker.id)).where(
+                    InterestingTicker.active == True
+                ).group_by(InterestingTicker.sector)
             )
             sector_counts = result.all()
             
@@ -300,29 +351,51 @@ class MarketDataService:
                 try:
                     logger.info(f"Processing ticker {i+1}/{len(sp500_symbols)}: {symbol}")
                     
-                    # Update ticker fundamentals
-                    ticker = await self.tradier_data.sync_ticker_data(symbol)
+                    # Check if ticker exists in interesting_tickers
+                    result = await self.db.execute(
+                        select(InterestingTicker).where(InterestingTicker.symbol == symbol)
+                    )
+                    ticker = result.scalar_one_or_none()
                     
-                    if ticker and ticker.current_price is not None:
-                        # Basic quote data was successfully updated
+                    if not ticker:
+                        # Create new ticker if it doesn't exist
+                        ticker = InterestingTicker(
+                            symbol=symbol,
+                            active=True,
+                            source="sp500",
+                            added_at=datetime.utcnow(),
+                            updated_at=datetime.utcnow()
+                        )
+                        self.db.add(ticker)
+                        logger.info(f"Created new ticker: {symbol}")
+                    
+                    # Update ticker fundamentals and market data
+                    updated_ticker = await self._update_ticker_market_data(ticker)
+                    
+                    if updated_ticker:
                         successful_updates += 1
                         successful_tickers.append(symbol)
                         
+                        # Get quote data for logging
+                        quote_result = await self.db.execute(
+                            select(TickerQuote).where(TickerQuote.symbol == symbol)
+                        )
+                        quote = quote_result.scalar_one_or_none()
+                        
                         # Log additional data if available
-                        data_log = f"✅ Successfully updated data for {symbol} (price: ${ticker.current_price})"
-                        if ticker.sector:
-                            data_log += f", sector: {ticker.sector}"
-                        if ticker.market_cap:
-                            data_log += f", market cap: ${ticker.market_cap:.1f}B"
-                        if ticker.pe_ratio:
-                            data_log += f", P/E: {ticker.pe_ratio:.1f}"
-                        if ticker.next_earnings_date:
-                            data_log += f", next earnings: {ticker.next_earnings_date.strftime('%Y-%m-%d')}"
+                        data_log = f"✅ Successfully updated data for {symbol}"
+                        if quote and quote.current_price:
+                            data_log += f" (price: ${quote.current_price})"
+                        if updated_ticker.sector:
+                            data_log += f", sector: {updated_ticker.sector}"
+                        if updated_ticker.market_cap:
+                            data_log += f", market cap: ${updated_ticker.market_cap:.1f}B"
+                        if updated_ticker.pe_ratio:
+                            data_log += f", P/E: {updated_ticker.pe_ratio:.1f}"
+                        if updated_ticker.next_earnings_date:
+                            data_log += f", next earnings: {updated_ticker.next_earnings_date.strftime('%Y-%m-%d')}"
                         
                         logger.info(data_log)
-                        
-                        # Also try to update earnings calendar (already done in sync_ticker_data)
-                        # This is now handled within sync_ticker_data method
                     else:
                         failed_tickers.append(symbol)
                         logger.warning(f"❌ Failed to update data for {symbol}")
