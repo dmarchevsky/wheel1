@@ -240,14 +240,12 @@ class TradierClient:
                 logger.info(f"Found {len(tickers)} SP500 constituents via API Ninjas")
                 return tickers
             
-            # Fallback to comprehensive list if API Ninjas fails
-            logger.warning("API Ninjas failed, using comprehensive SP500 fallback list")
-            return self._get_comprehensive_sp500_list()
+            logger.error("API Ninjas returned insufficient data for S&P 500 constituents")
+            return []
             
         except Exception as e:
             logger.error(f"Error fetching SP500 constituents from API Ninjas: {e}")
-            logger.warning("Using comprehensive SP500 fallback list")
-            return self._get_comprehensive_sp500_list()
+            return []
     
     def _map_morningstar_sector_code(self, sector_code: int) -> str:
         """Map Morningstar sector codes to readable sector names."""
@@ -267,17 +265,7 @@ class TradierClient:
         }
         return sector_mapping.get(sector_code, f"Unknown_Sector_{sector_code}")
     
-    def _get_comprehensive_sp500_list(self) -> List[str]:
-        """Fallback list of major S&P 500 stocks (used when API Ninjas fails)."""
-        # This is a minimal fallback list - API Ninjas should provide the full list
-        return [
-            "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK-B", "LLY", "V",
-            "UNH", "XOM", "JNJ", "WMT", "JPM", "PG", "MA", "HD", "CVX", "AVGO",
-            "ABBV", "PFE", "KO", "BAC", "PEP", "COST", "TMO", "ACN", "DHR", "VZ",
-            "MRK", "ABT", "WFC", "CMCSA", "ADBE", "NFLX", "CRM", "PM", "TXN", "NEE",
-            "RTX", "HON", "QCOM", "LOW", "UNP", "UPS", "IBM", "MS", "BMY", "CAT",
-            "GS", "AMAT", "SPGI", "INTU", "AXP", "GILD", "ISRG", "VRTX", "ADI", "TGT"
-        ]
+
 
 
 class TradierDataManager:

@@ -77,45 +77,14 @@ class MarketDataService:
                 return [{"symbol": symbol} for symbol in constituents]
             
             # Method 2: Fallback to a curated list of major S&P 500 stocks
-            logger.warning("Using fallback S&P 500 list")
-            return self._get_fallback_sp500_list()
+            logger.error("Failed to fetch S&P 500 constituents")
+            return []
             
         except Exception as e:
             logger.error(f"Error fetching S&P 500 constituents: {e}")
-            return self._get_fallback_sp500_list()
+            return []
     
-    def _get_fallback_sp500_list(self) -> List[Dict[str, Any]]:
-        """Fallback list of major S&P 500 stocks."""
-        # Top 100 S&P 500 stocks by market cap (simplified)
-        return [
-            {"symbol": "AAPL"}, {"symbol": "MSFT"}, {"symbol": "GOOGL"}, {"symbol": "AMZN"},
-            {"symbol": "NVDA"}, {"symbol": "META"}, {"symbol": "BRK-B"}, {"symbol": "LLY"},
-            {"symbol": "TSLA"}, {"symbol": "V"}, {"symbol": "UNH"}, {"symbol": "XOM"},
-            {"symbol": "JNJ"}, {"symbol": "WMT"}, {"symbol": "JPM"}, {"symbol": "PG"},
-            {"symbol": "MA"}, {"symbol": "HD"}, {"symbol": "CVX"}, {"symbol": "AVGO"},
-            {"symbol": "ABBV"}, {"symbol": "PFE"}, {"symbol": "KO"}, {"symbol": "BAC"},
-            {"symbol": "PEP"}, {"symbol": "COST"}, {"symbol": "TMO"}, {"symbol": "ACN"},
-            {"symbol": "DHR"}, {"symbol": "VZ"}, {"symbol": "MRK"}, {"symbol": "ABT"},
-            {"symbol": "WFC"}, {"symbol": "CMCSA"}, {"symbol": "ADBE"}, {"symbol": "NFLX"},
-            {"symbol": "CRM"}, {"symbol": "PM"}, {"symbol": "TXN"}, {"symbol": "NEE"},
-            {"symbol": "RTX"}, {"symbol": "HON"}, {"symbol": "QCOM"}, {"symbol": "LOW"},
-            {"symbol": "UNP"}, {"symbol": "UPS"}, {"symbol": "IBM"}, {"symbol": "MS"},
-            {"symbol": "BMY"}, {"symbol": "CAT"}, {"symbol": "GS"}, {"symbol": "AMAT"},
-            {"symbol": "SPGI"}, {"symbol": "INTU"}, {"symbol": "AXP"}, {"symbol": "GILD"},
-            {"symbol": "ISRG"}, {"symbol": "VRTX"}, {"symbol": "ADI"}, {"symbol": "TGT"},
-            {"symbol": "PLD"}, {"symbol": "SCHW"}, {"symbol": "ITW"}, {"symbol": "BDX"},
-            {"symbol": "TJX"}, {"symbol": "CB"}, {"symbol": "SO"}, {"symbol": "DUK"},
-            {"symbol": "NSC"}, {"symbol": "CME"}, {"symbol": "EOG"}, {"symbol": "SLB"},
-            {"symbol": "USB"}, {"symbol": "PGR"}, {"symbol": "CI"}, {"symbol": "AON"},
-            {"symbol": "ETN"}, {"symbol": "MMC"}, {"symbol": "APD"}, {"symbol": "SHW"},
-            {"symbol": "TFC"}, {"symbol": "PNC"}, {"symbol": "COF"}, {"symbol": "BLK"},
-            {"symbol": "MO"}, {"symbol": "GE"}, {"symbol": "FIS"}, {"symbol": "ICE"},
-            {"symbol": "NOC"}, {"symbol": "SRE"}, {"symbol": "PSA"}, {"symbol": "AIG"},
-            {"symbol": "MET"}, {"symbol": "PRU"}, {"symbol": "ALL"}, {"symbol": "TRV"},
-            {"symbol": "C"}, {"symbol": "WBA"}, {"symbol": "GM"}, {"symbol": "F"},
-            {"symbol": "DAL"}, {"symbol": "UAL"}, {"symbol": "AAL"}, {"symbol": "LUV"},
-            {"symbol": "UAL"}, {"symbol": "DAL"}, {"symbol": "AAL"}, {"symbol": "LUV"}
-        ]
+
     
     async def _upsert_ticker(self, ticker_data: Dict[str, Any]) -> Optional[Ticker]:
         """Create or update a ticker with market data."""
@@ -167,8 +136,7 @@ class MarketDataService:
                        f"volume={updated_ticker.volume_avg_20d}, market_cap=${updated_ticker.market_cap}, "
                        f"beta={updated_ticker.beta}, pe_ratio={updated_ticker.pe_ratio}")
             
-            return updated_ticker
-            
+            return updated_ticker    
         except Exception as e:
             logger.error(f"Error updating market data for {ticker.symbol}: {e}")
             # Return the original ticker if update fails
