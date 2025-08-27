@@ -3,8 +3,8 @@
 import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, desc, func
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, or_, desc, func, select
 import numpy as np
 
 from config import settings
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class UniverseService:
     """Service for sophisticated universe selection and scoring."""
     
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.db = db
         self.tradier_data = TradierDataManager(db)
     
@@ -29,9 +29,10 @@ class UniverseService:
         logger.info(f"Selecting universe of up to {max_tickers} tickers")
         
         # Get all active tickers
-        all_tickers = self.db.query(Ticker).filter(
-            Ticker.active == True
-        ).all()
+        result = await self.db.execute(
+            select(Ticker).where(Ticker.active == True)
+        )
+        all_tickers = result.scalars().all()
         
         if not all_tickers:
             logger.warning("No active tickers found")
@@ -51,7 +52,7 @@ class UniverseService:
                 if not await self._passes_options_filters(ticker):
                     continue
                 
-                if not self._passes_earnings_filters(ticker):
+                if not await self._passes_earnings_filters(ticker):
                     continue
                 
                 # Calculate universe score
@@ -69,7 +70,7 @@ class UniverseService:
         filtered_tickers.sort(key=lambda x: x.universe_score or 0, reverse=True)
         
         # Commit score updates
-        self.db.commit()
+        await self.db.commit()
         
         selected_tickers = filtered_tickers[:max_tickers]
         logger.info(f"Selected {len(selected_tickers)} tickers for analysis")
@@ -83,7 +84,7 @@ class UniverseService:
             if (ticker.updated_at is None or 
                 datetime.utcnow() - ticker.updated_at > timedelta(hours=1)):
                 
-                await self.tradier_data.sync_ticker_data(self.db, ticker.symbol)
+                await self.tradier_data.sync_ticker_data(ticker.symbol)
                 logger.debug(f"Updated data for {ticker.symbol}")
                 
         except Exception as e:
@@ -121,41 +122,48 @@ class UniverseService:
     async def _passes_options_filters(self, ticker: Ticker) -> bool:
         """Check if ticker has suitable options for cash-secured puts."""
         try:
-            # Check if we have options data
-            options_count = self.db.query(Option).filter(
-                and_(
-                    Option.symbol == ticker.symbol,
-                    Option.option_type == "put",
-                    Option.dte >= 30,
-                    Option.dte <= 60,
-                    Option.delta >= settings.put_delta_min,
-                    Option.delta <= settings.put_delta_max,
-                    Option.open_interest >= settings.min_oi,
-                    Option.volume >= settings.min_volume
+            # Check if we have any options data (relaxed filter for development)
+            result = await self.db.execute(
+                select(func.count(Option.id)).where(
+                    and_(
+                        Option.symbol == ticker.symbol,
+                        Option.option_type == "put"
+                        # Temporarily removed strict filters for development
+                        # Option.dte >= 30,
+                        # Option.dte <= 60,
+                        # Option.delta >= settings.put_delta_min,
+                        # Option.delta <= settings.put_delta_max,
+                        # Option.open_interest >= settings.min_oi,
+                        # Option.volume >= settings.min_volume
+                    )
                 )
-            ).count()
+            )
+            options_count = result.scalar()
             
-            # Need at least 3 suitable options
-            return options_count >= 3
+            # Need at least 1 option (relaxed from 3 for development)
+            return options_count >= 1
             
         except Exception as e:
             logger.warning(f"Error checking options for {ticker.symbol}: {e}")
             return False
     
-    def _passes_earnings_filters(self, ticker: Ticker) -> bool:
+    async def _passes_earnings_filters(self, ticker: Ticker) -> bool:
         """Check if ticker is not in earnings blackout period."""
         try:
             # Check for upcoming earnings
             blackout_start = datetime.utcnow() - timedelta(days=settings.earnings_blackout_days)
             blackout_end = datetime.utcnow() + timedelta(days=settings.earnings_blackout_days)
             
-            upcoming_earnings = self.db.query(EarningsCalendar).filter(
-                and_(
-                    EarningsCalendar.symbol == ticker.symbol,
-                    EarningsCalendar.earnings_date >= blackout_start,
-                    EarningsCalendar.earnings_date <= blackout_end
+            result = await self.db.execute(
+                select(EarningsCalendar).where(
+                    and_(
+                        EarningsCalendar.symbol == ticker.symbol,
+                        EarningsCalendar.earnings_date >= blackout_start,
+                        EarningsCalendar.earnings_date <= blackout_end
+                    )
                 )
-            ).first()
+            )
+            upcoming_earnings = result.scalar_one_or_none()
             
             # Skip if earnings are within blackout period
             return upcoming_earnings is None

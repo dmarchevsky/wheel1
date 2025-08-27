@@ -4,7 +4,7 @@ import logging
 from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import desc, select
 
 from db.session import get_async_db
@@ -34,7 +34,7 @@ class RecommendationResponse(BaseModel):
 
 @router.get("/current", response_model=List[RecommendationResponse])
 async def get_current_recommendations(
-    db: Session = Depends(get_async_db),
+    db: AsyncSession = Depends(get_async_db),
     limit: int = Query(default=10, le=50)
 ):
     """Get current recommendations."""
@@ -75,7 +75,7 @@ async def get_current_recommendations(
 
 @router.get("/history", response_model=List[RecommendationResponse])
 async def get_recommendation_history(
-    db: Session = Depends(get_async_db),
+    db: AsyncSession = Depends(get_async_db),
     limit: int = Query(default=50, le=100),
     offset: int = Query(default=0, ge=0),
     symbol: Optional[str] = Query(default=None),
@@ -125,7 +125,7 @@ async def get_recommendation_history(
 @router.get("/{recommendation_id}", response_model=RecommendationResponse)
 async def get_recommendation(
     recommendation_id: int,
-    db: Session = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Get a specific recommendation by ID."""
     try:
@@ -161,7 +161,7 @@ async def get_recommendation(
 @router.post("/{recommendation_id}/dismiss")
 async def dismiss_recommendation(
     recommendation_id: int,
-    db: Session = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Dismiss a recommendation."""
     try:
@@ -188,7 +188,7 @@ async def dismiss_recommendation(
 @router.get("/symbols/{symbol}", response_model=List[RecommendationResponse])
 async def get_recommendations_by_symbol(
     symbol: str,
-    db: Session = Depends(get_async_db),
+    db: AsyncSession = Depends(get_async_db),
     limit: int = Query(default=20, le=50)
 ):
     """Get recommendations for a specific symbol."""
@@ -228,7 +228,7 @@ async def get_recommendations_by_symbol(
 
 @router.post("/refresh")
 async def refresh_recommendations(
-    db: Session = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Refresh recommendations by generating new ones."""
     try:

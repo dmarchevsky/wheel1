@@ -150,6 +150,27 @@ db-migrate-history:
     @echo "Migration history..."
     cd app/backend && alembic history
 
+# Market data commands
+update-sp500:
+    @echo "Updating S&P 500 universe..."
+    curl -X POST "http://localhost:8000/v1/market-data/update-sp500-universe"
+
+refresh-market-data:
+    @echo "Refreshing market data..."
+    curl -X POST "http://localhost:8000/v1/market-data/refresh-market-data"
+
+populate-sp500-fundamentals:
+    @echo "Populating SP500 fundamentals and earnings data..."
+    curl -X POST "http://localhost:8000/v1/market-data/populate-sp500-fundamentals-earnings" | jq .
+
+check-scheduled-jobs:
+    @echo "Checking scheduled jobs status..."
+    curl -X GET "http://localhost:8000/health/" | jq .
+
+market-summary:
+    @echo "Getting market summary..."
+    curl -X GET "http://localhost:8000/v1/market-data/summary" | jq .
+
 # Reset database (drop and recreate)
 db-reset:
     @echo "Resetting database..."

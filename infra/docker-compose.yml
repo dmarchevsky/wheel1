@@ -185,7 +185,7 @@ services:
       dockerfile: ../../infra/Dockerfile.frontend.dev
     container_name: wheel_frontend
     environment:
-      - NEXT_PUBLIC_API_BASE_URL=http://localhost/api
+      - NEXT_PUBLIC_API_BASE_URL=http://192.168.3.100/api
       - NODE_ENV=development
     volumes:
       - ../app/frontend:/app

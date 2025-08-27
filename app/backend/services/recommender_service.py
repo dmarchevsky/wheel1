@@ -3,8 +3,8 @@
 import logging
 from datetime import datetime, timedelta
 from typing import List, Optional
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, desc
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, desc, select
 
 from config import settings
 from db.models import Recommendation, Ticker, Option, Position
@@ -23,7 +23,7 @@ class RecommenderService:
         # Services will be initialized with db when needed
         pass
     
-    async def generate_recommendations(self, db: Session) -> List[Recommendation]:
+    async def generate_recommendations(self, db: AsyncSession) -> List[Recommendation]:
         """Generate new recommendations."""
         try:
             logger.info("Starting recommendation generation...")
@@ -35,7 +35,7 @@ class RecommenderService:
                 return []
             
             # Get current positions to avoid duplicates
-            current_positions = self._get_current_positions(db)
+            current_positions = await self._get_current_positions(db)
             
             recommendations = []
             
@@ -52,28 +52,29 @@ class RecommenderService:
                         logger.debug(f"No suitable options found for {ticker.symbol}")
                         continue
                     
-                    # Score options
-                    scoring_engine = ScoringEngine(db)
-                    # Get current price for the ticker
-                    current_price = ticker.current_price or 0
+                    logger.info(f"Found {len(options)} options for {ticker.symbol}")
                     
                     # Score each option
                     scored_options = []
                     for option in options:
                         score_data = scoring_engine.score_option(option, current_price)
+                        logger.debug(f"Option {option.symbol} {option.strike} scored: {score_data['score']}")
                         if score_data["score"] > 0:
                             scored_options.append((option, score_data))
+                    
+                    logger.info(f"Scored {len(scored_options)} options for {ticker.symbol}")
                     
                     # Sort by score and take top recommendations
                     scored_options.sort(key=lambda x: x[1]["score"], reverse=True)
                     scored_options = scored_options[:1]  # max_recommendations=1
                     
                     if not scored_options:
+                        logger.debug(f"No options passed scoring for {ticker.symbol}")
                         continue
                     
                     # Create recommendation
                     recommendation = await self._create_recommendation(
-                        db, ticker, scored_options[0]
+                        db, ticker, scored_options[0][0]  # Get the option from the tuple
                     )
                     
                     if recommendation:
@@ -91,7 +92,7 @@ class RecommenderService:
             logger.error(f"Error generating recommendations: {e}")
             return []
     
-    async def _get_universe(self, db: Session) -> List[Ticker]:
+    async def _get_universe(self, db: AsyncSession) -> List[Ticker]:
         """Get universe of tickers to analyze using sophisticated filtering."""
         try:
             universe_service = UniverseService(db)
@@ -112,16 +113,20 @@ class RecommenderService:
         except Exception as e:
             logger.error(f"Error in universe selection: {e}")
             # Fallback to basic selection
-            return db.query(Ticker).filter(
-                Ticker.active == True
-            ).order_by(Ticker.symbol).limit(settings.max_tickers_per_cycle).all()
+            result = await db.execute(
+                select(Ticker).where(Ticker.active == True)
+                .order_by(Ticker.symbol)
+                .limit(settings.max_tickers_per_cycle)
+            )
+            return result.scalars().all()
     
-    def _get_current_positions(self, db: Session) -> List[str]:
+    async def _get_current_positions(self, db: AsyncSession) -> List[str]:
         """Get symbols of current positions."""
         try:
-            positions = db.query(Position).filter(
-                Position.status == "open"
-            ).all()
+            result = await db.execute(
+                select(Position).where(Position.status == "open")
+            )
+            positions = result.scalars().all()
             
             return [pos.symbol for pos in positions]
         except Exception as e:
@@ -129,35 +134,52 @@ class RecommenderService:
             # Return empty list if table doesn't exist
             return []
     
-    async def _get_options_for_ticker(self, db: Session, ticker: Ticker) -> List[Option]:
+    async def _get_options_for_ticker(self, db: AsyncSession, ticker: Ticker) -> List[Option]:
         """Get suitable put options for a ticker."""
         # Get current market data
         try:
             tradier_data = TradierDataManager(db)
-            await tradier_data.sync_ticker_data(db, ticker.symbol)
+            await tradier_data.sync_ticker_data(ticker.symbol)
         except Exception as e:
             logger.warning(f"Failed to sync data for {ticker.symbol}: {e}")
             return []
         
-        # Get put options within our criteria
-        options = db.query(Option).filter(
-            and_(
-                Option.symbol == ticker.symbol,
-                Option.option_type == "put",
-                Option.dte >= 30,
-                Option.dte <= 60,
-                Option.delta >= settings.put_delta_min,
-                Option.delta <= settings.put_delta_max,
-                Option.open_interest >= settings.min_oi,
-                Option.volume >= settings.min_volume
+        # Check if we have options data in the database
+        result = await db.execute(
+            select(Option).where(
+                and_(
+                    Option.symbol == ticker.symbol,
+                    Option.option_type == "put"
+                )
             )
-        ).all()
+        )
+        options = result.scalars().all()
+        
+        # If no options in database, try to fetch from Tradier API
+        if not options:
+            logger.info(f"No options found in database for {ticker.symbol}, fetching from Tradier API")
+            try:
+                # Get available expirations
+                expirations = await tradier_data.client.get_option_expirations(ticker.symbol)
+                if expirations:
+                    # Use the nearest expiration
+                    expiration = expirations[0]
+                    logger.info(f"Fetching options for {ticker.symbol} with expiration {expiration}")
+                    
+                    # Fetch options data
+                    options = await tradier_data.sync_options_data(ticker.symbol, expiration)
+                    logger.info(f"Fetched {len(options)} options for {ticker.symbol}")
+                else:
+                    logger.warning(f"No expirations available for {ticker.symbol}")
+            except Exception as e:
+                logger.error(f"Failed to fetch options from Tradier API for {ticker.symbol}: {e}")
+                return []
         
         return options
     
     async def _create_recommendation(
         self, 
-        db: Session, 
+        db: AsyncSession, 
         ticker: Ticker, 
         option: Option
     ) -> Optional[Recommendation]:
@@ -206,21 +228,22 @@ class RecommenderService:
             )
             
             db.add(recommendation)
-            db.commit()
+            await db.commit()
             
             return recommendation
             
         except Exception as e:
             logger.error(f"Error creating recommendation for {ticker.symbol}: {e}")
-            db.rollback()
+            await db.rollback()
             return None
     
-    def dismiss_recommendation(self, db: Session, recommendation_id: int) -> bool:
+    async def dismiss_recommendation(self, db: AsyncSession, recommendation_id: int) -> bool:
         """Dismiss a recommendation."""
         try:
-            recommendation = db.query(Recommendation).filter(
-                Recommendation.id == recommendation_id
-            ).first()
+            result = await db.execute(
+                select(Recommendation).where(Recommendation.id == recommendation_id)
+            )
+            recommendation = result.scalar_one_or_none()
             
             if not recommendation:
                 return False
@@ -228,37 +251,40 @@ class RecommenderService:
             recommendation.status = "dismissed"
             recommendation.updated_at = datetime.utcnow()
             
-            db.commit()
+            await db.commit()
             return True
             
         except Exception as e:
             logger.error(f"Error dismissing recommendation {recommendation_id}: {e}")
-            db.rollback()
+            await db.rollback()
             return False
     
-    def cleanup_old_recommendations(self, db: Session, days: int = 7) -> int:
+    async def cleanup_old_recommendations(self, db: AsyncSession, days: int = 7) -> int:
         """Clean up old recommendations."""
         try:
             cutoff_date = datetime.utcnow() - timedelta(days=days)
             
-            old_recommendations = db.query(Recommendation).filter(
-                and_(
-                    Recommendation.created_at < cutoff_date,
-                    Recommendation.status.in_(["proposed", "dismissed"])
+            result = await db.execute(
+                select(Recommendation).where(
+                    and_(
+                        Recommendation.created_at < cutoff_date,
+                        Recommendation.status.in_(["proposed", "dismissed"])
+                    )
                 )
-            ).all()
+            )
+            old_recommendations = result.scalars().all()
             
             count = len(old_recommendations)
             
             for rec in old_recommendations:
-                db.delete(rec)
+                await db.delete(rec)
             
-            db.commit()
+            await db.commit()
             
             logger.info(f"Cleaned up {count} old recommendations")
             return count
             
         except Exception as e:
             logger.error(f"Error cleaning up old recommendations: {e}")
-            db.rollback()
+            await db.rollback()
             return 0
