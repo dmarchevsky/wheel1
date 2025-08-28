@@ -150,22 +150,24 @@ async def get_active_tickers(
     try:
         from sqlalchemy import select
         
-        query = select(Ticker).where(Ticker.active == True)
+        query = select(InterestingTicker, TickerQuote).outerjoin(
+            TickerQuote, InterestingTicker.symbol == TickerQuote.symbol
+        ).where(InterestingTicker.active == True)
         
         if sector:
-            query = query.where(Ticker.sector == sector)
+            query = query.where(InterestingTicker.sector == sector)
         
         # Get total count
-        count_query = select(func.count(Ticker.id)).where(Ticker.active == True)
+        count_query = select(func.count(InterestingTicker.id)).where(InterestingTicker.active == True)
         if sector:
-            count_query = count_query.where(Ticker.sector == sector)
+            count_query = count_query.where(InterestingTicker.sector == sector)
         
         total_count_result = await db.execute(count_query)
         total_count = total_count_result.scalar()
         
         # Get tickers with pagination
         tickers_result = await db.execute(query.offset(offset).limit(limit))
-        tickers = tickers_result.scalars().all()
+        rows = tickers_result.all()
         
         return {
             "status": "success",
@@ -177,15 +179,15 @@ async def get_active_tickers(
                         "sector": ticker.sector,
                         "industry": ticker.industry,
                         "market_cap": ticker.market_cap,
-                        "current_price": ticker.current_price,
-                        "volume_avg_20d": ticker.volume_avg_20d,
-                        "volatility_30d": ticker.volatility_30d,
+                        "current_price": quote.current_price if quote else None,
+                        "volume_avg_20d": quote.volume_avg_20d if quote else None,
+                        "volatility_30d": quote.volatility_30d if quote else None,
                         "beta": ticker.beta,
                         "pe_ratio": ticker.pe_ratio,
                         "dividend_yield": ticker.dividend_yield,
                         "universe_score": ticker.universe_score,
                         "updated_at": ticker.updated_at.isoformat() if ticker.updated_at else None
-                    } for ticker in tickers
+                    } for ticker, quote in rows
                 ],
                 "pagination": {
                     "total": total_count,
@@ -212,10 +214,10 @@ async def get_ticker_details(
         from sqlalchemy import select
         
         result = await db.execute(
-            select(Ticker).where(
+            select(InterestingTicker).where(
                 and_(
-                    Ticker.symbol == symbol.upper(),
-                    Ticker.active == True
+                    InterestingTicker.symbol == symbol.upper(),
+                    InterestingTicker.active == True
                 )
             )
         )

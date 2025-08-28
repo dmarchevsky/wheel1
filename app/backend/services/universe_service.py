@@ -23,10 +23,7 @@ class UniverseService:
     
     async def get_filtered_universe(self, max_tickers: int = None, refresh_data: bool = True, fast_mode: bool = False) -> List[InterestingTicker]:
         """Get filtered universe of tickers for analysis."""
-        if max_tickers is None:
-            max_tickers = settings.max_tickers_per_cycle
-        
-        logger.info(f"Selecting universe of up to {max_tickers} tickers (fast_mode={fast_mode})")
+        logger.info(f"Selecting universe of all tickers that pass filters (fast_mode={fast_mode})")
         
         # Optionally refresh market data first (skip in fast mode)
         if refresh_data and not fast_mode:
@@ -76,28 +73,25 @@ class UniverseService:
                 logger.warning(f"Error processing ticker {ticker.symbol}: {e}")
                 continue
         
-        # Sort by universe score and return top tickers
+        # Sort by universe score and return all filtered tickers
         filtered_tickers.sort(key=lambda x: x.universe_score or 0, reverse=True)
         
         # Commit score updates
         await self.db.commit()
         
-        selected_tickers = filtered_tickers[:max_tickers]
-        logger.info(f"Selected {len(selected_tickers)} tickers for analysis from {len(filtered_tickers)} filtered tickers")
+        # Return all filtered tickers without artificial limits
+        logger.info(f"Selected {len(filtered_tickers)} tickers for analysis (all filtered tickers)")
         
         # Log top tickers for debugging
-        if selected_tickers:
-            top_tickers = [(t.symbol, t.universe_score or 0) for t in selected_tickers[:5]]
+        if filtered_tickers:
+            top_tickers = [(t.symbol, t.universe_score or 0) for t in filtered_tickers[:5]]
             logger.info(f"Top 5 tickers: {top_tickers}")
         
-        return selected_tickers
+        return filtered_tickers
     
     async def refresh_universe_data(self, max_tickers: int = None) -> List[InterestingTicker]:
         """Refresh market data for the entire universe using MarketDataService."""
-        if max_tickers is None:
-            max_tickers = settings.max_tickers_per_cycle
-        
-        logger.info(f"Refreshing universe data for up to {max_tickers} tickers")
+        logger.info(f"Refreshing universe data for all active tickers")
         
         try:
             # Use MarketDataService to refresh data for active tickers
@@ -125,7 +119,7 @@ class UniverseService:
             logger.warning(f"Failed to update data for {ticker.symbol}: {e}")
     
     async def _passes_basic_filters(self, ticker: InterestingTicker) -> bool:
-        """Apply basic fundamental and technical filters."""
+        """Apply basic fundamental and technical filters (relaxed for development)."""
         
         # Get quote data for market data filters
         result = await self.db.execute(
@@ -133,59 +127,63 @@ class UniverseService:
         )
         quote = result.scalar_one_or_none()
         
-        # Price filter - avoid penny stocks and very expensive stocks
-        if quote is None or quote.current_price is None or quote.current_price < 5.0 or quote.current_price > 500.0:
+        # Price filter - avoid penny stocks and very expensive stocks (relaxed)
+        if quote is None or quote.current_price is None or quote.current_price < 3.0 or quote.current_price > 1000.0:
+            logger.debug(f"Ticker {ticker.symbol} failed price filter: price={quote.current_price if quote else None}")
             return False
         
-        # Market cap filter - focus on mid to large cap
-        if ticker.market_cap is None or ticker.market_cap < 1.0:  # Less than $1B
+        # Market cap filter - focus on mid to large cap (relaxed)
+        if ticker.market_cap is None or ticker.market_cap < 0.5:  # Less than $500M (relaxed from $1B)
+            logger.debug(f"Ticker {ticker.symbol} failed market cap filter: market_cap={ticker.market_cap}")
             return False
         
-        # Volume filter - ensure sufficient liquidity
-        if quote.volume_avg_20d is None or quote.volume_avg_20d < 500000:  # 500k shares/day
+        # Volume filter - ensure sufficient liquidity (relaxed)
+        if quote.volume_avg_20d is None or quote.volume_avg_20d < 100000:  # 100k shares/day (relaxed from 500k)
+            logger.debug(f"Ticker {ticker.symbol} failed volume filter: volume={quote.volume_avg_20d}")
             return False
         
-        # Volatility filter - avoid extremely volatile stocks
-        if quote.volatility_30d is not None and quote.volatility_30d > 0.8:  # >80% annualized
+        # Volatility filter - avoid extremely volatile stocks (relaxed)
+        # Note: volatility is stored as percentage (e.g., 50.0 = 50%), so compare with percentage value
+        if quote.volatility_30d is not None and quote.volatility_30d > 120.0:  # >120% annualized (relaxed from 80%)
+            logger.debug(f"Ticker {ticker.symbol} failed volatility filter: volatility={quote.volatility_30d}%")
             return False
         
-        # Beta filter - avoid extremely high beta stocks
-        if ticker.beta is not None and ticker.beta > 2.0:
+        # Beta filter - avoid extremely high beta stocks (relaxed)
+        if ticker.beta is not None and ticker.beta > 4.0:  # >4.0 (relaxed from 2.0)
+            logger.debug(f"Ticker {ticker.symbol} failed beta filter: beta={ticker.beta}")
             return False
         
-        # P/E filter - avoid extremely expensive stocks
-        if ticker.pe_ratio is not None and ticker.pe_ratio > 50:
+        # P/E filter - avoid extremely expensive stocks (relaxed)
+        if ticker.pe_ratio is not None and ticker.pe_ratio > 200:  # >200 (relaxed from 50)
+            logger.debug(f"Ticker {ticker.symbol} failed P/E filter: pe_ratio={ticker.pe_ratio}")
             return False
         
+        logger.debug(f"Ticker {ticker.symbol} passed all basic filters")
         return True
     
     async def _passes_options_filters(self, ticker: InterestingTicker) -> bool:
-        """Check if ticker has suitable options for cash-secured puts."""
+        """Check if ticker has suitable options for cash-secured puts (relaxed for development)."""
         try:
-            # Check if we have any options data (relaxed filter for development)
-            result = await self.db.execute(
-                select(func.count(Option.id)).where(
-                    and_(
-                        Option.symbol == ticker.symbol,
-                        Option.option_type == "put"
-                        # Temporarily removed strict filters for development
-                        # Option.dte >= 30,
-                        # Option.dte <= 60,
-                        # Option.delta >= settings.put_delta_min,
-                        # Option.delta <= settings.put_delta_max,
-                        # Option.open_interest >= settings.min_oi,
-                        # Option.volume >= settings.min_volume
-                    )
-                )
-            )
-            options_count = result.scalar()
+            # For development, temporarily skip options filter to allow more tickers
+            # TODO: Re-enable options filter when options data is populated
+            logger.debug(f"Skipping options filter for {ticker.symbol} (development mode)")
+            return True
             
-            # Need at least 1 option (relaxed from 3 for development)
-            return options_count >= 1
+            # Original options filter (commented out for development)
+            # result = await self.db.execute(
+            #     select(func.count(Option.id)).where(
+            #         and_(
+            #             Option.symbol == ticker.symbol,
+            #             Option.option_type == "put"
+            #         )
+            #     )
+            # )
+            # options_count = result.scalar()
+            # return options_count >= 1
             
         except Exception as e:
             logger.warning(f"Error checking options for {ticker.symbol}: {e}")
-            return False
+            return True  # Default to allowing in development
     
     async def _passes_earnings_filters(self, ticker: InterestingTicker) -> bool:
         """Check if ticker is not in earnings blackout period."""
@@ -379,23 +377,24 @@ class UniverseService:
     
     async def get_tickers_needing_updates(self, max_tickers: int = None) -> List[InterestingTicker]:
         """Get tickers that need market data updates."""
-        if max_tickers is None:
-            max_tickers = settings.max_tickers_per_cycle
-        
         try:
             # Get active tickers that need updating (older than 1 hour)
             cutoff_time = datetime.utcnow() - timedelta(hours=1)
-            result = await self.db.execute(
-                select(InterestingTicker).where(
-                    and_(
-                        InterestingTicker.active == True,
-                        or_(
-                            InterestingTicker.updated_at == None,
-                            InterestingTicker.updated_at < cutoff_time
-                        )
+            query = select(InterestingTicker).where(
+                and_(
+                    InterestingTicker.active == True,
+                    or_(
+                        InterestingTicker.updated_at == None,
+                        InterestingTicker.updated_at < cutoff_time
                     )
-                ).limit(max_tickers)
+                )
             )
+            
+            # Apply limit if specified
+            if max_tickers is not None:
+                query = query.limit(max_tickers)
+            
+            result = await self.db.execute(query)
             tickers_needing_updates = result.scalars().all()
             
             logger.info(f"Found {len(tickers_needing_updates)} tickers needing updates")

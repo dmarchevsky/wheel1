@@ -27,7 +27,6 @@ class RecommenderService:
         """Generate new recommendations."""
         start_time = datetime.utcnow()
         logger.info(f"🚀 Starting recommendation generation (fast_mode={fast_mode})...")
-        logger.info(f"📊 Max tickers per cycle: {settings.max_tickers_per_cycle}")
         logger.info(f"📊 Max recommendations: {settings.max_recommendations}")
         
         try:
@@ -52,9 +51,9 @@ class RecommenderService:
             skipped_count = 0
             error_count = 0
             
-            for ticker in tickers[:settings.max_tickers_per_cycle]:
+            for ticker in tickers:
                 processed_count += 1
-                logger.info(f"📈 Processing ticker {processed_count}/{min(len(tickers), settings.max_tickers_per_cycle)}: {ticker.symbol}")
+                logger.info(f"📈 Processing ticker {processed_count}/{len(tickers)}: {ticker.symbol}")
                 logger.info(f"   📊 Ticker details: sector={ticker.sector}, market_cap=${ticker.market_cap}, pe_ratio={ticker.pe_ratio}")
                 
                 try:
@@ -178,14 +177,6 @@ class RecommenderService:
             tickers = await universe_service.get_filtered_universe(fast_mode=fast_mode)
             logger.info(f"📊 UniverseService returned {len(tickers)} tickers")
             
-            # Apply sector diversification if we have enough tickers
-            if len(tickers) > settings.max_tickers_per_cycle:
-                logger.info(f"🔄 Applying sector diversification (reducing from {len(tickers)} to {settings.max_tickers_per_cycle})...")
-                tickers = universe_service.optimize_for_diversification(
-                    tickers, settings.max_tickers_per_cycle
-                )
-                logger.info(f"✅ Diversification complete, {len(tickers)} tickers remaining")
-            
             # Log sector distribution
             sector_dist = universe_service.get_sector_diversification(tickers)
             logger.info(f"📊 Final universe sector distribution: {sector_dist}")
@@ -200,7 +191,6 @@ class RecommenderService:
             result = await db.execute(
                 select(InterestingTicker).where(InterestingTicker.active == True)
                 .order_by(InterestingTicker.symbol)
-                .limit(settings.max_tickers_per_cycle)
             )
             fallback_tickers = result.scalars().all()
             logger.info(f"📊 Fallback selection returned {len(fallback_tickers)} tickers")
@@ -280,7 +270,9 @@ class RecommenderService:
             logger.info(f"📊 Options summary for {ticker.symbol}:")
             for i, option in enumerate(options[:5]):  # Show first 5 options
                 logger.info(f"   {i+1}. Strike: ${option.strike}, Expiry: {option.expiry}, DTE: {option.dte}")
-                logger.info(f"      Delta: {option.delta:.3f}, IV: {option.implied_volatility:.1f}%, OI: {option.open_interest}")
+                delta_str = f"{option.delta:.3f}" if option.delta is not None else "N/A"
+                iv_str = f"{option.implied_volatility:.1f}%" if option.implied_volatility is not None else "N/A"
+                logger.info(f"      Delta: {delta_str}, IV: {iv_str}, OI: {option.open_interest}")
         
         return options
     

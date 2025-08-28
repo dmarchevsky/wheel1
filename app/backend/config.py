@@ -68,7 +68,6 @@ class Settings(BaseSettings):
     min_volume: int = Field(default=200, env="MIN_VOLUME")
     max_bid_ask_pct: float = Field(default=5, env="MAX_BID_ASK_PCT")
     annualized_min_pct: float = Field(default=20, env="ANNUALIZED_MIN_PCT")
-    max_tickers_per_cycle: int = Field(default=10, env="MAX_TICKERS_PER_CYCLE")
     max_recommendations: int = Field(default=3, env="MAX_RECOMMENDATIONS")
     earnings_blackout_days: int = Field(default=7, env="EARNINGS_BLACKOUT_DAYS")
     

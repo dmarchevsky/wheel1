@@ -265,10 +265,8 @@ class MarketDataService:
     
     async def refresh_market_data(self, max_tickers: int = None) -> List[InterestingTicker]:
         """Refresh market data for active tickers."""
-        if max_tickers is None:
-            max_tickers = settings.max_tickers_per_cycle
-        
-        logger.info(f"Refreshing market data for up to {max_tickers} tickers")
+        # Remove the artificial limit - refresh all tickers that need updating
+        logger.info(f"Refreshing market data for all active tickers that need updating")
         
         # Get active tickers that need updating (older than 1 hour)
         cutoff_time = datetime.utcnow() - timedelta(hours=1)
@@ -281,7 +279,7 @@ class MarketDataService:
                         InterestingTicker.updated_at < cutoff_time
                     )
                 )
-            ).limit(max_tickers)
+            )
         )
         tickers_to_update = result.scalars().all()
         
