@@ -184,6 +184,49 @@ market-summary:
     @echo "Getting market summary..."
     curl -X GET "{{api-url}}/v1/market-data/summary" | jq .
 
+# Recommendation commands
+generate-recommendations:
+    @echo "🚀 Generating new recommendations..."
+    curl -X POST "{{api-url}}/v1/recommendations/generate" | jq .
+
+generate-recommendations-full:
+    @echo "🚀 Generating new recommendations (full mode)..."
+    curl -X POST "{{api-url}}/v1/recommendations/generate?fast_mode=false" | jq .
+
+get-recommendations:
+    @echo "📊 Getting current recommendations..."
+    curl -X GET "{{api-url}}/v1/recommendations/current" | jq .
+
+get-recommendation-history:
+    @echo "📊 Getting recommendation history..."
+    curl -X GET "{{api-url}}/v1/recommendations/history" | jq .
+
+# API testing
+test-tradier:
+    @echo "🔗 Testing Tradier API connection..."
+    curl -X GET "{{api-url}}/v1/tradier-test" | jq .
+
+test-api-ninjas:
+    @echo "🔗 Testing API Ninjas connection..."
+    curl -X GET "{{api-url}}/v1/market-data/interesting-tickers/AAPL" | jq .
+
+test-tradier-fundamentals:
+    @echo "🔗 Testing Tradier fundamentals API..."
+    curl -X GET "{{api-url}}/v1/market-data/tradier-fundamentals/AFRM" | jq .
+
+test-tradier-quote:
+    @echo "🔗 Testing Tradier quote API..."
+    curl -X GET "{{api-url}}/v1/market-data/tradier-quote/AFRM" | jq .
+
+# Ticker management
+refresh-ticker-data:
+    @echo "📊 Refreshing ticker data..."
+    curl -X POST "{{api-url}}/v1/market-data/refresh-market-data" | jq .
+
+refresh-ticker symbol:
+    @echo "📊 Refreshing specific ticker data for {{symbol}}..."
+    curl -X POST "{{api-url}}/v1/market-data/interesting-tickers/{{symbol}}/refresh" | jq .
+
 # Reset database (drop and recreate)
 db-reset:
     @echo "Resetting database..."
@@ -203,48 +246,134 @@ seed:
 # =============================================================================
 
 # Show all logs (development)
-logs:
+logs tail="":
     @echo "Showing all development logs..."
-    {{dev-compose}} logs
+    @if [ -n "{{tail}}" ]; then \
+        echo "Following logs (use Ctrl+C to stop)..."; \
+        {{dev-compose}} logs -f; \
+    else \
+        {{dev-compose}} logs; \
+    fi
 
 # Show specific service logs (development)
-logs-api:
+logs-api tail="":
     @echo "Showing API logs (development)..."
-    {{dev-compose}} logs api
+    @if [ -n "{{tail}}" ]; then \
+        echo "Following API logs (use Ctrl+C to stop)..."; \
+        {{dev-compose}} logs -f api; \
+    else \
+        {{dev-compose}} logs api; \
+    fi
 
-logs-worker:
+logs-worker tail="":
     @echo "Showing worker logs (development)..."
-    {{dev-compose}} logs worker
+    @if [ -n "{{tail}}" ]; then \
+        echo "Following worker logs (use Ctrl+C to stop)..."; \
+        {{dev-compose}} logs -f worker; \
+    else \
+        {{dev-compose}} logs worker; \
+    fi
 
-logs-frontend:
+logs-frontend tail="":
     @echo "Showing frontend logs (development)..."
-    {{dev-compose}} logs frontend
+    @if [ -n "{{tail}}" ]; then \
+        echo "Following frontend logs (use Ctrl+C to stop)..."; \
+        {{dev-compose}} logs -f frontend; \
+    else \
+        {{dev-compose}} logs frontend; \
+    fi
 
-logs-nginx:
+logs-nginx tail="":
     @echo "Showing nginx logs (development)..."
-    {{dev-compose}} logs nginx
+    @if [ -n "{{tail}}" ]; then \
+        echo "Following nginx logs (use Ctrl+C to stop)..."; \
+        {{dev-compose}} logs -f nginx; \
+    else \
+        {{dev-compose}} logs nginx; \
+    fi
+
+logs-db tail="":
+    @echo "Showing database logs (development)..."
+    @if [ -n "{{tail}}" ]; then \
+        echo "Following database logs (use Ctrl+C to stop)..."; \
+        {{dev-compose}} logs -f db; \
+    else \
+        {{dev-compose}} logs db; \
+    fi
+
+logs-redis tail="":
+    @echo "Showing Redis logs (development)..."
+    @if [ -n "{{tail}}" ]; then \
+        echo "Following Redis logs (use Ctrl+C to stop)..."; \
+        {{dev-compose}} logs -f redis; \
+    else \
+        {{dev-compose}} logs redis; \
+    fi
 
 # Show production logs
-logs-prod:
+logs-prod tail="":
     @echo "Showing all production logs..."
-    {{prod-compose}} logs
+    @if [ -n "{{tail}}" ]; then \
+        echo "Following production logs (use Ctrl+C to stop)..."; \
+        {{prod-compose}} logs -f; \
+    else \
+        {{prod-compose}} logs; \
+    fi
 
 # Show specific production service logs
-logs-prod-api:
+logs-prod-api tail="":
     @echo "Showing API logs (production)..."
-    {{prod-compose}} logs api
+    @if [ -n "{{tail}}" ]; then \
+        echo "Following production API logs (use Ctrl+C to stop)..."; \
+        {{prod-compose}} logs -f api; \
+    else \
+        {{prod-compose}} logs api; \
+    fi
 
-logs-prod-worker:
+logs-prod-worker tail="":
     @echo "Showing worker logs (production)..."
-    {{prod-compose}} logs worker
+    @if [ -n "{{tail}}" ]; then \
+        echo "Following production worker logs (use Ctrl+C to stop)..."; \
+        {{prod-compose}} logs -f worker; \
+    else \
+        {{prod-compose}} logs worker; \
+    fi
 
-logs-prod-frontend:
+logs-prod-frontend tail="":
     @echo "Showing frontend logs (production)..."
-    {{prod-compose}} logs frontend
+    @if [ -n "{{tail}}" ]; then \
+        echo "Following production frontend logs (use Ctrl+C to stop)..."; \
+        {{prod-compose}} logs -f frontend; \
+    else \
+        {{prod-compose}} logs frontend; \
+    fi
 
-logs-prod-nginx:
+logs-prod-nginx tail="":
     @echo "Showing nginx logs (production)..."
-    {{prod-compose}} logs nginx
+    @if [ -n "{{tail}}" ]; then \
+        echo "Following production nginx logs (use Ctrl+C to stop)..."; \
+        {{prod-compose}} logs -f nginx; \
+    else \
+        {{prod-compose}} logs nginx; \
+    fi
+
+logs-prod-db tail="":
+    @echo "Showing database logs (production)..."
+    @if [ -n "{{tail}}" ]; then \
+        echo "Following production database logs (use Ctrl+C to stop)..."; \
+        {{prod-compose}} logs -f db; \
+    else \
+        {{prod-compose}} logs db; \
+    fi
+
+logs-prod-redis tail="":
+    @echo "Showing Redis logs (production)..."
+    @if [ -n "{{tail}}" ]; then \
+        echo "Following production Redis logs (use Ctrl+C to stop)..."; \
+        {{prod-compose}} logs -f redis; \
+    else \
+        {{prod-compose}} logs redis; \
+    fi
 
 # Check health of all services (development)
 health:
@@ -509,16 +638,36 @@ help:
     @echo "  db-reset               - Reset database"
     @echo "  seed                   - Seed database"
     @echo ""
+    @echo "RECOMMENDATIONS:"
+    @echo "  generate-recommendations     - Generate new recommendations (fast mode)"
+    @echo "  generate-recommendations-full - Generate new recommendations (full mode)"
+    @echo "  get-recommendations          - Get current recommendations"
+    @echo "  get-recommendation-history   - Get recommendation history"
+    @echo ""
+    @echo "API TESTING:"
+    @echo "  test-tradier                 - Test Tradier API connection"
+    @echo "  test-tradier-quote           - Test Tradier quote API"
+    @echo "  test-tradier-fundamentals    - Test Tradier fundamentals API"
+    @echo "  test-api-ninjas              - Test API Ninjas connection"
+    @echo ""
+    @echo "TICKER MANAGEMENT:"
+    @echo "  refresh-ticker-data          - Refresh all ticker data"
+    @echo "  refresh-ticker SYMBOL        - Refresh specific ticker data"
+    @echo ""
     @echo "MONITORING (Development):"
     @echo "  logs                   - Show all development logs"
+    @echo "  logs tail=true         - Follow all development logs"
     @echo "  logs-{service}         - Show specific development service logs"
+    @echo "  logs-{service} tail=true - Follow specific development service logs"
     @echo "  health                 - Check development services health"
     @echo "  health-{service}       - Check specific development service health"
     @echo "  health-recommendations - Check recommendations service health"
     @echo ""
     @echo "MONITORING (Production):"
     @echo "  logs-prod              - Show all production logs"
+    @echo "  logs-prod tail=true    - Follow all production logs"
     @echo "  logs-prod-{service}    - Show specific production service logs"
+    @echo "  logs-prod-{service} tail=true - Follow specific production service logs"
     @echo "  health-prod            - Check production services health"
     @echo ""
     @echo "UTILITIES:"

@@ -28,11 +28,24 @@ class TradierClient:
         self.base_url = settings.tradier_base_url
         self.access_token = settings.tradier_access_token
         self.account_id = settings.tradier_account_id
+        
+        # Validate required configuration
+        if not self.access_token or self.access_token == "REPLACE_ME":
+            logger.error("Tradier access token not configured or set to placeholder value")
+            raise ValueError("Tradier access token not properly configured")
+        
+        if not self.account_id or self.account_id == "REPLACE_ME":
+            logger.error("Tradier account ID not configured or set to placeholder value")
+            raise ValueError("Tradier account ID not properly configured")
+        
         self.headers = {
             "Authorization": f"Bearer {self.access_token}",
             "Accept": "application/json"
         }
-        self.client = httpx.AsyncClient(timeout=30.0)
+        self.client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
+        
+        logger.info(f"Tradier client initialized with base URL: {self.base_url}")
+        logger.info(f"Tradier account ID: {self.account_id}")
     
     async def __aenter__(self):
         return self
@@ -45,13 +58,20 @@ class TradierClient:
         wait=wait_exponential(multiplier=1, min=4, max=10),
         retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError))
     )
-    async def _make_request(self, method: str, endpoint: str, params: Optional[Dict] = None) -> Dict[str, Any]:
+    async def _make_request(self, method: str, endpoint: str, params: Optional[Dict] = None, base_url: Optional[str] = None) -> Dict[str, Any]:
         """Make HTTP request with retry logic."""
-        url = f"{self.base_url}{endpoint}"
+        # Use provided base_url or default to self.base_url
+        request_base_url = base_url if base_url else self.base_url
+        url = f"{request_base_url}{endpoint}"
         
-        logger.info(f"Making Tradier API request: {method} {url}")
+        # Build full URL with parameters for logging
+        full_url = url
         if params:
-            logger.info(f"Request params: {params}")
+            import urllib.parse
+            query_string = urllib.parse.urlencode(params)
+            full_url = f"{url}?{query_string}"
+        
+        logger.info(f"🌐 Tradier API request: {method} {full_url}")
         
         try:
             response = await self.client.request(
@@ -61,41 +81,55 @@ class TradierClient:
                 params=params
             )
             
-            logger.info(f"Tradier API response status: {response.status_code}")
-            
             response.raise_for_status()
             
-            data = response.json()
-            logger.info(f"Tradier API response data keys: {list(data.keys()) if data else 'None'}")
+            # Check if response is empty
+            response_text = response.text.strip()
             
-            # Check for Tradier API errors
-            if "errors" in data:
-                error_msg = data["errors"].get("error", "Unknown Tradier API error")
-                logger.error(f"Tradier API error: {error_msg}")
-                raise TradierAPIError(f"Tradier API error: {error_msg}")
+            if not response_text:
+                logger.warning(f"⚠️ Empty response received for {method} {url}")
+                return {}
             
-            return data
+            try:
+                data = response.json()
+                
+                # Check for Tradier API errors
+                if "errors" in data:
+                    error_msg = data["errors"].get("error", "Unknown Tradier API error")
+                    logger.error(f"❌ Tradier API error: {error_msg}")
+                    raise TradierAPIError(f"Tradier API error: {error_msg}")
+                
+                return data
+            except ValueError as e:
+                logger.error(f"❌ Failed to parse JSON response: {e}")
+                raise TradierAPIError(f"Invalid JSON response: {e}")
             
         except httpx.HTTPStatusError as e:
-            logger.error(f"Tradier API HTTP error: {e.response.status_code} - {e.response.text}")
             if e.response.status_code == 429:
                 # Rate limited - wait and retry
-                logger.warning("Rate limited by Tradier API, waiting 2 seconds...")
+                logger.warning("⚠️ Rate limited by Tradier API, waiting 2 seconds...")
                 await asyncio.sleep(2)
                 raise
+            elif e.response.status_code in [301, 302, 303, 307, 308]:
+                # Redirect error - this shouldn't happen with follow_redirects=True
+                logger.error(f"⚠️ Unexpected redirect response: {e.response.status_code}")
+                raise TradierAPIError(f"Unexpected redirect: {e.response.status_code}")
+            
             raise TradierAPIError(f"HTTP {e.response.status_code}: {e.response.text}")
+            
         except httpx.RequestError as e:
-            logger.error(f"Tradier API request error: {str(e)}")
             raise TradierAPIError(f"Request error: {str(e)}")
+            
         except Exception as e:
-            logger.error(f"Unexpected error in Tradier API request: {str(e)}")
+            logger.error(f"❌ Unexpected Tradier API error: {str(e)}")
             raise TradierAPIError(f"Unexpected error: {str(e)}")
     
     async def get_quote(self, symbol: str) -> Dict[str, Any]:
         """Get real-time quote for a symbol."""
         params = {"symbols": symbol}
         data = await self._make_request("GET", "/markets/quotes", params)
-        return data.get("quotes", {}).get("quote", {})
+        quote_data = data.get("quotes", {}).get("quote", {})
+        return quote_data
     
     async def get_options_chain(self, symbol: str, expiration: str) -> List[Dict[str, Any]]:
         """Get options chain for a symbol and expiration."""
@@ -123,7 +157,8 @@ class TradierClient:
         if not isinstance(strikes, list):
             strikes = [strikes]
         
-        return [float(s) for s in strikes]
+        float_strikes = [float(s) for s in strikes]
+        return float_strikes
     
     async def get_option_expirations(self, symbol: str) -> List[str]:
         """Get available expirations for a symbol."""
@@ -179,20 +214,13 @@ class TradierClient:
     
     async def get_account_balances(self) -> Dict[str, Any]:
         """Get account balances."""
-        import logging
-        logger = logging.getLogger(__name__)
-        
-        logger.info(f"Making Tradier API request to: /accounts/{self.account_id}/balances")
         data = await self._make_request("GET", f"/accounts/{self.account_id}/balances")
-        logger.info(f"Tradier API response: {data}")
         
         balances = data.get("balances", {})
         # Handle case where balances is "null" string
         if balances == "null":
-            logger.warning("Tradier returned 'null' for balances")
             return {}
         
-        logger.info(f"Extracted balances: {balances}")
         return balances
     
     async def get_account_history(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:
@@ -212,17 +240,46 @@ class TradierClient:
     async def get_fundamentals_company(self, symbol: str) -> Dict[str, Any]:
         """Get company fundamental data from Tradier API beta endpoint."""
         params = {"symbols": symbol}
-        # Only beta endpoint provides fundamentals data
-        data = await self._make_request("GET", "/beta/markets/fundamentals/company", params)
-        return data
+        try:
+            # Use beta base URL for fundamentals endpoints
+            beta_url = "https://api.tradier.com/beta"
+            data = await self._make_request("GET", "/markets/fundamentals/company", params, base_url=beta_url)
+            return data
+        except Exception as e:
+            logger.error(f"❌ Failed to get company fundamentals for {symbol}: {e}")
+            return {}
     
     async def get_fundamentals_ratios(self, symbol: str) -> Dict[str, Any]:
         """Get financial ratios from Tradier API beta endpoint."""
         params = {"symbols": symbol}
-        # Only beta endpoint provides ratios data
-        data = await self._make_request("GET", "/beta/markets/fundamentals/ratios", params)
-        logger.debug(f"Tradier ratios API response for {symbol}: {data}")
-        return data
+        try:
+            # Use beta base URL for fundamentals endpoints
+            beta_url = "https://api.tradier.com/beta"
+            data = await self._make_request("GET", "/markets/fundamentals/ratios", params, base_url=beta_url)
+            return data
+        except Exception as e:
+            logger.error(f"❌ Failed to get financial ratios for {symbol}: {e}")
+            return {}
+    
+    async def test_connection(self) -> Dict[str, Any]:
+        """Test Tradier API connection with a simple request."""
+        try:
+            # Try to get account balances as a connection test
+            data = await self.get_account_balances()
+            return {
+                "status": "success",
+                "message": "Tradier API connection working",
+                "account_id": self.account_id,
+                "base_url": self.base_url
+            }
+        except Exception as e:
+            logger.error(f"❌ Tradier API connection test failed: {e}")
+            return {
+                "status": "error",
+                "message": f"Tradier API connection failed: {str(e)}",
+                "account_id": self.account_id,
+                "base_url": self.base_url
+            }
     
 
 
@@ -307,31 +364,25 @@ class TradierDataManager:
             
             # Extract fundamental data
             if fundamentals_data and isinstance(fundamentals_data, list) and len(fundamentals_data) > 0:
-                for item in fundamentals_data:
-                    if item.get("type") == "Company" and item.get("tables"):
-                        tables = item["tables"]
+                # Handle the nested structure: list -> item -> results -> Company/Stock items
+                for top_item in fundamentals_data:
+                    # Check if this item has results
+                    if "results" in top_item and isinstance(top_item["results"], list):
+                        results = top_item["results"]
                         
-                        # Company profile
-                        if "company_profile" in tables and tables["company_profile"]:
-                            profile = tables["company_profile"]
-                            # Could extract employee count, contact info, etc.
-                        
-                        # Asset classification (industry/sector) - now handled by API Ninjas
-                        # Morningstar sector codes are no longer used
-                        pass
-                        
-                        # Long description
-                        if "long_descriptions" in tables and tables["long_descriptions"]:
-                            # Could store company description
-                            pass
-                    
-                    elif item.get("type") == "Stock" and item.get("tables"):
-                        tables = item["tables"]
-                        
-                        # Share class profile (market cap, shares outstanding)
-                        if "share_class_profile" in tables and tables["share_class_profile"]:
-                            profile = tables["share_class_profile"]
-                            ticker_data["market_cap"] = float(profile.get("market_cap", 0)) if profile.get("market_cap") else None
+                        for result in results:
+                            if result.get("type") == "Stock" and result.get("tables"):
+                                tables = result["tables"]
+                                
+                                # Share class profile (market cap, shares outstanding)
+                                if "share_class_profile" in tables and tables["share_class_profile"]:
+                                    profile = tables["share_class_profile"]
+                                    market_cap = profile.get("market_cap")
+                                    if market_cap:
+                                        try:
+                                            ticker_data["market_cap"] = float(market_cap)
+                                        except (ValueError, TypeError):
+                                            pass
             
             # Check if we have essential data from Tradier API
             if not ticker_data["current_price"]:
@@ -339,42 +390,65 @@ class TradierDataManager:
             
             # Extract ratios data
             if ratios_data and isinstance(ratios_data, list) and len(ratios_data) > 0:
-                logger.info(f"Processing ratios data for {symbol}: {len(ratios_data)} items")
-                for item in ratios_data:
-                    if item.get("type") == "Stock" and item.get("tables"):
-                        tables = item["tables"]
-                        logger.debug(f"Found Stock tables for {symbol}: {list(tables.keys())}")
+                # Handle the nested structure: list -> item -> results -> Stock items
+                for top_item in ratios_data:
+                    # Check if this item has results
+                    if "results" in top_item and isinstance(top_item["results"], list):
+                        results = top_item["results"]
                         
-                        # Valuation ratios
-                        if "valuation_ratios" in tables and tables["valuation_ratios"]:
-                            ratios = tables["valuation_ratios"]
-                            logger.debug(f"Valuation ratios for {symbol}: {list(ratios.keys()) if isinstance(ratios, dict) else 'Not a dict'}")
-                            
-                            if isinstance(ratios, dict):
-                                p_e_ratio = ratios.get("p_e_ratio")
-                                if p_e_ratio is not None:
-                                    ticker_data["pe_ratio"] = float(p_e_ratio)
-                                    logger.info(f"Set P/E ratio for {symbol}: {ticker_data['pe_ratio']}")
-                                else:
-                                    logger.debug(f"No P/E ratio found for {symbol}")
+                        for result in results:
+                            if result.get("type") == "Stock" and result.get("tables"):
+                                tables = result["tables"]
                                 
-                                dividend_yield = ratios.get("dividend_yield")
-                                if dividend_yield is not None:
-                                    ticker_data["dividend_yield"] = float(dividend_yield)
-                                    logger.info(f"Set dividend yield for {symbol}: {ticker_data['dividend_yield']}")
-                        else:
-                            logger.debug(f"No valuation_ratios found for {symbol}")
-                        
-                        # Alpha/Beta data
-                        if "alpha_beta" in tables and tables["alpha_beta"]:
-                            alpha_beta = tables["alpha_beta"]
-                            # Use 60-month beta if available, otherwise 36-month
-                            if "period_60m" in alpha_beta:
-                                ticker_data["beta"] = float(alpha_beta["period_60m"].get("beta", 0)) if alpha_beta["period_60m"].get("beta") else None
-                            elif "period_36m" in alpha_beta:
-                                ticker_data["beta"] = float(alpha_beta["period_36m"].get("beta", 0)) if alpha_beta["period_36m"].get("beta") else None
-            else:
-                logger.warning(f"No ratios data available for {symbol}")
+                                # Valuation ratios
+                                if "valuation_ratios" in tables and tables["valuation_ratios"]:
+                                    ratios = tables["valuation_ratios"]
+                                    
+                                    if isinstance(ratios, dict):
+                                        # Try different P/E ratio field names
+                                        p_e_ratio = ratios.get("p_e_ratio") or ratios.get("forward_p_e_ratio")
+                                        
+                                        if p_e_ratio is not None and p_e_ratio != "":
+                                            try:
+                                                ticker_data["pe_ratio"] = float(p_e_ratio)
+                                            except (ValueError, TypeError):
+                                                pass
+                                        
+                                        # Try different dividend yield field names
+                                        dividend_yield = ratios.get("dividend_yield") or ratios.get("total_yield")
+                                        
+                                        if dividend_yield is not None and dividend_yield != "":
+                                            try:
+                                                ticker_data["dividend_yield"] = float(dividend_yield)
+                                            except (ValueError, TypeError):
+                                                pass
+                                
+                                # Alpha/Beta data
+                                if "alpha_beta" in tables and tables["alpha_beta"]:
+                                    alpha_beta = tables["alpha_beta"]
+                                    
+                                    # Use 60-month beta if available, otherwise 36-month, then 48-month
+                                    if "period_60m" in alpha_beta:
+                                        beta_value = alpha_beta["period_60m"].get("beta")
+                                        if beta_value is not None and beta_value != "":
+                                            try:
+                                                ticker_data["beta"] = float(beta_value)
+                                            except (ValueError, TypeError):
+                                                pass
+                                    elif "period_36m" in alpha_beta:
+                                        beta_value = alpha_beta["period_36m"].get("beta")
+                                        if beta_value is not None and beta_value != "":
+                                            try:
+                                                ticker_data["beta"] = float(beta_value)
+                                            except (ValueError, TypeError):
+                                                pass
+                                    elif "period_48m" in alpha_beta:
+                                        beta_value = alpha_beta["period_48m"].get("beta")
+                                        if beta_value is not None and beta_value != "":
+                                            try:
+                                                ticker_data["beta"] = float(beta_value)
+                                            except (ValueError, TypeError):
+                                                pass
             
             # Calculate a comprehensive universe score
             score = 0.0

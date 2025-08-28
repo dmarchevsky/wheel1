@@ -32,6 +32,39 @@ class RecommendationResponse(BaseModel):
         from_attributes = True
 
 
+@router.post("/generate")
+async def generate_recommendations(
+    db: AsyncSession = Depends(get_async_db),
+    fast_mode: bool = Query(default=True, description="Use fast mode for quicker processing")
+):
+    """Generate new recommendations."""
+    try:
+        logger.info(f"🚀 Manual recommendation generation requested (fast_mode={fast_mode})")
+        
+        recommender_service = RecommenderService()
+        recommendations = await recommender_service.generate_recommendations(db, fast_mode=fast_mode)
+        
+        return {
+            "message": "Recommendation generation completed",
+            "status": "success",
+            "fast_mode": fast_mode,
+            "recommendations_created": len(recommendations),
+            "timestamp": datetime.utcnow().isoformat(),
+            "recommendations": [
+                {
+                    "id": rec.id,
+                    "symbol": rec.symbol,
+                    "score": rec.score,
+                    "status": rec.status,
+                    "created_at": rec.created_at.isoformat()
+                } for rec in recommendations
+            ]
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to generate recommendations: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate recommendations: {str(e)}")
+
 @router.get("/current", response_model=List[RecommendationResponse])
 async def get_current_recommendations(
     db: AsyncSession = Depends(get_async_db),

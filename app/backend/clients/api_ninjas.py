@@ -102,52 +102,121 @@ class APINinjasClient:
     async def get_company_info(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Get specific company information by ticker."""
         try:
-            companies = await self._make_request("/sp500", {"ticker": ticker})
-            if companies and len(companies) > 0:
-                return companies[0]
+            logger.info(f"🏢 Getting company info for {ticker}...")
+            
+            # Try S&P 500 first (most comprehensive data)
+            try:
+                logger.info(f"🏢 Trying S&P 500 data for {ticker}...")
+                companies = await self._make_request("/sp500", {"ticker": ticker})
+                if companies and len(companies) > 0:
+                    company_info = companies[0]
+                    logger.info(f"✅ Found {ticker} in S&P 500 data: {company_info}")
+                    return company_info
+                else:
+                    logger.info(f"📊 {ticker} not found in S&P 500 data")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to get S&P 500 data for {ticker}: {e}")
+            
+            # Try market cap endpoint as fallback (might have basic company info)
+            try:
+                logger.info(f"🏢 Trying market cap data for {ticker}...")
+                market_cap_data = await self._make_request("/marketcap", {"ticker": ticker})
+                if market_cap_data and isinstance(market_cap_data, dict):
+                    # Extract basic company info from market cap data
+                    company_info = {
+                        "ticker": market_cap_data.get("ticker"),
+                        "company_name": market_cap_data.get("name"),
+                        "sector": market_cap_data.get("sector"),  # If available
+                        "sub_industry": market_cap_data.get("industry")  # If available
+                    }
+                    logger.info(f"✅ Found {ticker} in market cap data: {company_info}")
+                    return company_info
+                else:
+                    logger.info(f"📊 {ticker} not found in market cap data")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to get market cap data for {ticker}: {e}")
+            
+            logger.warning(f"⚠️ No company info found for {ticker} from any source")
             return None
+            
         except Exception as e:
-            logger.error(f"Failed to get company info for {ticker}: {e}")
+            logger.error(f"❌ Failed to get company info for {ticker}: {e}")
+            import traceback
+            logger.error(f"📋 Traceback: {traceback.format_exc()}")
             return None
     
     async def get_earnings_calendar(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Get earnings calendar data for a ticker using API Ninjas."""
         try:
+            logger.info(f"📅 Getting earnings calendar for {ticker} with show_upcoming=true")
+            
             # Get upcoming earnings dates
-            earnings_data = await self._make_request("/earningscalendar", {
+            params = {
                 "ticker": ticker,
                 "show_upcoming": "true"
-            })
+            }
+            logger.info(f"📅 API Ninjas earnings calendar params: {params}")
+            
+            earnings_data = await self._make_request("/earningscalendar", params)
             
             if earnings_data and len(earnings_data) > 0:
-                # Find the next upcoming earnings date
+                logger.info(f"📅 Received {len(earnings_data)} earnings records for {ticker}")
+                
+                # Find the earliest upcoming earnings date
                 from datetime import datetime
                 current_date = datetime.utcnow().date()
+                upcoming_earnings = []
                 
-                for earnings in earnings_data:
+                # First pass: collect all upcoming earnings dates
+                for i, earnings in enumerate(earnings_data):
                     earnings_date_str = earnings.get("date")
                     if earnings_date_str:
                         try:
                             earnings_date = datetime.strptime(earnings_date_str, "%Y-%m-%d").date()
+                            logger.debug(f"📅 Earnings record {i+1}: {earnings_date_str} (parsed: {earnings_date})")
+                            
                             if earnings_date > current_date:
-                                logger.info(f"Found next earnings date for {ticker}: {earnings_date}")
-                                return {
-                                    "earnings_date": earnings_date,
-                                    "estimated_eps": earnings.get("estimated_eps"),
-                                    "actual_eps": earnings.get("actual_eps"),
-                                    "estimated_revenue": earnings.get("estimated_revenue"),
-                                    "actual_revenue": earnings.get("actual_revenue")
-                                }
-                        except ValueError:
+                                upcoming_earnings.append({
+                                    "earnings": earnings,
+                                    "date": earnings_date,
+                                    "index": i
+                                })
+                                logger.debug(f"📅 Found upcoming earnings: {earnings_date}")
+                        except ValueError as e:
+                            logger.warning(f"⚠️ Failed to parse earnings date '{earnings_date_str}' for {ticker}: {e}")
                             continue
                 
-                logger.debug(f"No upcoming earnings found for {ticker}")
+                # Find the earliest upcoming earnings date
+                if upcoming_earnings:
+                    # Sort by date to find the earliest
+                    upcoming_earnings.sort(key=lambda x: x["date"])
+                    earliest_earnings = upcoming_earnings[0]
+                    
+                    logger.info(f"✅ Found earliest upcoming earnings date for {ticker}: {earliest_earnings['date']}")
+                    logger.info(f"📊 Earnings details: EPS est={earliest_earnings['earnings'].get('estimated_eps')}, revenue est={earliest_earnings['earnings'].get('estimated_revenue')}")
+                    
+                    # Log all upcoming dates for reference
+                    if len(upcoming_earnings) > 1:
+                        logger.info(f"📅 All upcoming earnings dates for {ticker}: {[e['date'] for e in upcoming_earnings]}")
+                    
+                    return {
+                        "earnings_date": earliest_earnings["date"],
+                        "estimated_eps": earliest_earnings["earnings"].get("estimated_eps"),
+                        "actual_eps": earliest_earnings["earnings"].get("actual_eps"),
+                        "estimated_revenue": earliest_earnings["earnings"].get("estimated_revenue"),
+                        "actual_revenue": earliest_earnings["earnings"].get("actual_revenue")
+                    }
+                else:
+                    logger.info(f"📅 No upcoming earnings found for {ticker} (all dates are in the past)")
+                    return None
+            else:
+                logger.info(f"📅 No earnings data returned for {ticker}")
                 return None
             
-            return None
-            
         except Exception as e:
-            logger.error(f"Failed to get earnings calendar for {ticker}: {e}")
+            logger.error(f"❌ Failed to get earnings calendar for {ticker}: {e}")
+            import traceback
+            logger.error(f"📋 Traceback: {traceback.format_exc()}")
             return None
     
     async def get_market_cap(self, ticker: str) -> Optional[Dict[str, Any]]:

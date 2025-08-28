@@ -297,6 +297,89 @@ async def fetch_ticker_options(
         raise HTTPException(status_code=500, detail=f"Failed to fetch options: {str(e)}")
 
 
+@router.get("/tradier-test")
+async def test_tradier_connection():
+    """Test Tradier API connection."""
+    try:
+        from clients.tradier import TradierClient
+        
+        async with TradierClient() as client:
+            result = await client.test_connection()
+            return result
+    except Exception as e:
+        logger.error(f"❌ Tradier connection test failed: {e}")
+        import traceback
+        logger.error(f"📋 Traceback: {traceback.format_exc()}")
+        return {
+            "status": "error",
+            "message": f"Tradier connection test failed: {str(e)}"
+        }
+
+@router.get("/tradier-quote/{symbol}")
+async def test_tradier_quote(symbol: str):
+    """Test Tradier quote API for a specific symbol."""
+    try:
+        from clients.tradier import TradierClient
+        
+        async with TradierClient() as client:
+            logger.info(f"🔗 Testing quote for {symbol}...")
+            quote_data = await client.get_quote(symbol)
+            logger.info(f"📊 Quote data: {quote_data}")
+            
+            return {
+                "status": "success",
+                "symbol": symbol,
+                "quote_data": quote_data,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+    except Exception as e:
+        logger.error(f"❌ Tradier quote test failed for {symbol}: {e}")
+        import traceback
+        logger.error(f"📋 Traceback: {traceback.format_exc()}")
+        return {
+            "status": "error",
+            "message": f"Tradier quote test failed: {str(e)}"
+        }
+
+@router.get("/tradier-fundamentals/{symbol}")
+async def test_tradier_fundamentals(symbol: str):
+    """Test Tradier fundamentals API for a specific symbol."""
+    try:
+        from clients.tradier import TradierClient
+        
+        async with TradierClient() as client:
+            # Test basic quote first
+            logger.info(f"🔗 Testing basic quote for {symbol}...")
+            quote_data = await client.get_quote(symbol)
+            logger.info(f"📊 Quote data: {quote_data}")
+            
+            # Test fundamentals company data
+            logger.info(f"🔗 Testing fundamentals company for {symbol}...")
+            fundamentals_data = await client.get_fundamentals_company(symbol)
+            logger.info(f"📊 Fundamentals company data: {fundamentals_data}")
+            
+            # Test fundamentals ratios data
+            logger.info(f"🔗 Testing fundamentals ratios for {symbol}...")
+            ratios_data = await client.get_fundamentals_ratios(symbol)
+            logger.info(f"📊 Fundamentals ratios data: {ratios_data}")
+            
+            return {
+                "status": "success",
+                "symbol": symbol,
+                "quote_data": quote_data,
+                "fundamentals_company": fundamentals_data,
+                "fundamentals_ratios": ratios_data,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+    except Exception as e:
+        logger.error(f"❌ Tradier fundamentals test failed for {symbol}: {e}")
+        import traceback
+        logger.error(f"📋 Traceback: {traceback.format_exc()}")
+        return {
+            "status": "error",
+            "message": f"Tradier fundamentals test failed: {str(e)}"
+        }
+
 @router.get("/status")
 async def get_market_data_status(
     db: AsyncSession = Depends(get_async_db)
@@ -405,6 +488,8 @@ async def add_interesting_ticker(
     try:
         from sqlalchemy import select
         
+        logger.info(f"🚀 Adding new interesting ticker: {symbol.upper()}")
+        
         # Check if ticker already exists
         result = await db.execute(
             select(InterestingTicker).where(InterestingTicker.symbol == symbol.upper())
@@ -423,10 +508,35 @@ async def add_interesting_ticker(
             updated_at=datetime.utcnow()
         )
         db.add(ticker)
+        await db.flush()  # Flush to get the ID
+        
+        logger.info(f"📝 Created new ticker record for {symbol.upper()}")
         
         # Populate data using market data service
+        logger.info(f"📊 Populating market data for {symbol.upper()}...")
         market_data_service = MarketDataService(db)
-        await market_data_service._update_ticker_market_data(ticker)
+        
+        # Step 1: Update ticker market data (Tradier + API Ninjas)
+        updated_ticker = await market_data_service._update_ticker_market_data(ticker)
+        
+        # Step 2: Force refresh the ticker data to ensure all fields are populated
+        logger.info(f"🔄 Refreshing ticker data for {symbol.upper()}...")
+        
+        # Get the updated ticker from database
+        result = await db.execute(
+            select(InterestingTicker).where(InterestingTicker.symbol == symbol.upper())
+        )
+        final_ticker = result.scalar_one_or_none()
+        
+        if final_ticker:
+            logger.info(f"✅ Final ticker data for {symbol.upper()}:")
+            logger.info(f"   📊 Name: {final_ticker.name}")
+            logger.info(f"   📊 Sector: {final_ticker.sector}")
+            logger.info(f"   📊 Industry: {final_ticker.industry}")
+            logger.info(f"   📊 Market Cap: ${final_ticker.market_cap}")
+            logger.info(f"   📊 P/E Ratio: {final_ticker.pe_ratio}")
+            logger.info(f"   📊 Beta: {final_ticker.beta}")
+            logger.info(f"   📊 Next Earnings: {final_ticker.next_earnings_date}")
         
         await db.commit()
         
@@ -434,16 +544,78 @@ async def add_interesting_ticker(
             "status": "success",
             "message": f"Successfully added ticker {symbol.upper()}",
             "symbol": symbol.upper(),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
+            "ticker_data": {
+                "name": final_ticker.name if final_ticker else None,
+                "sector": final_ticker.sector if final_ticker else None,
+                "industry": final_ticker.industry if final_ticker else None,
+                "market_cap": final_ticker.market_cap if final_ticker else None,
+                "pe_ratio": final_ticker.pe_ratio if final_ticker else None,
+                "beta": final_ticker.beta if final_ticker else None,
+                "next_earnings_date": final_ticker.next_earnings_date.isoformat() if final_ticker and final_ticker.next_earnings_date else None
+            }
         }
         
     except HTTPException:
         raise
     except Exception as e:
         await db.rollback()
-        logger.error(f"Failed to add interesting ticker {symbol}: {e}")
+        logger.error(f"❌ Failed to add interesting ticker {symbol}: {e}")
+        import traceback
+        logger.error(f"📋 Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to add ticker: {str(e)}")
 
+
+@router.post("/interesting-tickers/{symbol}/refresh")
+async def refresh_ticker_data(
+    symbol: str,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Refresh market data for a specific ticker."""
+    try:
+        from sqlalchemy import select
+        
+        logger.info(f"🔄 Refreshing market data for ticker: {symbol.upper()}")
+        
+        # Get the ticker
+        result = await db.execute(
+            select(InterestingTicker).where(InterestingTicker.symbol == symbol.upper())
+        )
+        ticker = result.scalar_one_or_none()
+        
+        if not ticker:
+            raise HTTPException(status_code=404, detail=f"Ticker {symbol.upper()} not found")
+        
+        # Update market data
+        market_data_service = MarketDataService(db)
+        updated_ticker = await market_data_service._update_ticker_market_data(ticker)
+        
+        await db.commit()
+        
+        return {
+            "status": "success",
+            "message": f"Successfully refreshed data for {symbol.upper()}",
+            "symbol": symbol.upper(),
+            "timestamp": datetime.utcnow().isoformat(),
+            "ticker_data": {
+                "name": updated_ticker.name,
+                "sector": updated_ticker.sector,
+                "industry": updated_ticker.industry,
+                "market_cap": updated_ticker.market_cap,
+                "pe_ratio": updated_ticker.pe_ratio,
+                "beta": updated_ticker.beta,
+                "next_earnings_date": updated_ticker.next_earnings_date.isoformat() if updated_ticker.next_earnings_date else None
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"❌ Failed to refresh ticker data for {symbol}: {e}")
+        import traceback
+        logger.error(f"📋 Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to refresh ticker data: {str(e)}")
 
 @router.put("/interesting-tickers/{symbol}/toggle")
 async def toggle_ticker_active(

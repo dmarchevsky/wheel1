@@ -110,32 +110,38 @@ class MarketDataService:
     async def _update_ticker_market_data(self, ticker: InterestingTicker) -> InterestingTicker:
         """Update ticker market data using Tradier API and API Ninjas."""
         try:
-            # Step 1: Get Tradier data (price, volume, fundamentals)
+            # Get Tradier data (price, volume, fundamentals)
             tradier_data = await self.tradier_data.sync_ticker_data(ticker.symbol)
             
-            # Step 2: Update fundamental data in InterestingTicker
+            # Update fundamental data in InterestingTicker from Tradier
             if tradier_data:
-                # Update fundamental data (P/E ratio, dividend yield, beta)
+                # Update fundamental data (P/E ratio, dividend yield, beta, name)
                 if tradier_data.get("pe_ratio") is not None:
                     ticker.pe_ratio = tradier_data["pe_ratio"]
+                
                 if tradier_data.get("dividend_yield") is not None:
                     ticker.dividend_yield = tradier_data["dividend_yield"]
+                
                 if tradier_data.get("beta") is not None:
                     ticker.beta = tradier_data["beta"]
+                
+                # Update name from Tradier if available
+                if tradier_data.get("name") and not ticker.name:
+                    ticker.name = tradier_data["name"]
+            else:
+                logger.warning(f"⚠️ No Tradier data received for {ticker.symbol}")
             
-            # Step 3: Get API Ninjas data (sector, industry, market cap, earnings)
+            # Get API Ninjas data (sector, industry, market cap, earnings)
             await self._enrich_with_api_ninjas_data(ticker)
             
-            # Step 4: Update or create TickerQuote for market data
+            # Update or create TickerQuote for market data
             await self._update_ticker_quote(ticker.symbol, tradier_data)
-            
-            logger.info(f"Updated fundamental data for {ticker.symbol}: "
-                       f"sector={ticker.sector}, market_cap=${ticker.market_cap}, "
-                       f"next_earnings={ticker.next_earnings_date}")
             
             return ticker    
         except Exception as e:
-            logger.error(f"Error updating market data for {ticker.symbol}: {e}")
+            logger.error(f"❌ Error updating market data for {ticker.symbol}: {e}")
+            import traceback
+            logger.error(f"📋 Traceback: {traceback.format_exc()}")
             # Return the original ticker if update fails
             return ticker
     
@@ -148,45 +154,51 @@ class MarketDataService:
             try:
                 company_info = await self.api_ninjas.get_company_info(symbol)
                 if company_info:
-                    if not ticker.name and company_info.get('company_name'):
+                    # Always update with fresh data, don't check if existing is None
+                    if company_info.get('company_name'):
                         ticker.name = company_info['company_name']
                     
-                    if not ticker.sector and company_info.get('sector'):
+                    if company_info.get('sector'):
                         ticker.sector = company_info['sector']
-                        logger.info(f"Got sector from API Ninjas for {symbol}: {ticker.sector}")
                     
-                    if not ticker.industry and company_info.get('sub_industry'):
+                    if company_info.get('sub_industry'):
                         ticker.industry = company_info['sub_industry']
-                        logger.info(f"Got industry from API Ninjas for {symbol}: {ticker.industry}")
-                    
-                    logger.info(f"Successfully got API Ninjas company data for {symbol}")
+                else:
+                    logger.warning(f"⚠️ No company info returned for {symbol}")
             except Exception as e:
-                logger.warning(f"Failed to get API Ninjas company data for {symbol}: {e}")
+                logger.warning(f"⚠️ Failed to get API Ninjas company data for {symbol}: {e}")
             
             # Get market cap data
             try:
                 market_cap_data = await self.api_ninjas.get_market_cap(symbol)
                 if market_cap_data and market_cap_data.get("market_cap"):
                     ticker.market_cap = market_cap_data["market_cap"]
-                    logger.info(f"Got market cap from API Ninjas for {symbol}: ${ticker.market_cap:.1f}B")
+                    logger.info(f"✅ Updated market cap for {symbol}: ${ticker.market_cap:.1f}B")
                 else:
-                    logger.debug(f"No market cap data available for {symbol} from API Ninjas")
+                    logger.warning(f"⚠️ No market cap data available for {symbol} from API Ninjas")
             except Exception as e:
-                logger.warning(f"Failed to get market cap data for {symbol}: {e}")
+                logger.warning(f"⚠️ Failed to get market cap data for {symbol}: {e}")
+                import traceback
+                logger.warning(f"📋 Market cap traceback: {traceback.format_exc()}")
             
             # Get earnings calendar data
             try:
+                logger.info(f"📅 Getting earnings calendar for {symbol}...")
                 earnings_data = await self.api_ninjas.get_earnings_calendar(symbol)
                 if earnings_data and earnings_data.get("earnings_date"):
                     ticker.next_earnings_date = earnings_data["earnings_date"]
-                    logger.info(f"Got earnings date from API Ninjas for {symbol}: {earnings_data['earnings_date']}")
+                    logger.info(f"✅ Updated earnings date for {symbol}: {earnings_data['earnings_date']}")
                 else:
-                    logger.debug(f"No upcoming earnings found for {symbol}")
+                    logger.warning(f"⚠️ No upcoming earnings found for {symbol}")
             except Exception as e:
-                logger.warning(f"Failed to get earnings data for {symbol}: {e}")
+                logger.warning(f"⚠️ Failed to get earnings data for {symbol}: {e}")
+                import traceback
+                logger.warning(f"📋 Earnings traceback: {traceback.format_exc()}")
                 
         except Exception as e:
-            logger.error(f"Error enriching data with API Ninjas for {ticker.symbol}: {e}")
+            logger.error(f"❌ Error enriching data with API Ninjas for {ticker.symbol}: {e}")
+            import traceback
+            logger.error(f"📋 Full traceback: {traceback.format_exc()}")
     
     async def _update_ticker_quote(self, symbol: str, tradier_data) -> None:
         """Update or create TickerQuote with frequently changing market data."""
