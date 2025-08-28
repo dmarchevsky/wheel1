@@ -6,6 +6,7 @@ from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, 
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
+from utils.timezone import now_pacific
 
 Base = declarative_base()
 
@@ -16,7 +17,7 @@ class User(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     telegram_chat_id = Column(String, unique=True, index=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_pacific)
     
     # Relationships
     notifications = relationship("Notification", back_populates="user")
@@ -29,7 +30,7 @@ class Setting(Base):
     id = Column(Integer, primary_key=True, index=True)
     key = Column(String, unique=True, index=True, nullable=False)
     value = Column(Text, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=now_pacific, onupdate=now_pacific)
 
 
 class InterestingTicker(Base):
@@ -50,8 +51,8 @@ class InterestingTicker(Base):
     universe_score = Column(Float, nullable=True)  # Composite score for universe selection
     last_analysis_date = Column(DateTime, nullable=True)  # Last time universe score was calculated
     source = Column(String, default="sp500")  # 'sp500', 'manual', etc.
-    added_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    added_at = Column(DateTime, default=now_pacific)
+    updated_at = Column(DateTime, default=now_pacific, onupdate=now_pacific)
     
     # Relationships
     quotes = relationship("TickerQuote", back_populates="ticker")
@@ -69,7 +70,7 @@ class TickerQuote(Base):
     current_price = Column(Float, nullable=True)
     volume_avg_20d = Column(Float, nullable=True)  # 20-day average volume
     volatility_30d = Column(Float, nullable=True)  # 30-day historical volatility
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=now_pacific, onupdate=now_pacific)
     
     # Relationships
     ticker = relationship("InterestingTicker", back_populates="quotes")
@@ -101,7 +102,7 @@ class Option(Base):
     dte = Column(Integer, nullable=True)  # Days to expiration
     open_interest = Column(Integer, nullable=True)
     volume = Column(Integer, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=now_pacific, onupdate=now_pacific)
     
     # Relationships
     ticker = relationship("InterestingTicker", back_populates="options")
@@ -123,7 +124,7 @@ class Recommendation(Base):
     rationale_json = Column(JSONB, nullable=True)  # Scoring breakdown
     score = Column(Float, nullable=False)
     status = Column(String, default="proposed")  # proposed, executed, dismissed
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_pacific)
     
     # Relationships
     ticker = relationship("InterestingTicker", back_populates="recommendations")
@@ -139,7 +140,7 @@ class Position(Base):
     symbol = Column(String, ForeignKey("interesting_tickers.symbol"), nullable=False)
     shares = Column(Integer, nullable=False)
     avg_price = Column(Float, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=now_pacific, onupdate=now_pacific)
     
     # Relationships
     ticker = relationship("InterestingTicker", back_populates="positions")
@@ -161,7 +162,7 @@ class OptionPosition(Base):
     open_time = Column(DateTime, nullable=False)
     status = Column(String, default="open")  # 'open' or 'closed'
     underlying_cost_basis = Column(Float, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=now_pacific, onupdate=now_pacific)
 
 
 class Trade(Base):
@@ -177,7 +178,7 @@ class Trade(Base):
     price = Column(Float, nullable=False)
     order_id = Column(String, nullable=True)  # External order ID from broker
     status = Column(String, default="pending")  # 'pending', 'filled', 'cancelled', 'rejected'
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_pacific)
     updated_at = Column(DateTime, nullable=True)
     
     # Relationships
@@ -198,7 +199,7 @@ class Notification(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     channel = Column(String, default="telegram")  # 'telegram'
     payload_json = Column(JSONB, nullable=False)  # Notification content
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_pacific)
     sent_at = Column(DateTime, nullable=True)
     status = Column(String, default="pending")  # 'pending', 'sent', 'failed'
     
@@ -216,7 +217,7 @@ class Telemetry(Base):
     id = Column(Integer, primary_key=True, index=True)
     event = Column(String, nullable=False)
     meta_json = Column(JSONB, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_pacific)
     
     # Indexes
     __table_args__ = (
@@ -234,7 +235,7 @@ class Alert(Base):
     message = Column(String, nullable=False)
     data = Column(JSONB, nullable=True)  # Additional alert data
     status = Column(String, default="pending")  # 'pending', 'processed', 'dismissed'
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_pacific)
     processed_at = Column(DateTime, nullable=True)
     
     # Indexes
@@ -251,7 +252,7 @@ class ChatGPTCache(Base):
     id = Column(Integer, primary_key=True, index=True)
     key_hash = Column(String, unique=True, index=True, nullable=False)
     response_json = Column(JSONB, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_pacific)
     ttl = Column(DateTime, nullable=False)  # Time to live
     
     # Indexes

@@ -10,6 +10,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
+from utils.timezone import now_pacific
 from db.models import Option, InterestingTicker, TickerQuote, Position, OptionPosition, Trade
 
 
@@ -514,8 +515,52 @@ class TradierDataManager:
     
 
     
+    async def get_optimal_expiration(self, symbol: str) -> Optional[str]:
+        """Get the optimal expiration date that falls within 28-35 days."""
+        try:
+            expirations = await self.client.get_option_expirations(symbol)
+            if not expirations:
+                logger.warning(f"No expirations available for {symbol}")
+                return None
+            
+            # Convert expiration dates to datetime objects and calculate DTE
+            expiration_dates = []
+            for exp_str in expirations:
+                try:
+                    exp_date = datetime.strptime(exp_str, "%Y-%m-%d")
+                    dte = (exp_date - now_pacific()).days
+                    expiration_dates.append((exp_str, exp_date, dte))
+                except ValueError as e:
+                    logger.warning(f"Invalid expiration date format: {exp_str}")
+                    continue
+            
+            # Filter for expirations within 28-35 days
+            optimal_expirations = [
+                (exp_str, exp_date, dte) for exp_str, exp_date, dte in expiration_dates
+                if settings.covered_call_dte_min <= dte <= settings.covered_call_dte_max
+            ]
+            
+            if optimal_expirations:
+                # Sort by DTE and take the one closest to the middle of the range
+                optimal_expirations.sort(key=lambda x: abs(x[2] - (settings.covered_call_dte_min + settings.covered_call_dte_max) / 2))
+                best_expiration = optimal_expirations[0][0]
+                best_dte = optimal_expirations[0][2]
+                logger.info(f"Selected optimal expiration for {symbol}: {best_expiration} (DTE: {best_dte})")
+                return best_expiration
+            else:
+                # If no optimal expiration, use the nearest one
+                expiration_dates.sort(key=lambda x: x[2])
+                nearest_expiration = expiration_dates[0][0]
+                nearest_dte = expiration_dates[0][2]
+                logger.warning(f"No optimal expiration found for {symbol}, using nearest: {nearest_expiration} (DTE: {nearest_dte})")
+                return nearest_expiration
+                
+        except Exception as e:
+            logger.error(f"Error getting optimal expiration for {symbol}: {e}")
+            return None
+
     async def sync_options_data(self, symbol: str, expiration: str) -> List[Option]:
-        """Sync options chain data for a symbol and expiration."""
+        """Sync options chain data for a symbol and expiration with filtering."""
         try:
             logger.info(f"Fetching options chain for {symbol} with expiration {expiration}")
             options_data = await self.client.get_options_chain(symbol, expiration)
@@ -529,42 +574,50 @@ class TradierDataManager:
             put_options_data = [opt for opt in options_data if opt.get("option_type", "").lower() == "put"]
             logger.info(f"Filtered to {len(put_options_data)} put options")
             
-            options = []
+            # Parse and filter options based on criteria
+            filtered_options = []
             for opt_data in put_options_data:
                 option = self._parse_option_data(symbol, expiration, opt_data)
-                if option:
-                    # Upsert option data
-                    result = await self.db.execute(
-                        select(Option).where(
-                            and_(
-                                Option.symbol == symbol,
-                                Option.expiry == option.expiry,
-                                Option.strike == option.strike,
-                                Option.option_type == option.option_type
-                            )
+                if option and self._passes_storage_criteria(option):
+                    filtered_options.append(option)
+            
+            logger.info(f"Filtered to {len(filtered_options)} options that meet storage criteria")
+            
+            # Store filtered options
+            options = []
+            for option in filtered_options:
+                # Upsert option data
+                result = await self.db.execute(
+                    select(Option).where(
+                        and_(
+                            Option.symbol == symbol,
+                            Option.expiry == option.expiry,
+                            Option.strike == option.strike,
+                            Option.option_type == option.option_type
                         )
                     )
-                    existing = result.scalar_one_or_none()
-                    
-                    if existing:
-                        # Update existing option with explicit field updates (using rounded values)
-                        existing.bid = option.bid
-                        existing.ask = option.ask
-                        existing.last = option.last
-                        existing.delta = option.delta  # Already rounded to 2 decimal places
-                        existing.gamma = option.gamma  # Already rounded to 2 decimal places
-                        existing.theta = option.theta  # Already rounded to 2 decimal places
-                        existing.vega = option.vega    # Already rounded to 2 decimal places
-                        existing.implied_volatility = option.implied_volatility
-                        existing.open_interest = option.open_interest
-                        existing.volume = option.volume
-                        existing.dte = option.dte
-                        existing.updated_at = datetime.utcnow()
-                        options.append(existing)
-                    else:
-                        # Create new
-                        self.db.add(option)
-                        options.append(option)
+                )
+                existing = result.scalar_one_or_none()
+                
+                if existing:
+                    # Update existing option with explicit field updates (using rounded values)
+                    existing.bid = option.bid
+                    existing.ask = option.ask
+                    existing.last = option.last
+                    existing.delta = option.delta  # Already rounded to 2 decimal places
+                    existing.gamma = option.gamma  # Already rounded to 2 decimal places
+                    existing.theta = option.theta  # Already rounded to 2 decimal places
+                    existing.vega = option.vega    # Already rounded to 2 decimal places
+                    existing.implied_volatility = option.implied_volatility
+                    existing.open_interest = option.open_interest
+                    existing.volume = option.volume
+                    existing.dte = option.dte
+                    existing.updated_at = now_pacific()
+                    options.append(existing)
+                else:
+                    # Create new
+                    self.db.add(option)
+                    options.append(option)
             
             await self.db.commit()
             return options
@@ -580,7 +633,7 @@ class TradierDataManager:
             expiry = datetime.strptime(expiration, "%Y-%m-%d")
             
             # Calculate DTE (days to expiration)
-            dte = (expiry - datetime.utcnow()).days
+            dte = (expiry - now_pacific()).days
             
             # Extract greeks data from nested structure
             greeks = opt_data.get("greeks", {})
@@ -629,6 +682,31 @@ class TradierDataManager:
             logger.error(f"Unexpected error parsing option data for {symbol}: {e}")
             return None
     
+    def _passes_storage_criteria(self, option: Option) -> bool:
+        """Check if option meets storage criteria (delta and DTE)."""
+        try:
+            # DTE filter: 28-35 days (using covered call DTE settings for puts)
+            if option.dte is None or not (settings.covered_call_dte_min <= option.dte <= settings.covered_call_dte_max):
+                logger.debug(f"Option {option.symbol} {option.strike} failed DTE filter: {option.dte} days (need {settings.covered_call_dte_min}-{settings.covered_call_dte_max})")
+                return False
+            
+            # Delta filter: 0.25-0.35 (using put delta settings)
+            if option.delta is None or not (settings.put_delta_min <= abs(option.delta) <= settings.put_delta_max):
+                logger.debug(f"Option {option.symbol} {option.strike} failed delta filter: {option.delta} (need {settings.put_delta_min}-{settings.put_delta_max})")
+                return False
+            
+            # Basic liquidity filter: require some open interest
+            if option.open_interest is not None and option.open_interest < 10:  # Very low threshold for storage
+                logger.debug(f"Option {option.symbol} {option.strike} failed OI filter: {option.open_interest}")
+                return False
+            
+            logger.debug(f"Option {option.symbol} {option.strike} passed storage criteria: DTE={option.dte}, Delta={option.delta}")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Error checking storage criteria for {option.symbol} {option.strike}: {e}")
+            return False
+    
     async def sync_positions(self) -> List[Position]:
         """Sync account positions with database."""
         try:
@@ -647,7 +725,7 @@ class TradierDataManager:
                     if existing:
                         existing.shares = position.shares
                         existing.avg_price = position.avg_price
-                        existing.updated_at = datetime.utcnow()
+                        existing.updated_at = now_pacific()
                         positions.append(existing)
                     else:
                         self.db.add(position)
@@ -686,7 +764,7 @@ class TradierDataManager:
                 option_type=order_data.get("class"),
                 quantity=int(order_data.get("quantity", 0)),
                 price=float(order_data.get("price", 0)),
-                trade_time=datetime.utcnow(),
+                trade_time=now_pacific(),
                 status="pending",
                 meta_json=order_response
             )

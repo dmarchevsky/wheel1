@@ -270,19 +270,15 @@ async def fetch_ticker_options(
         # Initialize TradierDataManager
         tradier_manager = TradierDataManager(db)
         
-        # If no expiration provided, get available expirations first
+        # If no expiration provided, get optimal expiration (28-35 days)
         if not expiration:
-            logger.info(f"Getting available expirations for {symbol}")
-            expirations = await tradier_manager.client.get_option_expirations(symbol.upper())
-            if expirations:
-                # Use the first available expiration (usually the nearest one)
-                expiration = expirations[0]
-                logger.info(f"Using expiration: {expiration}")
-            else:
+            logger.info(f"Getting optimal expiration for {symbol}")
+            expiration = await tradier_manager.get_optimal_expiration(symbol.upper())
+            if not expiration:
                 # Fallback to next month
                 next_month = datetime.now() + timedelta(days=30)
                 expiration = next_month.strftime("%Y-%m-%d")
-                logger.info(f"No expirations found, using fallback: {expiration}")
+                logger.info(f"No optimal expiration found, using fallback: {expiration}")
         
         # Actually fetch and sync options data
         logger.info(f"Fetching options data for {symbol} with expiration {expiration}")

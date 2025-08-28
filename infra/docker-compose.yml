@@ -11,6 +11,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-wheel}
       POSTGRES_USER: ${POSTGRES_USER:-wheel}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wheel}
+      TZ: ${TZ:-America/Los_Angeles}
+      PGTZ: ${TZ:-America/Los_Angeles}
     volumes:
       - /home/dm/projects/wheel1/pg:/var/lib/postgresql/data
     ports:

@@ -189,6 +189,14 @@ generate-recommendations:
     @echo "🚀 Generating new recommendations..."
     curl -X POST "{{api-url}}/v1/recommendations/generate" | jq .
 
+generate-recommendations-fast:
+    @echo "⚡ Generating recommendations (fast mode)..."
+    curl -X POST "{{api-url}}/v1/recommendations/generate?fast_mode=true" | jq .
+
+generate-recommendations-slow:
+    @echo "🐌 Generating recommendations (slow mode)..."
+    curl -X POST "{{api-url}}/v1/recommendations/generate?fast_mode=false" | jq .
+
 generate-recommendations-full:
     @echo "🚀 Generating new recommendations (full mode)..."
     curl -X POST "{{api-url}}/v1/recommendations/generate?fast_mode=false" | jq .
@@ -213,6 +221,16 @@ test-api-ninjas:
 test-delta-parsing:
     @echo "🔗 Testing delta parsing with mock data..."
     curl -X GET "{{api-url}}/v1/market-data/test-delta-parsing" | jq .
+
+# Test timezone conversion
+test-timezone:
+    @echo "🕐 Testing Pacific timezone conversion..."
+    cd app/backend && python scripts/test_timezone.py
+
+# Test option filtering
+test-option-filtering:
+    @echo "🔍 Testing option chain filtering with delta and DTE criteria..."
+    cd app/backend && python scripts/test_option_filtering.py
 
 test-options-fetch:
     @echo "🔗 Testing options data fetching for AAPL..."

@@ -94,10 +94,8 @@ async def root():
     }
 
 
-@app.get("/docs")
-async def docs():
-    """API documentation."""
-    return {"message": "API documentation available at /docs"}
+# FastAPI automatically serves Swagger UI at /docs and ReDoc at /redoc
+# OpenAPI schema is available at /openapi.json
 
 
 if __name__ == "__main__":
