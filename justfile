@@ -210,6 +210,14 @@ test-api-ninjas:
     @echo "🔗 Testing API Ninjas connection..."
     curl -X GET "{{api-url}}/v1/market-data/interesting-tickers/AAPL" | jq .
 
+test-delta-parsing:
+    @echo "🔗 Testing delta parsing with mock data..."
+    curl -X GET "{{api-url}}/v1/market-data/test-delta-parsing" | jq .
+
+test-options-fetch:
+    @echo "🔗 Testing options data fetching for AAPL..."
+    curl -X POST "{{api-url}}/v1/market-data/tickers/AAPL/options" | jq .
+
 test-tradier-fundamentals:
     @echo "🔗 Testing Tradier fundamentals API..."
     curl -X GET "{{api-url}}/v1/market-data/tradier-fundamentals/AFRM" | jq .

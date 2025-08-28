@@ -284,14 +284,39 @@ async def fetch_ticker_options(
                 expiration = next_month.strftime("%Y-%m-%d")
                 logger.info(f"No expirations found, using fallback: {expiration}")
         
-        # For now, just return the expiration info to test the connection
+        # Actually fetch and sync options data
+        logger.info(f"Fetching options data for {symbol} with expiration {expiration}")
+        options = await tradier_manager.sync_options_data(symbol.upper(), expiration)
+        
+        # Convert options to dict for response
+        options_data = []
+        for option in options:
+            options_data.append({
+                "symbol": option.symbol,
+                "strike": option.strike,
+                "option_type": option.option_type,
+                "expiry": option.expiry.isoformat(),
+                "bid": option.bid,
+                "ask": option.ask,
+                "last": option.last,
+                "delta": option.delta,
+                "gamma": option.gamma,
+                "theta": option.theta,
+                "vega": option.vega,
+                "implied_volatility": option.implied_volatility,
+                "open_interest": option.open_interest,
+                "volume": option.volume,
+                "dte": option.dte
+            })
+        
         return {
-            "message": f"Tradier API connection successful for {symbol}",
+            "message": f"Successfully fetched options data for {symbol}",
             "status": "success",
             "symbol": symbol.upper(),
             "expiration": expiration,
-            "timestamp": datetime.utcnow().isoformat(),
-            "note": "Options data fetching is being optimized for performance"
+            "options_count": len(options_data),
+            "options": options_data,
+            "timestamp": datetime.utcnow().isoformat()
         }
         
     except Exception as e:
@@ -315,6 +340,166 @@ async def test_tradier_connection():
         return {
             "status": "error",
             "message": f"Tradier connection test failed: {str(e)}"
+        }
+
+@router.get("/test-delta-parsing")
+async def test_delta_parsing():
+    """Test delta parsing with mock Tradier API response."""
+    try:
+        from clients.tradier import TradierDataManager
+        
+        # Mock Tradier API response similar to the example provided
+        mock_response = {
+            "options": {
+                "option": [
+                    {
+                        "symbol": "VXX190517P00016000",
+                        "description": "VXX May 17 2019 $16.00 Put",
+                        "exch": "Z",
+                        "type": "option",
+                        "last": None,
+                        "change": None,
+                        "volume": 0,
+                        "open": None,
+                        "high": None,
+                        "low": None,
+                        "close": None,
+                        "bid": 0.0,
+                        "ask": 0.01,
+                        "underlying": "VXX",
+                        "strike": 16.0,
+                        "change_percentage": None,
+                        "average_volume": 0,
+                        "last_volume": 0,
+                        "trade_date": 0,
+                        "prevclose": None,
+                        "week_52_high": 0.0,
+                        "week_52_low": 0.0,
+                        "bidsize": 0,
+                        "bidexch": "J",
+                        "bid_date": 1557171657000,
+                        "asksize": 611,
+                        "askexch": "Z",
+                        "ask_date": 1557172096000,
+                        "open_interest": 10,
+                        "contract_size": 100,
+                        "expiration_date": "2019-05-17",
+                        "expiration_type": "standard",
+                        "option_type": "put",
+                        "root_symbol": "VXX",
+                        "greeks": {
+                            "delta": 1.0,
+                            "gamma": 1.95546E-10,
+                            "theta": -0.00204837,
+                            "vega": 3.54672E-9,
+                            "rho": 0.106077,
+                            "phi": -0.28801,
+                            "bid_iv": 0.0,
+                            "mid_iv": 0.0,
+                            "ask_iv": 0.0,
+                            "smv_vol": 0.380002,
+                            "updated_at": "2019-08-29 14:59:08"
+                        }
+                    },
+                    {
+                        "symbol": "VXX190517C00016000",
+                        "description": "VXX May 17 2019 $16.00 Call",
+                        "exch": "Z",
+                        "type": "option",
+                        "last": None,
+                        "change": None,
+                        "volume": 0,
+                        "open": None,
+                        "high": None,
+                        "low": None,
+                        "close": None,
+                        "bid": 10.85,
+                        "ask": 11.0,
+                        "underlying": "VXX",
+                        "strike": 16.0,
+                        "change_percentage": None,
+                        "average_volume": 0,
+                        "last_volume": 0,
+                        "trade_date": 0,
+                        "prevclose": None,
+                        "week_52_high": 0.0,
+                        "week_52_low": 0.0,
+                        "bidsize": 55,
+                        "bidexch": "C",
+                        "bid_date": 1557172097000,
+                        "asksize": 80,
+                        "askexch": "E",
+                        "ask_date": 1557172135000,
+                        "open_interest": 0,
+                        "contract_size": 100,
+                        "expiration_date": "2019-05-17",
+                        "expiration_type": "standard",
+                        "option_type": "call",
+                        "root_symbol": "VXX",
+                        "greeks": {
+                            "delta": 1.0,
+                            "gamma": 1.95546E-10,
+                            "theta": -0.00204837,
+                            "vega": 3.54672E-9,
+                            "rho": 0.106077,
+                            "phi": -0.28801,
+                            "bid_iv": 0.0,
+                            "mid_iv": 0.0,
+                            "ask_iv": 0.0,
+                            "smv_vol": 0.380002,
+                            "updated_at": "2019-08-29 14:59:08"
+                        }
+                    }
+                ]
+            }
+        }
+        
+        # Test the parsing logic directly
+        from clients.tradier import TradierDataManager
+        tradier_manager = TradierDataManager(None)  # No DB needed for this test
+        
+        parsed_options = []
+        for opt_data in mock_response["options"]["option"]:
+            option = tradier_manager._parse_option_data("VXX", "2019-05-17", opt_data)
+            if option:
+                parsed_options.append({
+                    "symbol": option.symbol,
+                    "strike": option.strike,
+                    "option_type": option.option_type,
+                    "expiry": option.expiry.isoformat(),
+                    "bid": option.bid,
+                    "ask": option.ask,
+                    "last": option.last,
+                    "delta": option.delta,
+                    "gamma": option.gamma,
+                    "theta": option.theta,
+                    "vega": option.vega,
+                    "implied_volatility": option.implied_volatility,
+                    "open_interest": option.open_interest,
+                    "volume": option.volume,
+                    "dte": option.dte
+                })
+        
+        return {
+            "status": "success",
+            "message": "Delta parsing test completed",
+            "parsed_options": parsed_options,
+            "original_greeks": [
+                {
+                    "symbol": opt["symbol"],
+                    "greeks": opt["greeks"]
+                } for opt in mock_response["options"]["option"]
+            ],
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Delta parsing test failed: {e}")
+        import traceback
+        logger.error(f"📋 Traceback: {traceback.format_exc()}")
+        return {
+            "status": "error",
+            "message": f"Delta parsing test failed: {str(e)}"
         }
 
 @router.get("/tradier-quote/{symbol}")

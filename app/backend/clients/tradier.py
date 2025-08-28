@@ -135,13 +135,24 @@ class TradierClient:
         """Get options chain for a symbol and expiration."""
         params = {
             "symbol": symbol,
-            "expiration": expiration
+            "expiration": expiration,
+            "greeks": "true"  # Request greeks data
         }
         data = await self._make_request("GET", "/markets/options/chains", params)
+        
+        # Debug: Log the raw response to see what we're getting
+        logger.info(f"🔍 Raw Tradier API response for {symbol} {expiration}: {data}")
         
         options = data.get("options", {}).get("option", [])
         if not isinstance(options, list):
             options = [options]
+        
+        # Debug: Check if any options have greeks data
+        greeks_count = 0
+        for opt in options:
+            if opt.get("greeks"):
+                greeks_count += 1
+        logger.info(f"📊 Found {greeks_count} options with greeks data out of {len(options)} total options")
         
         return options
     
@@ -536,10 +547,19 @@ class TradierDataManager:
                     existing = result.scalar_one_or_none()
                     
                     if existing:
-                        # Update existing
-                        for key, value in option.__dict__.items():
-                            if not key.startswith('_'):
-                                setattr(existing, key, value)
+                        # Update existing option with explicit field updates (using rounded values)
+                        existing.bid = option.bid
+                        existing.ask = option.ask
+                        existing.last = option.last
+                        existing.delta = option.delta  # Already rounded to 2 decimal places
+                        existing.gamma = option.gamma  # Already rounded to 2 decimal places
+                        existing.theta = option.theta  # Already rounded to 2 decimal places
+                        existing.vega = option.vega    # Already rounded to 2 decimal places
+                        existing.implied_volatility = option.implied_volatility
+                        existing.open_interest = option.open_interest
+                        existing.volume = option.volume
+                        existing.dte = option.dte
+                        existing.updated_at = datetime.utcnow()
                         options.append(existing)
                     else:
                         # Create new
@@ -562,6 +582,24 @@ class TradierDataManager:
             # Calculate DTE (days to expiration)
             dte = (expiry - datetime.utcnow()).days
             
+            # Extract greeks data from nested structure
+            greeks = opt_data.get("greeks", {})
+            if not isinstance(greeks, dict):
+                greeks = {}
+            
+            # Extract implied volatility from greeks (try different field names)
+            implied_volatility = None
+            if greeks.get("mid_iv"):
+                implied_volatility = float(greeks.get("mid_iv", 0))
+            elif greeks.get("smv_vol"):
+                implied_volatility = float(greeks.get("smv_vol", 0))
+            
+            # Round greeks to 2 decimal places for database storage
+            delta_rounded = round(float(greeks.get("delta", 0)), 2) if greeks.get("delta") else None
+            gamma_rounded = round(float(greeks.get("gamma", 0)), 2) if greeks.get("gamma") else None
+            theta_rounded = round(float(greeks.get("theta", 0)), 2) if greeks.get("theta") else None
+            vega_rounded = round(float(greeks.get("vega", 0)), 2) if greeks.get("vega") else None
+            
             option = Option(
                 symbol=symbol,
                 expiry=expiry,
@@ -570,18 +608,18 @@ class TradierDataManager:
                 bid=float(opt_data.get("bid", 0)) if opt_data.get("bid") else None,
                 ask=float(opt_data.get("ask", 0)) if opt_data.get("ask") else None,
                 last=float(opt_data.get("last", 0)) if opt_data.get("last") else None,
-                delta=float(opt_data.get("delta", 0)) if opt_data.get("delta") else None,
-                gamma=float(opt_data.get("gamma", 0)) if opt_data.get("gamma") else None,
-                theta=float(opt_data.get("theta", 0)) if opt_data.get("theta") else None,
-                vega=float(opt_data.get("vega", 0)) if opt_data.get("vega") else None,
-                implied_volatility=float(opt_data.get("implied_volatility", 0)) if opt_data.get("implied_volatility") else None,
+                delta=delta_rounded,
+                gamma=gamma_rounded,
+                theta=theta_rounded,
+                vega=vega_rounded,
+                implied_volatility=implied_volatility,
                 open_interest=int(opt_data.get("open_interest", 0)) if opt_data.get("open_interest") else None,
                 volume=int(opt_data.get("volume", 0)) if opt_data.get("volume") else None,
                 dte=dte,
                 iv_rank=0.5  # Default IV rank
             )
             
-            logger.debug(f"Created option: {option.symbol} {option.strike} {option.option_type}")
+            logger.debug(f"Created option: {option.symbol} {option.strike} {option.option_type} - Delta: {option.delta}")
             return option
             
         except (ValueError, KeyError) as e:
