@@ -13,6 +13,7 @@ import {
   Alert,
   Snackbar,
   CircularProgress,
+  Divider,
 } from '@mui/material';
 import {
   Save as SaveIcon,
@@ -135,16 +136,51 @@ export default function SettingsPage() {
       handleInputChange(key, newValue);
     };
 
+    const getHelperText = () => {
+      let helperText = `Default: ${schema.default}`;
+      if (schema.min !== undefined && schema.max !== undefined) {
+        helperText += ` (Range: ${schema.min}-${schema.max})`;
+      } else if (schema.min !== undefined) {
+        helperText += ` (Min: ${schema.min})`;
+      } else if (schema.max !== undefined) {
+        helperText += ` (Max: ${schema.max})`;
+      }
+      return helperText;
+    };
+
     return (
-      <TextField
-        fullWidth
-        label={schema.description}
-        value={value || ''}
-        onChange={handleChange}
-        type={schema.type === 'int' || schema.type === 'float' ? 'number' : 'text'}
-        helperText={`Default: ${schema.default}${schema.min !== undefined && schema.max !== undefined ? ` (Range: ${schema.min}-${schema.max})` : ''}`}
-        size="small"
-      />
+      <Box>
+        <Typography 
+          variant="subtitle2" 
+          sx={{ 
+            mb: 1, 
+            fontWeight: 600,
+            color: 'text.primary'
+          }}
+        >
+          {schema.description}
+        </Typography>
+        <TextField
+          fullWidth
+          value={value || ''}
+          onChange={handleChange}
+          type={schema.type === 'int' || schema.type === 'float' ? 'number' : 'text'}
+          helperText={getHelperText()}
+          size="small"
+          sx={{
+            '& .MuiOutlinedInput-root': {
+              height: 40,
+              borderRadius: 0,
+              '&:hover fieldset': {
+                borderColor: 'primary.main',
+              },
+            },
+            '& .MuiInputLabel-root': {
+              display: 'none',
+            },
+          }}
+        />
+      </Box>
     );
   };
 
@@ -170,8 +206,18 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
-        <CircularProgress />
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '50vh',
+        flexDirection: 'column',
+        gap: 2
+      }}>
+        <CircularProgress size={40} />
+        <Typography variant="body2" color="text.secondary">
+          Loading settings...
+        </Typography>
       </Box>
     );
   }
@@ -192,64 +238,93 @@ export default function SettingsPage() {
   const groupedSettings = groupSettingsByCategory();
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-        <SettingsIcon sx={{ mr: 2, fontSize: 32 }} />
-        <Typography variant="h4" component="h1">
-          Application Settings
-        </Typography>
+    <Box sx={{ maxWidth: 800, mx: 'auto' }}>
+      {/* Header with Action Buttons */}
+      <Box sx={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'space-between',
+        mb: 4,
+        p: 3,
+        pb: 0
+      }}>
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <SettingsIcon sx={{ mr: 2, fontSize: 32, color: 'primary.main' }} />
+          <Typography variant="h4" component="h1" sx={{ fontWeight: 600 }}>
+            Application Settings
+          </Typography>
+        </Box>
+        
+        {/* Action Buttons */}
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button
+            variant="outlined"
+            onClick={fetchSettings}
+            startIcon={<RefreshIcon />}
+            disabled={saving}
+            sx={{ minWidth: 120, borderRadius: 0 }}
+          >
+            Refresh
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSave}
+            startIcon={saving ? <CircularProgress size={20} /> : <SaveIcon />}
+            disabled={saving}
+            sx={{ minWidth: 160, borderRadius: 0 }}
+          >
+            {saving ? 'Saving...' : 'Save All Settings'}
+          </Button>
+        </Box>
       </Box>
 
-      <Alert severity="info" sx={{ mb: 3 }}>
-        Configure risk parameters and trading settings for the Wheel Strategy application.
-        Make your changes and click "Save All Settings" to apply them.
-      </Alert>
-
-      <Grid container spacing={3}>
+      {/* Settings Categories */}
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, px: 3 }}>
         {Object.entries(groupedSettings).map(([category, settings]) => (
-          <Grid item xs={12} key={category}>
-            <Card>
-              <CardHeader
-                title={category}
-                titleTypographyProps={{ variant: 'h6', fontWeight: 'bold' }}
-              />
-              <CardContent>
-                <Grid container spacing={2}>
-                  {settings.map(({ schema, value }) => (
-                    <Grid item xs={12} md={6} key={schema.key}>
-                      {renderInputField(schema.key, schema, value)}
-                    </Grid>
-                  ))}
-                </Grid>
-              </CardContent>
-            </Card>
-          </Grid>
+                      <Card key={category} sx={{ 
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 0,
+              '&:hover': {
+                borderColor: 'primary.main',
+                boxShadow: 2,
+              },
+              transition: 'all 0.2s ease-in-out'
+            }}>
+            <CardHeader
+              title={category}
+              titleTypographyProps={{ 
+                variant: 'h6', 
+                fontWeight: 600,
+                color: 'primary.main'
+              }}
+              sx={{ 
+                pb: 1,
+                '& .MuiCardHeader-content': {
+                  minWidth: 0,
+                }
+              }}
+            />
+            <Divider />
+            <CardContent sx={{ pt: 2 }}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {settings.map(({ schema, value }) => (
+                  <Box key={schema.key}>
+                    {renderInputField(schema.key, schema, value)}
+                  </Box>
+                ))}
+              </Box>
+            </CardContent>
+          </Card>
         ))}
-      </Grid>
-
-      <Box sx={{ mt: 3, display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
-        <Button
-          variant="outlined"
-          onClick={fetchSettings}
-          startIcon={<RefreshIcon />}
-          disabled={saving}
-        >
-          Refresh
-        </Button>
-        <Button
-          variant="contained"
-          onClick={handleSave}
-          startIcon={saving ? <CircularProgress size={20} /> : <SaveIcon />}
-          disabled={saving}
-        >
-          {saving ? 'Saving...' : 'Save All Settings'}
-        </Button>
       </Box>
 
+      {/* Notifications */}
       <Snackbar
         open={!!error}
         autoHideDuration={6000}
         onClose={() => setError(null)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
         <Alert severity="error" onClose={() => setError(null)}>
           {error}
@@ -260,6 +335,7 @@ export default function SettingsPage() {
         open={!!success}
         autoHideDuration={6000}
         onClose={() => setSuccess(null)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
         <Alert severity="success" onClose={() => setSuccess(null)}>
           {success}

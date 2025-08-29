@@ -105,7 +105,7 @@ export default function SideMenu({ open, onToggle, collapsed, onCollapseToggle }
               selected={pathname === item.href}
               sx={{
                 mx: 1,
-                borderRadius: 1,
+                borderRadius: 0,
                 minHeight: 48,
                 justifyContent: collapsed ? 'center' : 'flex-start',
                 '&.Mui-selected': {
@@ -163,6 +163,7 @@ export default function SideMenu({ open, onToggle, collapsed, onCollapseToggle }
             '& .MuiDrawer-paper': {
               boxSizing: 'border-box',
               width: DRAWER_WIDTH,
+              borderRadius: 0,
             },
           }}
         >
@@ -180,6 +181,7 @@ export default function SideMenu({ open, onToggle, collapsed, onCollapseToggle }
             width: collapsed ? 64 : DRAWER_WIDTH,
             transition: 'width 0.2s ease-in-out',
             overflowX: 'hidden',
+            borderRadius: 0,
           },
         }}
         open

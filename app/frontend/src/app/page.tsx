@@ -50,7 +50,7 @@ export default function Dashboard() {
           
           {/* Additional Dashboard Panels */}
           <Grid item xs={12} md={6}>
-            <Card>
+            <Card sx={{ borderRadius: 0 }}>
               <CardContent>
                 <Typography variant="h6" component="div" sx={{ mb: 2 }}>
                   Portfolio Summary
@@ -64,7 +64,7 @@ export default function Dashboard() {
           
           {/* Recent Activity */}
           <Grid item xs={12}>
-            <Card>
+            <Card sx={{ borderRadius: 0 }}>
               <CardContent>
                 <Typography variant="h6" component="div" sx={{ mb: 2 }}>
                   Recent Activity

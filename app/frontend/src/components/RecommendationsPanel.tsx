@@ -22,6 +22,7 @@ import {
   TrendingUp as TrendingUpIcon,
   Close as CloseIcon,
   Info as InfoIcon,
+  AutoAwesome as AutoAwesomeIcon,
 } from '@mui/icons-material'
 import { recommendationsApi } from '@/lib/api'
 import { Recommendation } from '@/types'
@@ -119,7 +120,7 @@ export default function RecommendationsPanel({ maxRecommendations = 5 }: Recomme
 
   if (loading) {
     return (
-      <Card>
+      <Card sx={{ borderRadius: 0 }}>
         <CardHeader
           title="Latest Recommendations"
           action={
@@ -140,11 +141,27 @@ export default function RecommendationsPanel({ maxRecommendations = 5 }: Recomme
   }
 
   return (
-    <Card>
+    <Card sx={{ borderRadius: 0 }}>
       <CardHeader
         title="Latest Recommendations"
         action={
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Tooltip title="Generate new recommendations (may take up to 30 seconds)">
+              <IconButton
+                onClick={handleRefresh}
+                disabled={refreshing}
+                size="small"
+                sx={{ 
+                  color: 'success.main',
+                  '&:hover': {
+                    backgroundColor: 'success.main',
+                    color: 'success.contrastText',
+                  }
+                }}
+              >
+                {refreshing ? <CircularProgress size={20} /> : <AutoAwesomeIcon />}
+              </IconButton>
+            </Tooltip>
             <Tooltip title="Refresh recommendations (may take up to 30 seconds)">
               <IconButton
                 onClick={handleRefresh}
@@ -172,21 +189,12 @@ export default function RecommendationsPanel({ maxRecommendations = 5 }: Recomme
             <Typography color="textSecondary" variant="body2">
               No recommendations available
             </Typography>
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={handleRefresh}
-              disabled={refreshing}
-              sx={{ mt: 1 }}
-            >
-              Generate Recommendations
-            </Button>
           </Box>
         ) : (
           <Grid container spacing={2}>
             {recommendations.map((recommendation) => (
               <Grid item xs={12} key={recommendation.id}>
-                <Card variant="outlined" sx={{ position: 'relative' }}>
+                <Card variant="outlined" sx={{ position: 'relative', borderRadius: 0 }}>
                   <CardContent sx={{ pb: 1 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -198,6 +206,7 @@ export default function RecommendationsPanel({ maxRecommendations = 5 }: Recomme
                             label={`$${recommendation.strike}`}
                             size="small"
                             variant="outlined"
+                            sx={{ borderRadius: 0 }}
                           />
                         )}
                         {recommendation.expiry && (
@@ -206,6 +215,7 @@ export default function RecommendationsPanel({ maxRecommendations = 5 }: Recomme
                             size="small"
                             variant="outlined"
                             color="secondary"
+                            sx={{ borderRadius: 0 }}
                           />
                         )}
                       </Box>
@@ -216,6 +226,7 @@ export default function RecommendationsPanel({ maxRecommendations = 5 }: Recomme
                           color={getScoreColor(recommendation.score) as any}
                           size="small"
                           icon={<TrendingUpIcon />}
+                          sx={{ borderRadius: 0 }}
                         />
                         <Tooltip title="Dismiss recommendation">
                           <IconButton

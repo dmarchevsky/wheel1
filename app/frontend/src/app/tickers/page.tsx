@@ -347,13 +347,14 @@ export default function TickersPage() {
           onClick={fetchTickers}
           disabled={loading}
           startIcon={loading ? <CircularProgress size={20} /> : <RefreshIcon />}
+          sx={{ borderRadius: 0 }}
         >
           Refresh
         </Button>
       </Box>
 
       {/* Add New Ticker */}
-      <Card sx={{ mb: 3 }}>
+      <Card sx={{ mb: 3, borderRadius: 0 }}>
         <CardContent>
           <Typography variant="h6" component="h2" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
             <AddIcon />
@@ -367,13 +368,19 @@ export default function TickersPage() {
               onKeyPress={(e) => e.key === 'Enter' && addTicker()}
               disabled={addingTicker}
               size="small"
-              sx={{ flexGrow: 1 }}
+              sx={{ 
+                flexGrow: 1,
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 0,
+                },
+              }}
             />
             <Button
               variant="contained"
               onClick={addTicker}
               disabled={addingTicker || !newTickerSymbol.trim()}
               startIcon={addingTicker ? <CircularProgress size={20} /> : <AddIcon />}
+              sx={{ borderRadius: 0 }}
             >
               Add
             </Button>
@@ -385,7 +392,7 @@ export default function TickersPage() {
       </Card>
 
       {/* Tickers Table */}
-      <Card>
+      <Card sx={{ borderRadius: 0 }}>
         <CardContent>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="h6" component="h2">
@@ -397,7 +404,12 @@ export default function TickersPage() {
                 value={filterSymbol}
                 onChange={(e) => handleFilterChange(e.target.value)}
                 size="small"
-                sx={{ width: 250 }}
+                sx={{ 
+                  width: 250,
+                  '& .MuiOutlinedInput-root': {
+                    borderRadius: 0,
+                  },
+                }}
                 InputProps={{
                   startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />,
                 }}
@@ -417,6 +429,11 @@ export default function TickersPage() {
                   value={filterStatus}
                   onChange={(e) => handleStatusFilterChange(e.target.value)}
                   label="Status"
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: 0,
+                    },
+                  }}
                 >
                   <MenuItem value="all">All</MenuItem>
                   <MenuItem value="active">Active</MenuItem>
@@ -439,7 +456,7 @@ export default function TickersPage() {
               </Typography>
             </Box>
           ) : (
-            <TableContainer component={Paper} variant="outlined">
+            <TableContainer component={Paper} variant="outlined" sx={{ '& .MuiPaper-root': { borderRadius: 0 } }}>
               <Table>
                 <TableHead>
                   <TableRow>
@@ -561,13 +578,14 @@ export default function TickersPage() {
                         {ticker.pe_ratio ? ticker.pe_ratio.toFixed(2) : 'N/A'}
                       </TableCell>
                       <TableCell>{formatDate(ticker.next_earnings_date)}</TableCell>
-                      <TableCell>
-                        <Chip
-                          label={ticker.source}
-                          color={ticker.source === 'sp500' ? 'primary' : 'default'}
-                          size="small"
-                        />
-                      </TableCell>
+                              <TableCell>
+          <Chip
+            label={ticker.source}
+            color={ticker.source === 'sp500' ? 'primary' : 'default'}
+            size="small"
+            sx={{ borderRadius: 0 }}
+          />
+        </TableCell>
                       <TableCell>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <Switch
@@ -625,18 +643,18 @@ export default function TickersPage() {
       </Card>
 
       {/* Additional Info */}
-      <Card sx={{ mt: 3 }}>
+      <Card sx={{ mt: 3, borderRadius: 0 }}>
         <CardContent>
           <Typography variant="h6" component="h2" sx={{ mb: 2 }}>
             Data Sources
           </Typography>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Chip label="sp500" color="primary" size="small" />
+              <Chip label="sp500" color="primary" size="small" sx={{ borderRadius: 0 }} />
               <Typography variant="body2">Automatically added from S&P 500 index</Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Chip label="manual" color="default" size="small" />
+              <Chip label="manual" color="default" size="small" sx={{ borderRadius: 0 }} />
               <Typography variant="body2">Manually added by user</Typography>
             </Box>
           </Box>
@@ -655,11 +673,12 @@ export default function TickersPage() {
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+          <Button onClick={() => setDeleteDialogOpen(false)} sx={{ borderRadius: 0 }}>Cancel</Button>
           <Button
             color="error"
             onClick={() => tickerToDelete && removeTicker(tickerToDelete)}
             disabled={removingTicker !== null}
+            sx={{ borderRadius: 0 }}
           >
             {removingTicker ? <CircularProgress size={20} /> : 'Remove'}
           </Button>
