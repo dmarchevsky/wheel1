@@ -282,21 +282,4 @@ async def delete_setting(
         raise HTTPException(status_code=500, detail="Failed to delete setting")
 
 
-@router.post("/initialize")
-async def initialize_settings(
-    db: AsyncSession = Depends(get_async_db)
-):
-    """Initialize database with default settings."""
-    try:
-        settings_service = SettingsService(db)
-        success = await settings_service.initialize_default_settings()
-        
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to initialize settings")
-        
-        return {"message": "Settings initialized successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error initializing settings: {e}")
-        raise HTTPException(status_code=500, detail="Failed to initialize settings")
+
