@@ -60,3 +60,8 @@ def ensure_pacific_timezone(dt: datetime) -> datetime:
         return dt
     
     return dt.astimezone(PACIFIC_TZ)
+
+
+def now_pacific_naive() -> datetime:
+    """Get current datetime in Pacific timezone as naive datetime for database storage."""
+    return now_pacific().replace(tzinfo=None)
