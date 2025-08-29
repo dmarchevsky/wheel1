@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from db.models import ChatGPTCache
+from utils.timezone import now_pacific
 
 
 class OpenAIAnalysis(BaseModel):
@@ -191,7 +192,7 @@ class OpenAICacheManager:
         
         cached = self.db.query(ChatGPTCache).filter(
             ChatGPTCache.key_hash == cache_key,
-            ChatGPTCache.ttl > datetime.utcnow()
+            ChatGPTCache.ttl > now_pacific()
         ).first()
         
         if cached:
@@ -207,7 +208,7 @@ class OpenAICacheManager:
     def cache_analysis(self, symbol: str, date: str, analysis: OpenAIAnalysis, ttl_hours: int = 24):
         """Cache analysis with TTL."""
         cache_key = self._generate_cache_key(symbol, date)
-        ttl = datetime.utcnow() + timedelta(hours=ttl_hours)
+        ttl = now_pacific() + timedelta(hours=ttl_hours)
         
         # Remove existing cache entry if exists
         existing = self.db.query(ChatGPTCache).filter(
@@ -229,7 +230,7 @@ class OpenAICacheManager:
     
     async def get_or_create_analysis(self, symbol: str, current_price: float, sector: str = None) -> OpenAIAnalysis:
         """Get cached analysis or create new one."""
-        today = datetime.utcnow().strftime("%Y-%m-%d")
+        today = now_pacific().strftime("%Y-%m-%d")
         
         # Try to get from cache first
         cached = self.get_cached_analysis(symbol, today)
@@ -258,7 +259,7 @@ class OpenAICacheManager:
     def cleanup_expired_cache(self):
         """Remove expired cache entries."""
         expired = self.db.query(ChatGPTCache).filter(
-            ChatGPTCache.ttl < datetime.utcnow()
+            ChatGPTCache.ttl < now_pacific()
         ).all()
         
         for entry in expired:

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from config import settings
 from db.models import Trade, Recommendation, Position, OptionPosition
 from clients.tradier import TradierClient
+from utils.timezone import now_pacific
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ class TradeExecutor:
             if trade:
                 # Update recommendation status
                 recommendation.status = "executed"
-                recommendation.updated_at = datetime.utcnow()
+                recommendation.updated_at = now_pacific()
                 db.commit()
                 
                 logger.info(f"Successfully executed recommendation {recommendation_id}")
@@ -90,7 +91,7 @@ class TradeExecutor:
                 price=option.bid,
                 order_id=order_result["id"],
                 status="pending",
-                created_at=datetime.utcnow()
+                created_at=now_pacific()
             )
             
             db.add(trade)
@@ -149,7 +150,7 @@ class TradeExecutor:
                 price=1.00,  # Placeholder price
                 order_id=order_result["id"],
                 status="pending",
-                created_at=datetime.utcnow()
+                created_at=now_pacific()
             )
             
             db.add(trade)
@@ -202,7 +203,7 @@ class TradeExecutor:
                 price=0,  # Market order, price will be filled
                 order_id=order_result["id"],
                 status="pending",
-                created_at=datetime.utcnow()
+                created_at=now_pacific()
             )
             
             db.add(trade)
@@ -236,7 +237,7 @@ class TradeExecutor:
             trade.status = status
             
             if status in ["filled", "cancelled", "rejected"]:
-                trade.updated_at = datetime.utcnow()
+                trade.updated_at = now_pacific()
             
             db.commit()
             

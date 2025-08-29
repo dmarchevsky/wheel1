@@ -10,6 +10,7 @@ import numpy as np
 from config import settings
 from db.models import InterestingTicker, TickerQuote, Option, Trade
 from services.market_data_service import MarketDataService
+from utils.timezone import now_pacific
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ class UniverseService:
                 # Calculate universe score
                 universe_score = await self._calculate_universe_score(ticker)
                 ticker.universe_score = universe_score
-                ticker.last_analysis_date = datetime.utcnow()
+                ticker.last_analysis_date = now_pacific()
                 
                 filtered_tickers.append(ticker)
                 logger.debug(f"Ticker {ticker.symbol} passed all filters with score {universe_score:.3f}")
@@ -109,7 +110,7 @@ class UniverseService:
         try:
             # Update if data is older than 1 hour
             if (ticker.updated_at is None or 
-                datetime.utcnow() - ticker.updated_at > timedelta(hours=1)):
+                now_pacific() - ticker.updated_at > timedelta(hours=1)):
                 
                 # Use MarketDataService to update both fundamental and quote data
                 await self.market_data_service._update_ticker_market_data(ticker)
@@ -192,8 +193,8 @@ class UniverseService:
             if ticker.next_earnings_date is None:
                 return True  # No earnings date, allow trading
             
-            blackout_start = datetime.utcnow() - timedelta(days=settings.earnings_blackout_days)
-            blackout_end = datetime.utcnow() + timedelta(days=settings.earnings_blackout_days)
+            blackout_start = now_pacific() - timedelta(days=settings.earnings_blackout_days)
+            blackout_end = now_pacific() + timedelta(days=settings.earnings_blackout_days)
             
             # Check if next earnings date is within blackout period
             if blackout_start <= ticker.next_earnings_date <= blackout_end:
@@ -354,7 +355,7 @@ class UniverseService:
             }
             
             # Data freshness
-            now = datetime.utcnow()
+            now = now_pacific()
             recent_updates = sum(1 for t in all_tickers if t.updated_at and (now - t.updated_at) < timedelta(hours=1))
             data_freshness = {
                 "updated_last_hour": recent_updates,
@@ -379,7 +380,7 @@ class UniverseService:
         """Get tickers that need market data updates."""
         try:
             # Get active tickers that need updating (older than 1 hour)
-            cutoff_time = datetime.utcnow() - timedelta(hours=1)
+            cutoff_time = now_pacific() - timedelta(hours=1)
             query = select(InterestingTicker).where(
                 and_(
                     InterestingTicker.active == True,

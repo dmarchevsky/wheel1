@@ -11,6 +11,7 @@ from db.session import get_async_db
 from services.market_data_service import MarketDataService
 from services.universe_service import UniverseService
 from db.models import InterestingTicker, TickerQuote
+from utils.timezone import now_pacific
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ async def update_sp500_universe(
             "message": "S&P 500 universe update completed",
             "status": "success",
             "updated_tickers_count": len(updated_tickers),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": now_pacific().isoformat(),
             "tickers": [
                 {
                     "symbol": ticker.symbol,
@@ -67,7 +68,7 @@ async def refresh_market_data(
             "message": "Market data refresh completed",
             "status": "success",
             "refreshed_tickers_count": len(refreshed_tickers),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": now_pacific().isoformat(),
             "tickers": [
                 {
                     "symbol": ticker.symbol,
@@ -687,8 +688,8 @@ async def add_interesting_ticker(
             symbol=symbol.upper(),
             active=True,
             source="manual",
-            added_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            added_at=now_pacific(),
+            updated_at=now_pacific()
         )
         db.add(ticker)
         await db.flush()  # Flush to get the ID
@@ -727,7 +728,7 @@ async def add_interesting_ticker(
             "status": "success",
             "message": f"Successfully added ticker {symbol.upper()}",
             "symbol": symbol.upper(),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": now_pacific().isoformat(),
             "ticker_data": {
                 "name": final_ticker.name if final_ticker else None,
                 "sector": final_ticker.sector if final_ticker else None,
@@ -779,7 +780,7 @@ async def refresh_ticker_data(
             "status": "success",
             "message": f"Successfully refreshed data for {symbol.upper()}",
             "symbol": symbol.upper(),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": now_pacific().isoformat(),
             "ticker_data": {
                 "name": updated_ticker.name,
                 "sector": updated_ticker.sector,
@@ -819,7 +820,7 @@ async def toggle_ticker_active(
         
         # Toggle active status
         ticker.active = not ticker.active
-        ticker.updated_at = datetime.utcnow()
+        ticker.updated_at = now_pacific()
         
         await db.commit()
         
@@ -828,7 +829,7 @@ async def toggle_ticker_active(
             "message": f"Ticker {symbol.upper()} {'activated' if ticker.active else 'deactivated'}",
             "symbol": symbol.upper(),
             "active": ticker.active,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": now_pacific().isoformat()
         }
         
     except HTTPException:
@@ -873,7 +874,7 @@ async def remove_interesting_ticker(
             "status": "success",
             "message": f"Successfully removed ticker {symbol.upper()}",
             "symbol": symbol.upper(),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": now_pacific().isoformat()
         }
         
     except HTTPException:

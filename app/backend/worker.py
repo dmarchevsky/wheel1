@@ -19,6 +19,7 @@ from services.alert_service import AlertService
 from services.telegram_service import TelegramService
 from services.trade_executor import TradeExecutor
 from services.market_data_service import MarketDataService
+from utils.timezone import now_pacific
 
 
 # Configure logging
@@ -450,7 +451,7 @@ class Worker:
                 error_message = (
                     f"❌ **Weekly SP500 Population Job Error**\n\n"
                     f"**Error**: {str(e)}\n"
-                    f"**Timestamp**: {datetime.utcnow().isoformat()}"
+                    f"**Timestamp**: {now_pacific().isoformat()}"
                 )
                 await self.telegram_service.send_message(error_message)
             except Exception as notify_error:

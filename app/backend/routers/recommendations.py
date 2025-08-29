@@ -11,6 +11,7 @@ from db.session import get_async_db
 from db.models import Recommendation, InterestingTicker, Option
 from pydantic import BaseModel
 from services.recommender_service import RecommenderService
+from utils.timezone import now_pacific
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ async def generate_recommendations(
             "status": "success",
             "fast_mode": fast_mode,
             "recommendations_created": len(recommendations),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": now_pacific().isoformat(),
             "recommendations": [
                 {
                     "id": rec.id,
@@ -276,7 +277,7 @@ async def refresh_recommendations(
             "message": "Recommendations refreshed successfully",
             "status": "success",
             "new_recommendations_count": len(new_recommendations),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": now_pacific().isoformat(),
             "recommendations": [
                 {
                     "symbol": rec.symbol,

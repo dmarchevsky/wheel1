@@ -8,6 +8,7 @@ from sqlalchemy import and_
 
 from config import settings
 from db.models import Position, OptionPosition, Notification, Alert
+from utils.timezone import now_pacific
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ class AlertService:
                                     "entry_price": position.entry_price,
                                     "current_price": position.current_price
                                 },
-                                created_at=datetime.utcnow()
+                                created_at=now_pacific()
                             )
                             alerts.append(alert)
                 
@@ -126,7 +127,7 @@ class AlertService:
                                         "dte": dte,
                                         "premium_decay": premium_decay
                                     },
-                                    created_at=datetime.utcnow()
+                                    created_at=now_pacific()
                                 )
                                 alerts.append(alert)
                 
@@ -165,7 +166,7 @@ class AlertService:
                                 "current_delta": current_delta,
                                 "threshold": settings.delta_threshold_close
                             },
-                            created_at=datetime.utcnow()
+                            created_at=now_pacific()
                         )
                         alerts.append(alert)
                 
@@ -211,7 +212,7 @@ class AlertService:
                                 "quantity": position.quantity,
                                 "current_price": position.current_price
                             },
-                            created_at=datetime.utcnow()
+                            created_at=now_pacific()
                         )
                         alerts.append(alert)
                 
@@ -246,7 +247,7 @@ class AlertService:
                 return False
             
             alert.status = "processed"
-            alert.processed_at = datetime.utcnow()
+            alert.processed_at = now_pacific()
             
             db.commit()
             return True
@@ -259,7 +260,7 @@ class AlertService:
     def cleanup_old_alerts(self, db: Session, days: int = 30) -> int:
         """Clean up old alerts."""
         try:
-            cutoff_date = datetime.utcnow() - timedelta(days=days)
+            cutoff_date = now_pacific() - timedelta(days=days)
             
             old_alerts = db.query(Alert).filter(
                 and_(

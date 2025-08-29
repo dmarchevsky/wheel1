@@ -9,6 +9,7 @@ from sqlalchemy import and_
 from config import settings
 from db.models import Position, OptionPosition, InterestingTicker
 from clients.tradier import TradierClient
+from utils.timezone import now_pacific
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ class PositionService:
                         existing.quantity = quantity
                         existing.current_price = float(pos_data.get("last_price", 0))
                         existing.market_value = float(pos_data.get("market_value", 0))
-                        existing.updated_at = datetime.utcnow()
+                        existing.updated_at = now_pacific()
                     else:
                         # Create new position
                         position = Position(
@@ -81,15 +82,15 @@ class PositionService:
                             current_price=float(pos_data.get("last_price", 0)),
                             market_value=float(pos_data.get("market_value", 0)),
                             status="open",
-                            created_at=datetime.utcnow()
+                            created_at=now_pacific()
                         )
                         db.add(position)
                 else:
                     # Position closed
                     if existing:
                         existing.status = "closed"
-                        existing.closed_at = datetime.utcnow()
-                        existing.updated_at = datetime.utcnow()
+                        existing.closed_at = now_pacific()
+                        existing.updated_at = now_pacific()
                 
             except Exception as e:
                 logger.error(f"Error processing equity position {pos_data}: {e}")
@@ -124,7 +125,7 @@ class PositionService:
                         existing.quantity = quantity
                         existing.current_price = float(pos_data.get("last_price", 0))
                         existing.market_value = float(pos_data.get("market_value", 0))
-                        existing.updated_at = datetime.utcnow()
+                        existing.updated_at = now_pacific()
                     else:
                         # Create new position
                         position = OptionPosition(
@@ -135,15 +136,15 @@ class PositionService:
                             current_price=float(pos_data.get("last_price", 0)),
                             market_value=float(pos_data.get("market_value", 0)),
                             status="open",
-                            created_at=datetime.utcnow()
+                            created_at=now_pacific()
                         )
                         db.add(position)
                 else:
                     # Position closed
                     if existing:
                         existing.status = "closed"
-                        existing.closed_at = datetime.utcnow()
-                        existing.updated_at = datetime.utcnow()
+                        existing.closed_at = now_pacific()
+                        existing.updated_at = now_pacific()
                 
             except Exception as e:
                 logger.error(f"Error processing option position {pos_data}: {e}")

@@ -5,8 +5,10 @@ import logging
 import httpx
 from typing import List, Dict, Any, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from datetime import datetime
 
 from config import settings
+from utils.timezone import now_pacific
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +166,7 @@ class APINinjasClient:
                 
                 # Find the earliest upcoming earnings date
                 from datetime import datetime
-                current_date = datetime.utcnow().date()
+                current_date = now_pacific().date()
                 upcoming_earnings = []
                 
                 # First pass: collect all upcoming earnings dates

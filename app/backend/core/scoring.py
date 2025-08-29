@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from db.models import Option, InterestingTicker
 from config import settings
+from utils.timezone import now_pacific
 
 
 class ScoringEngine:
@@ -100,7 +101,7 @@ class ScoringEngine:
         
         # Earnings blackout penalty
         if earnings_date:
-            days_to_earnings = (earnings_date - datetime.utcnow()).days
+            days_to_earnings = (earnings_date - now_pacific()).days
             if 0 <= days_to_earnings <= settings.earnings_blackout_days:
                 risk_score *= 0.3  # Significant penalty during earnings blackout
         
@@ -138,7 +139,7 @@ class ScoringEngine:
                     gpt_analysis: Dict = None) -> Dict[str, float]:
         """Score a single option contract."""
         # Basic calculations
-        dte = (option.expiry - datetime.utcnow()).days
+        dte = (option.expiry - now_pacific()).days
         if dte <= 0:
             return {"score": 0.0, "rationale": {}}
         
@@ -258,7 +259,7 @@ class ScoringEngine:
                 return False
         
         # Annualized yield filter
-        dte = (option.expiry - datetime.utcnow()).days
+        dte = (option.expiry - now_pacific()).days
         if dte > 0 and option.bid and option.ask:
             mid_price = (option.bid + option.ask) / 2
             annualized_yield = self.calculate_annualized_yield(mid_price, option.strike, dte)

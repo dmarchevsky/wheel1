@@ -13,6 +13,7 @@ from core.scoring import ScoringEngine
 from clients.openai_client import OpenAICacheManager
 from clients.tradier import TradierDataManager
 from services.universe_service import UniverseService
+from utils.timezone import now_pacific
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class RecommenderService:
     
     async def generate_recommendations(self, db: AsyncSession, fast_mode: bool = True) -> List[Recommendation]:
         """Generate new recommendations with optimized processing."""
-        start_time = datetime.utcnow()
+        start_time = now_pacific()
         logger.info(f"🚀 Starting recommendation generation (fast_mode={fast_mode})...")
         logger.info(f"📊 Max recommendations: {settings.max_recommendations}")
         
@@ -152,7 +153,7 @@ class RecommenderService:
                     continue
             
             # Step 5: Summary
-            end_time = datetime.utcnow()
+            end_time = now_pacific()
             duration = (end_time - start_time).total_seconds()
             
             logger.info("=" * 80)
@@ -255,7 +256,7 @@ class RecommenderService:
                 and_(
                     Option.symbol == ticker.symbol,
                     Option.option_type == "put",
-                    Option.updated_at >= datetime.utcnow() - timedelta(hours=1),  # Only use data from last hour
+                    Option.updated_at >= now_pacific() - timedelta(hours=1),  # Only use data from last hour
                     # DTE filter: 28-35 days
                     Option.dte >= settings.covered_call_dte_min,
                     Option.dte <= settings.covered_call_dte_max,
@@ -380,7 +381,7 @@ class RecommenderService:
                 score=score,
                 rationale_json=rationale,
                 status="proposed",
-                created_at=datetime.utcnow()
+                created_at=now_pacific()
             )
             
             db.add(recommendation)
@@ -408,7 +409,7 @@ class RecommenderService:
                 return False
             
             recommendation.status = "dismissed"
-            recommendation.updated_at = datetime.utcnow()
+            recommendation.updated_at = now_pacific()
             
             await db.commit()
             return True
@@ -421,7 +422,7 @@ class RecommenderService:
     async def cleanup_old_recommendations(self, db: AsyncSession, days: int = 7) -> int:
         """Clean up old recommendations."""
         try:
-            cutoff_date = datetime.utcnow() - timedelta(days=days)
+            cutoff_date = now_pacific() - timedelta(days=days)
             
             result = await db.execute(
                 select(Recommendation).where(
