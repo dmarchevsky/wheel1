@@ -18,6 +18,7 @@ import {
 import {
   Dashboard as DashboardIcon,
   List as ListIcon,
+  Settings as SettingsIcon,
   Menu as MenuIcon,
   Close as CloseIcon,
   ChevronLeft as ChevronLeftIcon,
@@ -45,6 +46,11 @@ const menuItems = [
     text: 'Tickers',
     icon: <ListIcon />,
     href: '/tickers',
+  },
+  {
+    text: 'Settings',
+    icon: <SettingsIcon />,
+    href: '/settings',
   },
 ];
 

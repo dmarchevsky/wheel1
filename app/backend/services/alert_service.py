@@ -6,7 +6,8 @@ from typing import List, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
-from config import settings
+from config import settings as env_settings
+from services.settings_service import get_setting
 from db.models import Position, OptionPosition, Notification, Alert
 from utils.timezone import now_pacific
 
@@ -72,7 +73,8 @@ class AlertService:
                     if position.entry_price > 0:
                         profit_pct = ((position.current_price - position.entry_price) / position.entry_price) * 100
                         
-                        if profit_pct >= settings.profit_target_pct:
+                        profit_target_pct = await get_setting(db, "profit_target_pct", 70.0)
+                        if profit_pct >= profit_target_pct:
                             alert = Alert(
                                 type="profit_target",
                                 symbol=position.symbol,
@@ -112,12 +114,14 @@ class AlertService:
                     # For now, use a placeholder
                     dte = 30  # Placeholder
                     
-                    if dte <= settings.time_decay_threshold_days:
+                    time_decay_threshold_days = await get_setting(db, "time_decay_threshold_days", 7)
+                    if dte <= time_decay_threshold_days:
                         # Check if premium has decayed significantly
                         if position.entry_price > 0:
                             premium_decay = ((position.entry_price - position.current_price) / position.entry_price) * 100
                             
-                            if premium_decay >= settings.time_decay_premium_threshold_pct:
+                            time_decay_premium_threshold_pct = await get_setting(db, "time_decay_premium_threshold_pct", 20.0)
+                            if premium_decay >= time_decay_premium_threshold_pct:
                                 alert = Alert(
                                     type="time_decay",
                                     symbol=position.symbol,
@@ -156,7 +160,8 @@ class AlertService:
                     # For now, use a placeholder
                     current_delta = 0.3  # Placeholder
                     
-                    if current_delta >= settings.delta_threshold_close:
+                    delta_threshold_close = await get_setting(db, "delta_threshold_close", 0.45)
+                    if current_delta >= delta_threshold_close:
                         alert = Alert(
                             type="delta_threshold",
                             symbol=position.symbol,
@@ -164,7 +169,7 @@ class AlertService:
                             data={
                                 "position_id": position.id,
                                 "current_delta": current_delta,
-                                "threshold": settings.delta_threshold_close
+                                "threshold": delta_threshold_close
                             },
                             created_at=now_pacific()
                         )

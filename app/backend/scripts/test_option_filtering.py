@@ -10,7 +10,8 @@ from sqlalchemy import select, and_
 from db.session import get_async_db
 from db.models import InterestingTicker, Option
 from clients.tradier import TradierDataManager
-from config import settings
+from config import settings as env_settings
+from services.settings_service import get_setting
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -38,9 +39,11 @@ async def test_option_filtering():
                 # Calculate DTE for verification
                 exp_date = datetime.strptime(optimal_expiration, "%Y-%m-%d")
                 dte = (exp_date - datetime.now()).days
-                logger.info(f"📊 DTE: {dte} days (target: {settings.covered_call_dte_min}-{settings.covered_call_dte_max})")
-                
-                if settings.covered_call_dte_min <= dte <= settings.covered_call_dte_max:
+                        dte_min = await get_setting(db, "dte_min", 21)
+        dte_max = await get_setting(db, "dte_max", 35)
+        logger.info(f"📊 DTE: {dte} days (target: {dte_min}-{dte_max})")
+        
+        if dte_min <= dte <= dte_max:
                     logger.info("✅ DTE is within optimal range!")
                 else:
                     logger.warning(f"⚠️  DTE is outside optimal range")
@@ -68,7 +71,9 @@ async def test_option_filtering():
                 
                 # Verify delta criteria (for puts, delta should be negative)
                 if option.option_type == "put":
-                    if not (settings.put_delta_min <= abs(option.delta) <= settings.put_delta_max):
+                    put_delta_min = await get_setting(db, "put_delta_min", 0.25)
+            put_delta_max = await get_setting(db, "put_delta_max", 0.35)
+            if not (put_delta_min <= abs(option.delta) <= put_delta_max):
                         logger.error(f"❌ Option {i+1} failed delta filter: {option.delta}")
                 
                 # Verify basic liquidity
@@ -82,10 +87,10 @@ async def test_option_filtering():
                     and_(
                         Option.symbol == test_symbol,
                         Option.option_type == "put",
-                        Option.dte >= settings.covered_call_dte_min,
-                        Option.dte <= settings.covered_call_dte_max,
-                        Option.delta >= -settings.put_delta_max,
-                        Option.delta <= -settings.put_delta_min
+                                                Option.dte >= await get_setting(db, "dte_min", 21),
+                        Option.dte <= await get_setting(db, "dte_max", 35),
+                        Option.delta >= -await get_setting(db, "put_delta_max", 0.35),
+                        Option.delta <= -await get_setting(db, "put_delta_min", 0.25)
                     )
                 )
             )

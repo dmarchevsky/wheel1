@@ -9,8 +9,9 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import settings
-from utils.timezone import now_pacific
+from config import settings as env_settings
+from services.settings_service import get_setting
+from utils.timezone import now_pacific, PACIFIC_TZ
 from db.models import Option, InterestingTicker, TickerQuote, Position, OptionPosition, Trade
 
 
@@ -26,9 +27,9 @@ class TradierClient:
     """Tradier API client with retry logic and rate limiting."""
     
     def __init__(self):
-        self.base_url = settings.tradier_base_url
-        self.access_token = settings.tradier_access_token
-        self.account_id = settings.tradier_account_id
+        self.base_url = env_settings.tradier_base_url
+        self.access_token = env_settings.tradier_access_token
+        self.account_id = env_settings.tradier_account_id
         
         # Validate required configuration
         if not self.access_token or self.access_token == "REPLACE_ME":
@@ -516,7 +517,7 @@ class TradierDataManager:
 
     
     async def get_optimal_expiration(self, symbol: str) -> Optional[str]:
-        """Get the optimal expiration date that falls within 28-35 days."""
+        """Get the optimal expiration date that falls within 21-35 days."""
         try:
             expirations = await self.client.get_option_expirations(symbol)
             if not expirations:
@@ -528,21 +529,29 @@ class TradierDataManager:
             for exp_str in expirations:
                 try:
                     exp_date = datetime.strptime(exp_str, "%Y-%m-%d")
-                    dte = (exp_date - now_pacific()).days
+                    # Convert to timezone-aware datetime for comparison
+                    pacific_now = now_pacific()
+                    # Assume expiration date is at market close (4 PM Eastern = 1 PM Pacific)
+                    exp_date_pacific = exp_date.replace(hour=13, minute=0, second=0, microsecond=0)
+                    exp_date_pacific = exp_date_pacific.replace(tzinfo=pacific_now.tzinfo)
+                    dte = (exp_date_pacific - pacific_now).days
                     expiration_dates.append((exp_str, exp_date, dte))
                 except ValueError as e:
                     logger.warning(f"Invalid expiration date format: {exp_str}")
                     continue
             
-            # Filter for expirations within 28-35 days
+            # Filter for expirations within DTE range
+            dte_min = await get_setting(self.db, "dte_min", 21)
+            dte_max = await get_setting(self.db, "dte_max", 35)
+            
             optimal_expirations = [
                 (exp_str, exp_date, dte) for exp_str, exp_date, dte in expiration_dates
-                if settings.covered_call_dte_min <= dte <= settings.covered_call_dte_max
+                if dte_min <= dte <= dte_max
             ]
             
             if optimal_expirations:
                 # Sort by DTE and take the one closest to the middle of the range
-                optimal_expirations.sort(key=lambda x: abs(x[2] - (settings.covered_call_dte_min + settings.covered_call_dte_max) / 2))
+                optimal_expirations.sort(key=lambda x: abs(x[2] - (dte_min + dte_max) / 2))
                 best_expiration = optimal_expirations[0][0]
                 best_dte = optimal_expirations[0][2]
                 logger.info(f"Selected optimal expiration for {symbol}: {best_expiration} (DTE: {best_dte})")
@@ -578,7 +587,7 @@ class TradierDataManager:
             filtered_options = []
             for opt_data in put_options_data:
                 option = self._parse_option_data(symbol, expiration, opt_data)
-                if option and self._passes_storage_criteria(option):
+                if option and await self._passes_storage_criteria(option):
                     filtered_options.append(option)
             
             logger.info(f"Filtered to {len(filtered_options)} options that meet storage criteria")
@@ -631,6 +640,8 @@ class TradierDataManager:
         try:
             logger.debug(f"Parsing option data: {opt_data}")
             expiry = datetime.strptime(expiration, "%Y-%m-%d")
+            # Localize expiry to Pacific timezone to match now_pacific()
+            expiry = PACIFIC_TZ.localize(expiry)
             
             # Calculate DTE (days to expiration)
             dte = (expiry - now_pacific()).days
@@ -682,17 +693,23 @@ class TradierDataManager:
             logger.error(f"Unexpected error parsing option data for {symbol}: {e}")
             return None
     
-    def _passes_storage_criteria(self, option: Option) -> bool:
+    async def _passes_storage_criteria(self, option: Option) -> bool:
         """Check if option meets storage criteria (delta and DTE)."""
         try:
-            # DTE filter: 28-35 days (using covered call DTE settings for puts)
-            if option.dte is None or not (settings.covered_call_dte_min <= option.dte <= settings.covered_call_dte_max):
-                logger.debug(f"Option {option.symbol} {option.strike} failed DTE filter: {option.dte} days (need {settings.covered_call_dte_min}-{settings.covered_call_dte_max})")
+            # DTE filter: use unified DTE settings for all options
+            dte_min = await get_setting(self.db, "dte_min", 21)
+            dte_max = await get_setting(self.db, "dte_max", 35)
+            
+            if option.dte is None or not (dte_min <= option.dte <= dte_max):
+                logger.debug(f"Option {option.symbol} {option.strike} failed DTE filter: {option.dte} days (need {dte_min}-{dte_max})")
                 return False
             
             # Delta filter: 0.25-0.35 (using put delta settings)
-            if option.delta is None or not (settings.put_delta_min <= abs(option.delta) <= settings.put_delta_max):
-                logger.debug(f"Option {option.symbol} {option.strike} failed delta filter: {option.delta} (need {settings.put_delta_min}-{settings.put_delta_max})")
+            put_delta_min = await get_setting(self.db, "put_delta_min", 0.25)
+            put_delta_max = await get_setting(self.db, "put_delta_max", 0.35)
+            
+            if option.delta is None or not (put_delta_min <= abs(option.delta) <= put_delta_max):
+                logger.debug(f"Option {option.symbol} {option.strike} failed delta filter: {option.delta} (need {put_delta_min}-{put_delta_max})")
                 return False
             
             # Basic liquidity filter: require some open interest

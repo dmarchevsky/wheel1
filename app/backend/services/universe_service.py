@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import and_, or_, desc, func, select
 import numpy as np
 
-from config import settings
+from config import settings as env_settings
+from services.settings_service import get_setting
 from db.models import InterestingTicker, TickerQuote, Option, Trade
 from services.market_data_service import MarketDataService
 from utils.timezone import now_pacific
@@ -193,8 +194,9 @@ class UniverseService:
             if ticker.next_earnings_date is None:
                 return True  # No earnings date, allow trading
             
-            blackout_start = now_pacific() - timedelta(days=settings.earnings_blackout_days)
-            blackout_end = now_pacific() + timedelta(days=settings.earnings_blackout_days)
+            earnings_blackout_days = await get_setting(self.db, "earnings_blackout_days", 7)
+            blackout_start = now_pacific() - timedelta(days=earnings_blackout_days)
+            blackout_end = now_pacific() + timedelta(days=earnings_blackout_days)
             
             # Check if next earnings date is within blackout period
             if blackout_start <= ticker.next_earnings_date <= blackout_end:

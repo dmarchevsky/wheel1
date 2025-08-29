@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     max_bid_ask_pct: float = Field(default=5, env="MAX_BID_ASK_PCT")
     annualized_min_pct: float = Field(default=20, env="ANNUALIZED_MIN_PCT")
     max_recommendations: int = Field(default=3, env="MAX_RECOMMENDATIONS")
+    min_score_threshold: float = Field(default=0.5, env="MIN_SCORE_THRESHOLD")
     earnings_blackout_days: int = Field(default=7, env="EARNINGS_BLACKOUT_DAYS")
     
     # Trading Configuration
@@ -76,8 +77,9 @@ class Settings(BaseSettings):
     time_decay_threshold_days: int = Field(default=7, env="TIME_DECAY_THRESHOLD_DAYS")
     time_decay_premium_threshold_pct: float = Field(default=20, env="TIME_DECAY_PREMIUM_THRESHOLD_PCT")
     delta_threshold_close: float = Field(default=0.45, env="DELTA_THRESHOLD_CLOSE")
-    covered_call_dte_min: int = Field(default=28, env="COVERED_CALL_DTE_MIN")
-    covered_call_dte_max: int = Field(default=35, env="COVERED_CALL_DTE_MAX")
+    # Note: DTE settings are now managed via database settings service
+    # covered_call_dte_min and covered_call_dte_max are kept for backward compatibility
+    # but are mapped to dte_min and dte_max in the settings service
     covered_call_delta_min: float = Field(default=0.20, env="COVERED_CALL_DELTA_MIN")
     covered_call_delta_max: float = Field(default=0.30, env="COVERED_CALL_DELTA_MAX")
     

@@ -271,7 +271,7 @@ async def fetch_ticker_options(
         # Initialize TradierDataManager
         tradier_manager = TradierDataManager(db)
         
-        # If no expiration provided, get optimal expiration (28-35 days)
+        # If no expiration provided, get optimal expiration (21-35 days)
         if not expiration:
             logger.info(f"Getting optimal expiration for {symbol}")
             expiration = await tradier_manager.get_optimal_expiration(symbol.upper())

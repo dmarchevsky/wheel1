@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from db.models import Option, InterestingTicker
-from config import settings
+from config import settings as env_settings
+from services.settings_service import get_setting
 from utils.timezone import now_pacific
 
 
@@ -94,7 +95,7 @@ class ScoringEngine:
         liquidity_score = (0.4 * oi_score + 0.4 * volume_score + 0.2 * spread_score)
         return liquidity_score
     
-    def calculate_risk_adjustment(self, symbol: str, earnings_date: Optional[datetime] = None,
+    async def calculate_risk_adjustment(self, symbol: str, earnings_date: Optional[datetime] = None,
                                 sector: str = None) -> float:
         """Calculate risk adjustment factor."""
         risk_score = 1.0
@@ -102,7 +103,8 @@ class ScoringEngine:
         # Earnings blackout penalty
         if earnings_date:
             days_to_earnings = (earnings_date - now_pacific()).days
-            if 0 <= days_to_earnings <= settings.earnings_blackout_days:
+            earnings_blackout_days = await get_setting(self.db, "earnings_blackout_days", 7)
+            if 0 <= days_to_earnings <= earnings_blackout_days:
                 risk_score *= 0.3  # Significant penalty during earnings blackout
         
         # Sector risk adjustments (simplified)
@@ -135,7 +137,7 @@ class ScoringEngine:
         
         return composite_score
     
-    def score_option(self, option: Option, current_price: float, 
+    async def score_option(self, option: Option, current_price: float, 
                     gpt_analysis: Dict = None) -> Dict[str, float]:
         """Score a single option contract."""
         # Basic calculations
@@ -171,7 +173,7 @@ class ScoringEngine:
         ticker = None
         earnings = None
         
-        risk_adjustment = self.calculate_risk_adjustment(
+        risk_adjustment = await self.calculate_risk_adjustment(
             option.symbol,
             earnings.earnings_date if earnings else None,
             ticker.sector if ticker else None
@@ -205,7 +207,7 @@ class ScoringEngine:
             "rationale": rationale
         }
     
-    def filter_options(self, options: List[Option], current_prices: Dict[str, float]) -> List[Tuple[Option, Dict]]:
+    async def filter_options(self, options: List[Option], current_prices: Dict[str, float]) -> List[Tuple[Option, Dict]]:
         """Filter and score options based on criteria."""
         scored_options = []
         
@@ -218,11 +220,11 @@ class ScoringEngine:
                 continue
             
             # Apply filters
-            if not self._passes_filters(option, current_price):
+            if not await self._passes_filters(option, current_price):
                 continue
             
             # Score the option
-            score_result = self.score_option(option, current_price)
+            score_result = await self.score_option(option, current_price)
             
             if score_result["score"] > 0:
                 scored_options.append((option, score_result))
@@ -232,11 +234,13 @@ class ScoringEngine:
         
         return scored_options
     
-    def _passes_filters(self, option: Option, current_price: float) -> bool:
+    async def _passes_filters(self, option: Option, current_price: float) -> bool:
         """Check if option passes all filters."""
         # Delta filter
         if option.delta:
-            if not (settings.put_delta_min <= abs(option.delta) <= settings.put_delta_max):
+            put_delta_min = await get_setting(self.db, "put_delta_min", 0.25)
+            put_delta_max = await get_setting(self.db, "put_delta_max", 0.35)
+            if not (put_delta_min <= abs(option.delta) <= put_delta_max):
                 return False
         
         # IV Rank filter (simplified - would need historical data)
@@ -246,16 +250,21 @@ class ScoringEngine:
                 return False
         
         # OI and Volume filters
-        if option.open_interest and option.open_interest < settings.min_oi:
-            return False
+        if option.open_interest:
+            min_oi = await get_setting(self.db, "min_oi", 500)
+            if option.open_interest < min_oi:
+                return False
         
-        if option.volume and option.volume < settings.min_volume:
-            return False
+        if option.volume:
+            min_volume = await get_setting(self.db, "min_volume", 200)
+            if option.volume < min_volume:
+                return False
         
         # Bid-ask spread filter
         if option.bid and option.ask:
             spread_pct = self.calculate_bid_ask_spread_pct(option.bid, option.ask)
-            if spread_pct > settings.max_bid_ask_pct:
+            max_bid_ask_pct = await get_setting(self.db, "max_bid_ask_pct", 5.0)
+            if spread_pct > max_bid_ask_pct:
                 return False
         
         # Annualized yield filter
@@ -263,16 +272,17 @@ class ScoringEngine:
         if dte > 0 and option.bid and option.ask:
             mid_price = (option.bid + option.ask) / 2
             annualized_yield = self.calculate_annualized_yield(mid_price, option.strike, dte)
-            if annualized_yield < settings.annualized_min_pct:
+            annualized_min_pct = await get_setting(self.db, "annualized_min_pct", 20.0)
+            if annualized_yield < annualized_min_pct:
                 return False
         
         return True
     
-    def get_top_recommendations(self, scored_options: List[Tuple[Option, Dict]], 
+    async def get_top_recommendations(self, scored_options: List[Tuple[Option, Dict]], 
                               max_recommendations: int = None) -> List[Tuple[Option, Dict]]:
         """Get top recommendations with sector diversification."""
         if max_recommendations is None:
-            max_recommendations = settings.max_recommendations
+            max_recommendations = await get_setting(self.db, "max_recommendations", 3)
         
         if len(scored_options) <= max_recommendations:
             return scored_options[:max_recommendations]

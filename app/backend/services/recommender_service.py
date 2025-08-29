@@ -7,7 +7,8 @@ from typing import List, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import and_, desc, select
 
-from config import settings
+from config import settings as env_settings
+from services.settings_service import get_setting
 from db.models import Recommendation, InterestingTicker, TickerQuote, Option, Position
 from core.scoring import ScoringEngine
 from clients.openai_client import OpenAICacheManager
@@ -29,7 +30,8 @@ class RecommenderService:
         """Generate new recommendations with optimized processing."""
         start_time = now_pacific()
         logger.info(f"🚀 Starting recommendation generation (fast_mode={fast_mode})...")
-        logger.info(f"📊 Max recommendations: {settings.max_recommendations}")
+        max_recommendations = await get_setting(db, "max_recommendations", 3)
+        logger.info(f"📊 Max recommendations: {max_recommendations}")
         
         try:
             # Step 1: Get universe of tickers
@@ -103,7 +105,7 @@ class RecommenderService:
                             logger.warning(f"⚠️  No current price found for {ticker.symbol}, skipping option scoring")
                             continue
                         
-                        score_data = scoring_engine.score_option(option, current_price)
+                        score_data = await scoring_engine.score_option(option, current_price)
                         score = score_data["score"]
                         
                         logger.info(f"   🎯 Option score: {score:.3f}")
@@ -119,7 +121,7 @@ class RecommenderService:
                     # Sort by score and take top recommendations
                     if scored_options:
                         scored_options.sort(key=lambda x: x[1]["score"], reverse=True)
-                        top_options = scored_options[:settings.max_recommendations]
+                        top_options = scored_options[:max_recommendations]
                         
                         logger.info(f"🏆 Top {len(top_options)} options for {ticker.symbol}:")
                         for k, (option, score_data) in enumerate(top_options):
@@ -257,12 +259,12 @@ class RecommenderService:
                     Option.symbol == ticker.symbol,
                     Option.option_type == "put",
                     Option.updated_at >= now_pacific() - timedelta(hours=1),  # Only use data from last hour
-                    # DTE filter: 28-35 days
-                    Option.dte >= settings.covered_call_dte_min,
-                    Option.dte <= settings.covered_call_dte_max,
-                    # Delta filter: 0.25-0.35 (absolute value for puts)
-                    Option.delta >= -settings.put_delta_max,  # Negative for puts
-                    Option.delta <= -settings.put_delta_min   # Negative for puts
+                    # DTE filter: use unified DTE settings
+                    Option.dte >= await get_setting(db, "dte_min", 21),
+                    Option.dte <= await get_setting(db, "dte_max", 35),
+                    # Delta filter: use database settings (absolute value for puts)
+                    Option.delta >= -await get_setting(db, "put_delta_max", 0.35),  # Negative for puts
+                    Option.delta <= -await get_setting(db, "put_delta_min", 0.25)   # Negative for puts
                 )
             )
         )
@@ -279,7 +281,7 @@ class RecommenderService:
                 logger.info(f"📊 Syncing market data for {ticker.symbol}...")
                 await tradier_data.sync_ticker_data(ticker.symbol)
                 
-                # Get optimal expiration (28-35 days)
+                # Get optimal expiration (21-35 days)
                 logger.info(f"📅 Getting optimal expiration for {ticker.symbol}...")
                 expiration = await tradier_data.get_optimal_expiration(ticker.symbol)
                 if expiration:
@@ -333,14 +335,17 @@ class RecommenderService:
             
             logger.info(f"📊 Current price for {ticker.symbol}: ${current_price}")
             
-            score_data = scoring_engine.score_option(option, current_price)
+            score_data = await scoring_engine.score_option(option, current_price)
             score = score_data["score"]
             
             logger.info(f"🎯 Calculated score for {ticker.symbol}: {score:.3f}")
             logger.info(f"📊 Score breakdown: {score_data.get('rationale', {})}")
             
-            if score < 0.5:  # Minimum score threshold
-                logger.info(f"❌ Score {score:.3f} below minimum threshold (0.5) for {ticker.symbol}")
+            # Get minimum score threshold from settings
+            min_score_threshold = await get_setting(db, "min_score_threshold", 0.5)
+            
+            if score < min_score_threshold:
+                logger.info(f"❌ Score {score:.3f} below minimum threshold ({min_score_threshold}) for {ticker.symbol}")
                 return None
             
             # Step 2: Get OpenAI analysis if enabled
