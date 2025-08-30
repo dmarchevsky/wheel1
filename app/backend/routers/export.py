@@ -6,8 +6,8 @@ from datetime import datetime
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import desc, select
 import pandas as pd
 
 from db.session import get_async_db
@@ -19,12 +19,13 @@ router = APIRouter()
 
 @router.post("/transactions.xlsx")
 async def export_transactions(
-    db: Session = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Export all transactions to Excel format."""
     try:
         # Fetch all trades with related data
-        trades = db.query(Trade).order_by(desc(Trade.created_at)).all()
+        result = await db.execute(select(Trade).order_by(desc(Trade.created_at)))
+        trades = result.scalars().all()
         
         if not trades:
             raise HTTPException(status_code=404, detail="No transactions found")
@@ -74,12 +75,13 @@ async def export_transactions(
 
 @router.post("/recommendations.xlsx")
 async def export_recommendations(
-    db: Session = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Export all recommendations to Excel format."""
     try:
         # Fetch all recommendations
-        recommendations = db.query(Recommendation).order_by(desc(Recommendation.created_at)).all()
+        result = await db.execute(select(Recommendation).order_by(desc(Recommendation.created_at)))
+        recommendations = result.scalars().all()
         
         if not recommendations:
             raise HTTPException(status_code=404, detail="No recommendations found")
@@ -130,12 +132,13 @@ async def export_recommendations(
 
 @router.post("/positions.xlsx")
 async def export_positions(
-    db: Session = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Export all positions to Excel format."""
     try:
         # Fetch all positions
-        positions = db.query(Position).order_by(desc(Position.created_at)).all()
+        result = await db.execute(select(Position).order_by(desc(Position.created_at)))
+        positions = result.scalars().all()
         
         if not positions:
             raise HTTPException(status_code=404, detail="No positions found")

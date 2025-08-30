@@ -5,10 +5,10 @@ import logging
 from typing import List, Dict, Any, Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from config import settings
-from db.session import SyncSessionLocal
+from db.session import AsyncSessionLocal
 from db.models import User, Notification, Recommendation
 from services.trade_executor import TradeExecutor
 
@@ -66,15 +66,18 @@ class TelegramService:
         user_id = update.effective_user.id
         chat_id = update.effective_chat.id
         
-        # Register user if not exists
-        db = SyncSessionLocal()
         try:
-            existing_user = db.query(User).filter(User.telegram_chat_id == str(chat_id)).first()
-            if not existing_user:
-                new_user = User(telegram_chat_id=str(chat_id))
-                db.add(new_user)
-                db.commit()
-                logger.info(f"New user registered: {chat_id}")
+            # Register user if not exists
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    select(User).where(User.telegram_chat_id == str(chat_id))
+                )
+                existing_user = result.scalar_one_or_none()
+                if not existing_user:
+                    new_user = User(telegram_chat_id=str(chat_id))
+                    db.add(new_user)
+                    await db.commit()
+                    logger.info(f"New user registered: {chat_id}")
             
             welcome_message = """
 🤖 Welcome to the Wheel Strategy Assistant!
@@ -95,63 +98,61 @@ Ready to start trading! 🚀
         except Exception as e:
             logger.error(f"Error in start command: {e}")
             await update.message.reply_text("Sorry, there was an error. Please try again.")
-        finally:
-            db.close()
     
     async def _recommendations_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /recs command."""
         try:
-            db = SyncSessionLocal()
-            
-            # Get current recommendations
-            recommendations = db.query(Recommendation).filter(
-                Recommendation.status == "proposed"
-            ).order_by(Recommendation.score.desc()).limit(3).all()
-            
-            if not recommendations:
-                await update.message.reply_text("No current recommendations available.")
-                return
-            
-            message = "🎯 **Current Recommendations**\n\n"
-            
-            for i, rec in enumerate(recommendations, 1):
-                score_pct = rec.score * 100
-                annualized_yield = rec.rationale_json.get('annualized_yield', 0) if rec.rationale_json else 0
+            async with AsyncSessionLocal() as db:
+                # Get current recommendations
+                result = await db.execute(
+                    select(Recommendation).where(
+                        Recommendation.status == "proposed"
+                    ).order_by(Recommendation.score.desc()).limit(3)
+                )
+                recommendations = result.scalars().all()
                 
-                message += f"{i}. **{rec.symbol}**\n"
-                message += f"   Score: {score_pct:.1f}%\n"
-                message += f"   Annualized Yield: {annualized_yield:.1f}%\n"
+                if not recommendations:
+                    await update.message.reply_text("No current recommendations available.")
+                    return
                 
-                if rec.rationale_json:
-                    dte = rec.rationale_json.get('dte', 'N/A')
-                    spread = rec.rationale_json.get('spread_pct', 'N/A')
-                    message += f"   DTE: {dte} • Spread: {spread:.1f}%\n"
+                message = "🎯 **Current Recommendations**\n\n"
                 
-                message += "\n"
-            
-            # Create inline keyboard for trade execution
-            keyboard = []
-            for rec in recommendations:
-                keyboard.append([
-                    InlineKeyboardButton(
-                        f"Execute {rec.symbol}",
-                        callback_data=f"execute_{rec.id}"
-                    )
-                ])
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await update.message.reply_text(
-                message,
-                parse_mode='Markdown',
-                reply_markup=reply_markup
-            )
+                for i, rec in enumerate(recommendations, 1):
+                    score_pct = rec.score * 100
+                    annualized_yield = rec.rationale_json.get('annualized_yield', 0) if rec.rationale_json else 0
+                    
+                    message += f"{i}. **{rec.symbol}**\n"
+                    message += f"   Score: {score_pct:.1f}%\n"
+                    message += f"   Annualized Yield: {annualized_yield:.1f}%\n"
+                    
+                    if rec.rationale_json:
+                        dte = rec.rationale_json.get('dte', 'N/A')
+                        spread = rec.rationale_json.get('spread_pct', 'N/A')
+                        message += f"   DTE: {dte} • Spread: {spread:.1f}%\n"
+                    
+                    message += "\n"
+                
+                # Create inline keyboard for trade execution
+                keyboard = []
+                for rec in recommendations:
+                    keyboard.append([
+                        InlineKeyboardButton(
+                            f"Execute {rec.symbol}",
+                            callback_data=f"execute_{rec.id}"
+                        )
+                    ])
+                
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    message,
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
             
         except Exception as e:
             logger.error(f"Error in recommendations command: {e}")
             await update.message.reply_text("Sorry, there was an error fetching recommendations.")
-        finally:
-            db.close()
     
     async def _positions_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /positions command."""
@@ -226,11 +227,11 @@ For detailed analysis, visit the web dashboard!
     async def _handle_trade_execution(self, query, recommendation_id: int):
         """Handle trade execution request."""
         try:
-            db = SyncSessionLocal()
-            
-            recommendation = db.query(Recommendation).filter(
-                Recommendation.id == recommendation_id
-            ).first()
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    select(Recommendation).where(Recommendation.id == recommendation_id)
+                )
+                recommendation = result.scalar_one_or_none()
             
             if not recommendation:
                 await query.edit_message_text("Recommendation not found.")
@@ -267,8 +268,6 @@ For detailed analysis, visit the web dashboard!
         except Exception as e:
             logger.error(f"Error in trade execution: {e}")
             await query.edit_message_text("Sorry, there was an error creating the order preview.")
-        finally:
-            db.close()
     
     async def _handle_trade_confirmation(self, query, data: str):
         """Handle trade confirmation."""

@@ -2,8 +2,8 @@
 
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import desc, select
 
 from db.session import get_async_db
 from db.models import Trade
@@ -17,16 +17,18 @@ async def get_trades(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     status: Optional[str] = Query(None),
-    db: Session = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Get list of trades with optional filtering."""
     try:
-        query = db.query(Trade)
+        query = select(Trade)
         
         if status:
-            query = query.filter(Trade.status == status)
+            query = query.where(Trade.status == status)
         
-        trades = query.order_by(desc(Trade.created_at)).offset(offset).limit(limit).all()
+        query = query.order_by(desc(Trade.created_at)).offset(offset).limit(limit)
+        result = await db.execute(query)
+        trades = result.scalars().all()
         
         return [
             {
@@ -50,11 +52,12 @@ async def get_trades(
 @router.get("/{trade_id}", response_model=dict)
 async def get_trade(
     trade_id: int,
-    db: Session = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Get a specific trade by ID."""
     try:
-        trade = db.query(Trade).filter(Trade.id == trade_id).first()
+        result = await db.execute(select(Trade).where(Trade.id == trade_id))
+        trade = result.scalar_one_or_none()
         if not trade:
             raise HTTPException(status_code=404, detail="Trade not found")
         
@@ -79,11 +82,12 @@ async def get_trade(
 @router.post("/execute/{trade_id}")
 async def execute_trade(
     trade_id: int,
-    db: Session = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Execute a pending trade."""
     try:
-        trade = db.query(Trade).filter(Trade.id == trade_id).first()
+        result = await db.execute(select(Trade).where(Trade.id == trade_id))
+        trade = result.scalar_one_or_none()
         if not trade:
             raise HTTPException(status_code=404, detail="Trade not found")
         
@@ -104,11 +108,12 @@ async def execute_trade(
 @router.delete("/{trade_id}")
 async def cancel_trade(
     trade_id: int,
-    db: Session = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Cancel a pending trade."""
     try:
-        trade = db.query(Trade).filter(Trade.id == trade_id).first()
+        result = await db.execute(select(Trade).where(Trade.id == trade_id))
+        trade = result.scalar_one_or_none()
         if not trade:
             raise HTTPException(status_code=404, detail="Trade not found")
         
@@ -116,7 +121,7 @@ async def cancel_trade(
             raise HTTPException(status_code=400, detail="Trade is not in pending status")
         
         trade.status = "cancelled"
-        db.commit()
+        await db.commit()
         
         return {"message": "Trade cancelled successfully", "trade_id": trade_id}
     except HTTPException:

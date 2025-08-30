@@ -1,15 +1,16 @@
+from utils.timezone import pacific_now
 """Position service for managing portfolio positions."""
 
 import logging
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, select
 
 from config import settings
 from db.models import Position, OptionPosition, InterestingTicker
 from clients.tradier import TradierClient
-from utils.timezone import now_pacific
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ class PositionService:
     def __init__(self):
         self.tradier_client = TradierClient()
     
-    async def sync_positions(self, db: Session) -> bool:
+    async def sync_positions(self, db: AsyncSession) -> bool:
         """Sync positions from Tradier."""
         try:
             logger.info("Starting position sync...")
@@ -47,7 +48,7 @@ class PositionService:
             logger.error(f"Error syncing positions: {e}")
             return False
     
-    async def _sync_equity_positions(self, db: Session, positions: List[Dict[str, Any]]):
+    async def _sync_equity_positions(self, db: AsyncSession, positions: List[Dict[str, Any]]):
         """Sync equity positions."""
         for pos_data in positions:
             try:
@@ -56,12 +57,15 @@ class PositionService:
                     continue
                 
                 # Check if position already exists
-                existing = db.query(Position).filter(
-                    and_(
-                        Position.symbol == symbol,
-                        Position.status == "open"
+                result = await db.execute(
+                    select(Position).where(
+                        and_(
+                            Position.symbol == symbol,
+                            Position.status == "open"
+                        )
                     )
-                ).first()
+                )
+                existing = result.scalar_one_or_none()
                 
                 quantity = int(pos_data.get("quantity", 0))
                 
@@ -72,7 +76,7 @@ class PositionService:
                         existing.quantity = quantity
                         existing.current_price = float(pos_data.get("last_price", 0))
                         existing.market_value = float(pos_data.get("market_value", 0))
-                        existing.updated_at = now_pacific()
+                        existing.updated_at = pacific_now()
                     else:
                         # Create new position
                         position = Position(
@@ -82,23 +86,23 @@ class PositionService:
                             current_price=float(pos_data.get("last_price", 0)),
                             market_value=float(pos_data.get("market_value", 0)),
                             status="open",
-                            created_at=now_pacific()
+                            created_at=pacific_now()
                         )
                         db.add(position)
                 else:
                     # Position closed
                     if existing:
                         existing.status = "closed"
-                        existing.closed_at = now_pacific()
-                        existing.updated_at = now_pacific()
+                        existing.closed_at = pacific_now()
+                        existing.updated_at = pacific_now()
                 
             except Exception as e:
                 logger.error(f"Error processing equity position {pos_data}: {e}")
                 continue
         
-        db.commit()
+        await db.commit()
     
-    async def _sync_option_positions(self, db: Session, positions: List[Dict[str, Any]]):
+    async def _sync_option_positions(self, db: AsyncSession, positions: List[Dict[str, Any]]):
         """Sync option positions."""
         for pos_data in positions:
             try:
@@ -109,12 +113,15 @@ class PositionService:
                     continue
                 
                 # Check if position already exists
-                existing = db.query(OptionPosition).filter(
-                    and_(
-                        OptionPosition.option_symbol == option_symbol,
-                        OptionPosition.status == "open"
+                result = await db.execute(
+                    select(OptionPosition).where(
+                        and_(
+                            OptionPosition.option_symbol == option_symbol,
+                            OptionPosition.status == "open"
+                        )
                     )
-                ).first()
+                )
+                existing = result.scalar_one_or_none()
                 
                 quantity = int(pos_data.get("quantity", 0))
                 
@@ -125,7 +132,7 @@ class PositionService:
                         existing.quantity = quantity
                         existing.current_price = float(pos_data.get("last_price", 0))
                         existing.market_value = float(pos_data.get("market_value", 0))
-                        existing.updated_at = now_pacific()
+                        existing.updated_at = pacific_now()
                     else:
                         # Create new position
                         position = OptionPosition(
@@ -136,34 +143,36 @@ class PositionService:
                             current_price=float(pos_data.get("last_price", 0)),
                             market_value=float(pos_data.get("market_value", 0)),
                             status="open",
-                            created_at=now_pacific()
+                            created_at=pacific_now()
                         )
                         db.add(position)
                 else:
                     # Position closed
                     if existing:
                         existing.status = "closed"
-                        existing.closed_at = now_pacific()
-                        existing.updated_at = now_pacific()
+                        existing.closed_at = pacific_now()
+                        existing.updated_at = pacific_now()
                 
             except Exception as e:
                 logger.error(f"Error processing option position {pos_data}: {e}")
                 continue
         
-        db.commit()
+        await db.commit()
     
-    def get_portfolio_summary(self, db: Session) -> Dict[str, Any]:
+    async def get_portfolio_summary(self, db: AsyncSession) -> Dict[str, Any]:
         """Get portfolio summary."""
         try:
             # Get equity positions
-            equity_positions = db.query(Position).filter(
-                Position.status == "open"
-            ).all()
+            result = await db.execute(
+                select(Position).where(Position.status == "open")
+            )
+            equity_positions = result.scalars().all()
             
             # Get option positions
-            option_positions = db.query(OptionPosition).filter(
-                OptionPosition.status == "open"
-            ).all()
+            result = await db.execute(
+                select(OptionPosition).where(OptionPosition.status == "open")
+            )
+            option_positions = result.scalars().all()
             
             # Calculate totals
             total_equity_value = sum(pos.market_value for pos in equity_positions)
@@ -209,27 +218,33 @@ class PositionService:
                 "option_count": 0
             }
     
-    def get_covered_call_opportunities(self, db: Session) -> List[Position]:
+    async def get_covered_call_opportunities(self, db: AsyncSession) -> List[Position]:
         """Get equity positions suitable for covered calls."""
         try:
             # Get equity positions with sufficient shares
-            positions = db.query(Position).filter(
-                and_(
-                    Position.status == "open",
-                    Position.quantity >= 100  # Minimum for covered call
+            result = await db.execute(
+                select(Position).where(
+                    and_(
+                        Position.status == "open",
+                        Position.quantity >= 100  # Minimum for covered call
+                    )
                 )
-            ).all()
+            )
+            positions = result.scalars().all()
             
             opportunities = []
             
             for position in positions:
                 # Check if we already have an option position for this symbol
-                existing_option = db.query(OptionPosition).filter(
-                    and_(
-                        OptionPosition.symbol == position.symbol,
-                        OptionPosition.status == "open"
+                result = await db.execute(
+                    select(OptionPosition).where(
+                        and_(
+                            OptionPosition.symbol == position.symbol,
+                            OptionPosition.status == "open"
+                        )
                     )
-                ).first()
+                )
+                existing_option = result.scalar_one_or_none()
                 
                 if not existing_option:
                     opportunities.append(position)
@@ -240,7 +255,7 @@ class PositionService:
             logger.error(f"Error getting covered call opportunities: {e}")
             return []
     
-    def get_rolling_opportunities(self, db: Session) -> List[OptionPosition]:
+    async def get_rolling_opportunities(self, db: AsyncSession) -> List[OptionPosition]:
         """Get option positions that need rolling."""
         try:
             # Get option positions that are close to expiration or have high delta

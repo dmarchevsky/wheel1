@@ -1,15 +1,16 @@
+from utils.timezone import pacific_now
 """Alert service for monitoring positions and generating alerts."""
 
 import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
-from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, select
 
 from config import settings as env_settings
 from services.settings_service import get_setting
 from db.models import Position, OptionPosition, Notification, Alert
-from utils.timezone import now_pacific
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ class AlertService:
     def __init__(self):
         pass
     
-    async def check_alerts(self, db: Session) -> List[Alert]:
+    async def check_alerts(self, db: AsyncSession) -> List[Alert]:
         """Check for alerts and generate notifications."""
         try:
             logger.debug("Checking for alerts...")
@@ -47,25 +48,26 @@ class AlertService:
             for alert in alerts:
                 db.add(alert)
             
-            db.commit()
+            await db.commit()
             
             logger.info(f"Generated {len(alerts)} alerts")
             return alerts
             
         except Exception as e:
             logger.error(f"Error checking alerts: {e}")
-            db.rollback()
+            await db.rollback()
             return []
     
-    async def _check_profit_targets(self, db: Session) -> List[Alert]:
+    async def _check_profit_targets(self, db: AsyncSession) -> List[Alert]:
         """Check for profit target alerts."""
         alerts = []
         
         try:
             # Get option positions
-            positions = db.query(OptionPosition).filter(
-                OptionPosition.status == "open"
-            ).all()
+            result = await db.execute(
+                select(OptionPosition).where(OptionPosition.status == "open")
+            )
+            positions = result.scalars().all()
             
             for position in positions:
                 try:
@@ -85,7 +87,7 @@ class AlertService:
                                     "entry_price": position.entry_price,
                                     "current_price": position.current_price
                                 },
-                                created_at=now_pacific()
+                                created_at=pacific_now()
                             )
                             alerts.append(alert)
                 
@@ -98,15 +100,16 @@ class AlertService:
         
         return alerts
     
-    async def _check_time_decay(self, db: Session) -> List[Alert]:
+    async def _check_time_decay(self, db: AsyncSession) -> List[Alert]:
         """Check for time decay alerts."""
         alerts = []
         
         try:
             # Get option positions close to expiration
-            positions = db.query(OptionPosition).filter(
-                OptionPosition.status == "open"
-            ).all()
+            result = await db.execute(
+                select(OptionPosition).where(OptionPosition.status == "open")
+            )
+            positions = result.scalars().all()
             
             for position in positions:
                 try:
@@ -131,7 +134,7 @@ class AlertService:
                                         "dte": dte,
                                         "premium_decay": premium_decay
                                     },
-                                    created_at=now_pacific()
+                                    created_at=pacific_now()
                                 )
                                 alerts.append(alert)
                 
@@ -144,15 +147,16 @@ class AlertService:
         
         return alerts
     
-    async def _check_delta_thresholds(self, db: Session) -> List[Alert]:
+    async def _check_delta_thresholds(self, db: AsyncSession) -> List[Alert]:
         """Check for delta threshold alerts."""
         alerts = []
         
         try:
             # Get option positions
-            positions = db.query(OptionPosition).filter(
-                OptionPosition.status == "open"
-            ).all()
+            result = await db.execute(
+                select(OptionPosition).where(OptionPosition.status == "open")
+            )
+            positions = result.scalars().all()
             
             for position in positions:
                 try:
@@ -171,7 +175,7 @@ class AlertService:
                                 "current_delta": current_delta,
                                 "threshold": delta_threshold_close
                             },
-                            created_at=now_pacific()
+                            created_at=pacific_now()
                         )
                         alerts.append(alert)
                 
@@ -184,28 +188,34 @@ class AlertService:
         
         return alerts
     
-    async def _check_covered_call_opportunities(self, db: Session) -> List[Alert]:
+    async def _check_covered_call_opportunities(self, db: AsyncSession) -> List[Alert]:
         """Check for covered call opportunities."""
         alerts = []
         
         try:
             # Get equity positions with sufficient shares
-            positions = db.query(Position).filter(
-                and_(
-                    Position.status == "open",
-                    Position.quantity >= 100  # Minimum for covered call
+            result = await db.execute(
+                select(Position).where(
+                    and_(
+                        Position.status == "open",
+                        Position.quantity >= 100  # Minimum for covered call
+                    )
                 )
-            ).all()
+            )
+            positions = result.scalars().all()
             
             for position in positions:
                 try:
                     # Check if we already have an option position for this symbol
-                    existing_option = db.query(OptionPosition).filter(
-                        and_(
-                            OptionPosition.symbol == position.symbol,
-                            OptionPosition.status == "open"
+                    result = await db.execute(
+                        select(OptionPosition).where(
+                            and_(
+                                OptionPosition.symbol == position.symbol,
+                                OptionPosition.status == "open"
+                            )
                         )
-                    ).first()
+                    )
+                    existing_option = result.scalar_one_or_none()
                     
                     if not existing_option:
                         alert = Alert(
@@ -217,7 +227,7 @@ class AlertService:
                                 "quantity": position.quantity,
                                 "current_price": position.current_price
                             },
-                            created_at=now_pacific()
+                            created_at=pacific_now()
                         )
                         alerts.append(alert)
                 
@@ -230,7 +240,7 @@ class AlertService:
         
         return alerts
     
-    def get_pending_alerts(self, db: Session) -> List[Alert]:
+    async def get_pending_alerts(self, db: AsyncSession) -> List[Alert]:
         """Get pending alerts that haven't been processed."""
         try:
             alerts = db.query(Alert).filter(
@@ -243,7 +253,7 @@ class AlertService:
             logger.error(f"Error getting pending alerts: {e}")
             return []
     
-    def mark_alert_processed(self, db: Session, alert_id: int) -> bool:
+    async def mark_alert_processed(self, db: AsyncSession, alert_id: int) -> bool:
         """Mark an alert as processed."""
         try:
             alert = db.query(Alert).filter(Alert.id == alert_id).first()
@@ -252,7 +262,7 @@ class AlertService:
                 return False
             
             alert.status = "processed"
-            alert.processed_at = now_pacific()
+            alert.processed_at = pacific_now()
             
             db.commit()
             return True
@@ -262,10 +272,10 @@ class AlertService:
             db.rollback()
             return False
     
-    def cleanup_old_alerts(self, db: Session, days: int = 30) -> int:
+    async def cleanup_old_alerts(self, db: AsyncSession, days: int = 30) -> int:
         """Clean up old alerts."""
         try:
-            cutoff_date = now_pacific() - timedelta(days=days)
+            cutoff_date = pacific_now() - timedelta(days=days)
             
             old_alerts = db.query(Alert).filter(
                 and_(

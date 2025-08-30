@@ -1,3 +1,4 @@
+from utils.timezone import pacific_now
 """Universe selection service for sophisticated ticker filtering and scoring."""
 
 import logging
@@ -11,7 +12,7 @@ from config import settings as env_settings
 from services.settings_service import get_setting
 from db.models import InterestingTicker, TickerQuote, Option, Trade
 from services.market_data_service import MarketDataService
-from utils.timezone import now_pacific
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -23,16 +24,14 @@ class UniverseService:
         self.db = db
         self.market_data_service = MarketDataService(db)
     
-    async def get_filtered_universe(self, max_tickers: int = None, refresh_data: bool = True, fast_mode: bool = False) -> List[InterestingTicker]:
+    async def get_filtered_universe(self, max_tickers: int = None, refresh_data: bool = True) -> List[InterestingTicker]:
         """Get filtered universe of tickers for analysis."""
-        logger.info(f"Selecting universe of all tickers that pass filters (fast_mode={fast_mode})")
+        logger.info("Selecting universe of all tickers that pass filters")
         
-        # Optionally refresh market data first (skip in fast mode)
-        if refresh_data and not fast_mode:
+        # Optionally refresh market data first
+        if refresh_data:
             logger.info("Refreshing market data before universe selection")
             await self.refresh_universe_data(max_tickers)
-        elif fast_mode:
-            logger.info("Fast mode: skipping data refresh")
         
         # Get all active tickers
         result = await self.db.execute(
@@ -66,7 +65,7 @@ class UniverseService:
                 # Calculate universe score
                 universe_score = await self._calculate_universe_score(ticker)
                 ticker.universe_score = universe_score
-                ticker.last_analysis_date = now_pacific()
+                ticker.last_analysis_date = pacific_now()
                 
                 filtered_tickers.append(ticker)
                 logger.debug(f"Ticker {ticker.symbol} passed all filters with score {universe_score:.3f}")
@@ -111,7 +110,7 @@ class UniverseService:
         try:
             # Update if data is older than 1 hour
             if (ticker.updated_at is None or 
-                now_pacific() - ticker.updated_at > timedelta(hours=1)):
+                pacific_now() - ticker.updated_at > timedelta(hours=1)):
                 
                 # Use MarketDataService to update both fundamental and quote data
                 await self.market_data_service._update_ticker_market_data(ticker)
@@ -195,8 +194,8 @@ class UniverseService:
                 return True  # No earnings date, allow trading
             
             earnings_blackout_days = await get_setting(self.db, "earnings_blackout_days", 7)
-            blackout_start = now_pacific() - timedelta(days=earnings_blackout_days)
-            blackout_end = now_pacific() + timedelta(days=earnings_blackout_days)
+            blackout_start = pacific_now() - timedelta(days=earnings_blackout_days)
+            blackout_end = pacific_now() + timedelta(days=earnings_blackout_days)
             
             # Check if next earnings date is within blackout period
             if blackout_start <= ticker.next_earnings_date <= blackout_end:
@@ -357,7 +356,7 @@ class UniverseService:
             }
             
             # Data freshness
-            now = now_pacific()
+            now = pacific_now()
             recent_updates = sum(1 for t in all_tickers if t.updated_at and (now - t.updated_at) < timedelta(hours=1))
             data_freshness = {
                 "updated_last_hour": recent_updates,
@@ -382,7 +381,7 @@ class UniverseService:
         """Get tickers that need market data updates."""
         try:
             # Get active tickers that need updating (older than 1 hour)
-            cutoff_time = now_pacific() - timedelta(hours=1)
+            cutoff_time = pacific_now() - timedelta(hours=1)
             query = select(InterestingTicker).where(
                 and_(
                     InterestingTicker.active == True,

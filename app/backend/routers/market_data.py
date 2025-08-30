@@ -1,3 +1,4 @@
+from utils.timezone import pacific_now
 """Market data management API endpoints."""
 
 import logging
@@ -11,7 +12,7 @@ from db.session import get_async_db
 from services.market_data_service import MarketDataService
 from services.universe_service import UniverseService
 from db.models import InterestingTicker, TickerQuote
-from utils.timezone import now_pacific
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ async def update_sp500_universe(
             "message": "S&P 500 universe update completed",
             "status": "success",
             "updated_tickers_count": len(updated_tickers),
-            "timestamp": now_pacific().isoformat(),
+            "timestamp": pacific_now().isoformat(),
             "tickers": [
                 {
                     "symbol": ticker.symbol,
@@ -68,7 +69,7 @@ async def refresh_market_data(
             "message": "Market data refresh completed",
             "status": "success",
             "refreshed_tickers_count": len(refreshed_tickers),
-            "timestamp": now_pacific().isoformat(),
+            "timestamp": pacific_now().isoformat(),
             "tickers": [
                 {
                     "symbol": ticker.symbol,
@@ -95,7 +96,7 @@ async def get_market_summary(
         return {
             "status": "success",
             "data": summary,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": pacific_now().isoformat()
         }
         
     except Exception as e:
@@ -197,7 +198,7 @@ async def get_active_tickers(
                     "has_more": offset + limit < total_count
                 }
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": pacific_now().isoformat()
         }
         
     except Exception as e:
@@ -215,17 +216,21 @@ async def get_ticker_details(
         from sqlalchemy import select
         
         result = await db.execute(
-            select(InterestingTicker).where(
+            select(InterestingTicker, TickerQuote).outerjoin(
+                TickerQuote, InterestingTicker.symbol == TickerQuote.symbol
+            ).where(
                 and_(
                     InterestingTicker.symbol == symbol.upper(),
                     InterestingTicker.active == True
                 )
             )
         )
-        ticker = result.scalar_one_or_none()
+        row = result.first()
         
-        if not ticker:
+        if not row:
             raise HTTPException(status_code=404, detail=f"Ticker {symbol} not found")
+        
+        ticker, quote = row
         
         return {
             "status": "success",
@@ -235,9 +240,9 @@ async def get_ticker_details(
                 "sector": ticker.sector,
                 "industry": ticker.industry,
                 "market_cap": ticker.market_cap,
-                "current_price": ticker.current_price,
-                "volume_avg_20d": ticker.volume_avg_20d,
-                "volatility_30d": ticker.volatility_30d,
+                "current_price": quote.current_price if quote else None,
+                "volume_avg_20d": quote.volume_avg_20d if quote else None,
+                "volatility_30d": quote.volatility_30d if quote else None,
                 "beta": ticker.beta,
                 "pe_ratio": ticker.pe_ratio,
                 "dividend_yield": ticker.dividend_yield,
@@ -245,7 +250,7 @@ async def get_ticker_details(
                 "last_analysis_date": ticker.last_analysis_date.isoformat() if ticker.last_analysis_date else None,
                 "updated_at": ticker.updated_at.isoformat() if ticker.updated_at else None
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": pacific_now().isoformat()
         }
         
     except HTTPException:
@@ -313,7 +318,7 @@ async def fetch_ticker_options(
             "expiration": expiration,
             "options_count": len(options_data),
             "options": options_data,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": pacific_now().isoformat()
         }
         
     except Exception as e:
@@ -487,7 +492,7 @@ async def test_delta_parsing():
                     "greeks": opt["greeks"]
                 } for opt in mock_response["options"]["option"]
             ],
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": pacific_now().isoformat()
         }
         
     except Exception as e:
@@ -514,7 +519,7 @@ async def test_tradier_quote(symbol: str):
                 "status": "success",
                 "symbol": symbol,
                 "quote_data": quote_data,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": pacific_now().isoformat()
             }
     except Exception as e:
         logger.error(f"❌ Tradier quote test failed for {symbol}: {e}")
@@ -553,7 +558,7 @@ async def test_tradier_fundamentals(symbol: str):
                 "quote_data": quote_data,
                 "fundamentals_company": fundamentals_data,
                 "fundamentals_ratios": ratios_data,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": pacific_now().isoformat()
             }
     except Exception as e:
         logger.error(f"❌ Tradier fundamentals test failed for {symbol}: {e}")
@@ -597,7 +602,7 @@ async def get_market_data_status(
                 "active_tickers": ticker_count,
                 "options_count": options_count,
                 "recommendations_count": rec_count,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": pacific_now().isoformat()
             }
         }
         
@@ -652,7 +657,7 @@ async def get_interesting_tickers(
             "status": "success",
             "data": tickers,
             "count": len(tickers),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": pacific_now().isoformat()
         }
         
     except Exception as e:
@@ -688,8 +693,8 @@ async def add_interesting_ticker(
             symbol=symbol.upper(),
             active=True,
             source="manual",
-            added_at=now_pacific(),
-            updated_at=now_pacific()
+            added_at=pacific_now(),
+            updated_at=pacific_now()
         )
         db.add(ticker)
         await db.flush()  # Flush to get the ID
@@ -728,7 +733,7 @@ async def add_interesting_ticker(
             "status": "success",
             "message": f"Successfully added ticker {symbol.upper()}",
             "symbol": symbol.upper(),
-            "timestamp": now_pacific().isoformat(),
+            "timestamp": pacific_now().isoformat(),
             "ticker_data": {
                 "name": final_ticker.name if final_ticker else None,
                 "sector": final_ticker.sector if final_ticker else None,
@@ -780,7 +785,7 @@ async def refresh_ticker_data(
             "status": "success",
             "message": f"Successfully refreshed data for {symbol.upper()}",
             "symbol": symbol.upper(),
-            "timestamp": now_pacific().isoformat(),
+            "timestamp": pacific_now().isoformat(),
             "ticker_data": {
                 "name": updated_ticker.name,
                 "sector": updated_ticker.sector,
@@ -820,7 +825,7 @@ async def toggle_ticker_active(
         
         # Toggle active status
         ticker.active = not ticker.active
-        ticker.updated_at = now_pacific()
+        ticker.updated_at = pacific_now()
         
         await db.commit()
         
@@ -829,7 +834,7 @@ async def toggle_ticker_active(
             "message": f"Ticker {symbol.upper()} {'activated' if ticker.active else 'deactivated'}",
             "symbol": symbol.upper(),
             "active": ticker.active,
-            "timestamp": now_pacific().isoformat()
+            "timestamp": pacific_now().isoformat()
         }
         
     except HTTPException:
@@ -874,7 +879,7 @@ async def remove_interesting_ticker(
             "status": "success",
             "message": f"Successfully removed ticker {symbol.upper()}",
             "symbol": symbol.upper(),
-            "timestamp": now_pacific().isoformat()
+            "timestamp": pacific_now().isoformat()
         }
         
     except HTTPException:
@@ -912,7 +917,7 @@ async def refresh_ticker_data(
             "status": "success",
             "message": f"Successfully refreshed data for {symbol.upper()}",
             "symbol": symbol.upper(),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": pacific_now().isoformat()
         }
         
     except HTTPException:
@@ -961,7 +966,7 @@ async def get_filtered_universe(
                 "max_tickers": max_tickers,
                 "refresh_data": refresh_data
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": pacific_now().isoformat()
         }
         
     except Exception as e:
@@ -993,7 +998,7 @@ async def refresh_universe_data(
                     } for ticker in updated_tickers[:10]  # Show first 10
                 ]
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": pacific_now().isoformat()
         }
         
     except Exception as e:
@@ -1013,7 +1018,7 @@ async def get_universe_statistics(
         return {
             "status": "success",
             "data": statistics,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": pacific_now().isoformat()
         }
         
     except Exception as e:
@@ -1045,7 +1050,7 @@ async def get_tickers_needing_updates(
                 "count": len(tickers),
                 "max_tickers": max_tickers
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": pacific_now().isoformat()
         }
         
     except Exception as e:

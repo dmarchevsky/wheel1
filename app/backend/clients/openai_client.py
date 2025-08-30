@@ -1,3 +1,4 @@
+from utils.timezone import pacific_now
 """OpenAI client for ChatGPT enrichment with caching and schema validation."""
 
 import hashlib
@@ -7,11 +8,12 @@ from typing import Dict, List, Optional, Any
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from pydantic import BaseModel, Field, validator
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from config import settings
 from db.models import ChatGPTCache
-from utils.timezone import now_pacific
+from datetime import datetime, timezone
 
 
 class OpenAIAnalysis(BaseModel):
@@ -175,7 +177,7 @@ No prose, JSON only. Focus on factors relevant to selling cash-secured puts: com
 class OpenAICacheManager:
     """Manages OpenAI response caching."""
     
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.db = db
         self.client = None
         if settings.openai_enabled:
@@ -186,37 +188,41 @@ class OpenAICacheManager:
         key_string = f"{symbol}_{date}"
         return hashlib.md5(key_string.encode()).hexdigest()
     
-    def get_cached_analysis(self, symbol: str, date: str) -> Optional[OpenAIAnalysis]:
+    async def get_cached_analysis(self, symbol: str, date: str) -> Optional[OpenAIAnalysis]:
         """Get cached analysis if available and not expired."""
         cache_key = self._generate_cache_key(symbol, date)
         
-        cached = self.db.query(ChatGPTCache).filter(
-            ChatGPTCache.key_hash == cache_key,
-            ChatGPTCache.ttl > now_pacific()
-        ).first()
+        result = await self.db.execute(
+            select(ChatGPTCache).where(
+                ChatGPTCache.key_hash == cache_key,
+                ChatGPTCache.ttl > pacific_now()
+            )
+        )
+        cached = result.scalar_one_or_none()
         
         if cached:
             try:
                 return OpenAIAnalysis(**cached.response_json)
             except (ValueError, KeyError):
                 # Invalid cached data, remove it
-                self.db.delete(cached)
-                self.db.commit()
+                await self.db.delete(cached)
+                await self.db.commit()
         
         return None
     
-    def cache_analysis(self, symbol: str, date: str, analysis: OpenAIAnalysis, ttl_hours: int = 24):
+    async def cache_analysis(self, symbol: str, date: str, analysis: OpenAIAnalysis, ttl_hours: int = 24):
         """Cache analysis with TTL."""
         cache_key = self._generate_cache_key(symbol, date)
-        ttl = now_pacific() + timedelta(hours=ttl_hours)
+        ttl = pacific_now() + timedelta(hours=ttl_hours)
         
         # Remove existing cache entry if exists
-        existing = self.db.query(ChatGPTCache).filter(
-            ChatGPTCache.key_hash == cache_key
-        ).first()
+        result = await self.db.execute(
+            select(ChatGPTCache).where(ChatGPTCache.key_hash == cache_key)
+        )
+        existing = result.scalar_one_or_none()
         
         if existing:
-            self.db.delete(existing)
+            await self.db.delete(existing)
         
         # Create new cache entry
         cache_entry = ChatGPTCache(
@@ -226,14 +232,14 @@ class OpenAICacheManager:
         )
         
         self.db.add(cache_entry)
-        self.db.commit()
+        await self.db.commit()
     
     async def get_or_create_analysis(self, symbol: str, current_price: float, sector: str = None) -> OpenAIAnalysis:
         """Get cached analysis or create new one."""
-        today = now_pacific().strftime("%Y-%m-%d")
+        today = pacific_now().strftime("%Y-%m-%d")
         
         # Try to get from cache first
-        cached = self.get_cached_analysis(symbol, today)
+        cached = await self.get_cached_analysis(symbol, today)
         if cached:
             return cached
         
@@ -252,18 +258,19 @@ class OpenAICacheManager:
         analysis = await self.client.analyze_stock(symbol, current_price, sector)
         
         # Cache the result
-        self.cache_analysis(symbol, today, analysis)
+        await self.cache_analysis(symbol, today, analysis)
         
         return analysis
     
-    def cleanup_expired_cache(self):
+    async def cleanup_expired_cache(self):
         """Remove expired cache entries."""
-        expired = self.db.query(ChatGPTCache).filter(
-            ChatGPTCache.ttl < now_pacific()
-        ).all()
+        result = await self.db.execute(
+            select(ChatGPTCache).where(ChatGPTCache.ttl < pacific_now())
+        )
+        expired = result.scalars().all()
         
         for entry in expired:
-            self.db.delete(entry)
+            await self.db.delete(entry)
         
-        self.db.commit()
+        await self.db.commit()
         return len(expired)

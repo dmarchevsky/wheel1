@@ -3,7 +3,7 @@
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
-from sqlalchemy.orm import Session
+
 
 from config import settings
 from clients.tradier import TradierClient

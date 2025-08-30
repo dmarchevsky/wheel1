@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, Request
 
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
+
 import uvicorn
 
 from config import settings, validate_required_settings

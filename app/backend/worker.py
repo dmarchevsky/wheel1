@@ -8,10 +8,10 @@ from datetime import datetime
 from typing import Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings, validate_required_settings
-from db.session import SyncSessionLocal, create_tables
+from db.session import AsyncSessionLocal, create_tables
 from core.scheduler import market_calendar, job_scheduler
 from services.recommender_service import RecommenderService
 from services.position_service import PositionService
@@ -19,7 +19,7 @@ from services.alert_service import AlertService
 from services.telegram_service import TelegramService
 from services.trade_executor import TradeExecutor
 from services.market_data_service import MarketDataService
-from utils.timezone import now_pacific
+from datetime import datetime, timezone
 
 
 # Configure logging
@@ -121,8 +121,7 @@ class Worker:
                 logger.info("Running manual recommendation generation...")
                 
                 # Get database session
-                db = SyncSessionLocal()
-                try:
+                async with AsyncSessionLocal() as db:
                     # Generate recommendations (ignore market hours for manual requests)
                     recommendations = await self.recommender_service.generate_recommendations(db)
                     
@@ -135,9 +134,6 @@ class Worker:
                     else:
                         logger.info("No recommendations generated manually")
                         return True, "No recommendations generated"
-                        
-                finally:
-                    db.close()
                     
             except Exception as e:
                 logger.error(f"Error in manual recommendation generation: {e}")
@@ -244,8 +240,7 @@ class Worker:
                 logger.info("Running scheduled recommender job...")
                 
                 # Get database session
-                db = SyncSessionLocal()
-                try:
+                async with AsyncSessionLocal() as db:
                     # Generate recommendations
                     recommendations = await self.recommender_service.generate_recommendations(db)
                     
@@ -256,9 +251,6 @@ class Worker:
                         await self.telegram_service.send_recommendations(recommendations)
                     else:
                         logger.info("No recommendations generated")
-                        
-                finally:
-                    db.close()
                     
             except Exception as e:
                 logger.error(f"Error in recommender job: {e}")
@@ -274,13 +266,9 @@ class Worker:
             logger.info("Running position sync job...")
             
             # Get database session
-            db = SyncSessionLocal()
-            try:
+            async with AsyncSessionLocal() as db:
                 # Sync positions
                 await self.position_service.sync_positions(db)
-                
-            finally:
-                db.close()
                 
         except Exception as e:
             logger.error(f"Error in position sync job: {e}")
@@ -291,8 +279,7 @@ class Worker:
             logger.debug("Running alert check job...")
             
             # Get database session
-            db = SyncSessionLocal()
-            try:
+            async with AsyncSessionLocal() as db:
                 # Check for alerts
                 alerts = await self.alert_service.check_alerts(db)
                 
@@ -303,9 +290,6 @@ class Worker:
                     await self.telegram_service.send_alerts(alerts)
                 else:
                     logger.debug("No alerts found")
-                    
-            finally:
-                db.close()
                 
         except Exception as e:
             logger.error(f"Error in alert check job: {e}")
@@ -316,17 +300,13 @@ class Worker:
             logger.info("Running cache cleanup job...")
             
             # Get database session
-            db = SyncSessionLocal()
-            try:
+            async with AsyncSessionLocal() as db:
                 # Cleanup expired cache entries
                 from clients.openai_client import OpenAICacheManager
                 cache_manager = OpenAICacheManager(db)
-                cleaned_count = cache_manager.cleanup_expired_cache()
+                cleaned_count = await cache_manager.cleanup_expired_cache()
                 
                 logger.info(f"Cleaned up {cleaned_count} expired cache entries")
-                
-            finally:
-                db.close()
                 
         except Exception as e:
             logger.error(f"Error in cache cleanup job: {e}")
@@ -337,8 +317,7 @@ class Worker:
             logger.info("Running S&P 500 universe update job...")
             
             # Get database session
-            db = SyncSessionLocal()
-            try:
+            async with AsyncSessionLocal() as db:
                 # Initialize market data service
                 market_data_service = MarketDataService(db)
                 
@@ -356,9 +335,6 @@ class Worker:
                     )
                 else:
                     logger.warning("No tickers updated in S&P 500 universe")
-                    
-            finally:
-                db.close()
                 
         except Exception as e:
             logger.error(f"Error in S&P 500 universe update job: {e}")
@@ -374,8 +350,7 @@ class Worker:
             logger.info("Running market data refresh job...")
             
             # Get database session
-            db = SyncSessionLocal()
-            try:
+            async with AsyncSessionLocal() as db:
                 # Initialize market data service
                 market_data_service = MarketDataService(db)
                 
@@ -386,9 +361,6 @@ class Worker:
                     logger.info(f"Refreshed market data for {len(refreshed_tickers)} tickers")
                 else:
                     logger.debug("No tickers needed market data refresh")
-                    
-            finally:
-                db.close()
                 
         except Exception as e:
             logger.error(f"Error in market data refresh job: {e}")
@@ -399,8 +371,7 @@ class Worker:
             logger.info("Running weekly SP500 fundamentals and earnings population job...")
             
             # Get database session
-            db = SyncSessionLocal()
-            try:
+            async with AsyncSessionLocal() as db:
                 # Initialize market data service
                 market_data_service = MarketDataService(db)
                 
@@ -439,9 +410,6 @@ class Worker:
                         f"**Timestamp**: {result['timestamp']}"
                     )
                     await self.telegram_service.send_message(error_message)
-                    
-            finally:
-                db.close()
                 
         except Exception as e:
             logger.error(f"Error in weekly SP500 population job: {e}")
@@ -451,7 +419,7 @@ class Worker:
                 error_message = (
                     f"❌ **Weekly SP500 Population Job Error**\n\n"
                     f"**Error**: {str(e)}\n"
-                    f"**Timestamp**: {now_pacific().isoformat()}"
+                    f"**Timestamp**: {datetime.now(timezone.utc).isoformat()}"
                 )
                 await self.telegram_service.send_message(error_message)
             except Exception as notify_error:

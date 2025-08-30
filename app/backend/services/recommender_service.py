@@ -1,3 +1,4 @@
+from utils.timezone import pacific_now
 """Recommendation service for generating and managing trade recommendations."""
 
 import logging
@@ -14,7 +15,7 @@ from core.scoring import ScoringEngine
 from clients.openai_client import OpenAICacheManager
 from clients.tradier import TradierDataManager
 from services.universe_service import UniverseService
-from utils.timezone import now_pacific
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -26,17 +27,17 @@ class RecommenderService:
         # Services will be initialized with db when needed
         pass
     
-    async def generate_recommendations(self, db: AsyncSession, fast_mode: bool = True) -> List[Recommendation]:
+    async def generate_recommendations(self, db: AsyncSession) -> List[Recommendation]:
         """Generate new recommendations with optimized processing."""
-        start_time = now_pacific()
-        logger.info(f"🚀 Starting recommendation generation (fast_mode={fast_mode})...")
+        start_time = pacific_now()
+        logger.info("🚀 Starting recommendation generation...")
         max_recommendations = await get_setting(db, "max_recommendations", 3)
         logger.info(f"📊 Max recommendations: {max_recommendations}")
         
         try:
             # Step 1: Get universe of tickers
             logger.info("🔍 Step 1: Getting universe of tickers...")
-            tickers = await self._get_universe(db, fast_mode=fast_mode)
+            tickers = await self._get_universe(db)
             if not tickers:
                 logger.warning("❌ No tickers found in universe")
                 return []
@@ -47,13 +48,18 @@ class RecommenderService:
             ticker_symbols = [t.symbol for t in tickers[:5]]
             logger.info(f"📊 First 5 tickers in universe: {ticker_symbols}")
             
-            # Step 2: Get current positions to avoid duplicates
-            logger.info("🔍 Step 2: Getting current positions...")
+            # Step 2: Refresh ticker quotes to ensure current prices are available
+            logger.info("🔍 Step 2: Refreshing ticker quotes...")
+            await self._refresh_ticker_quotes(db, tickers)
+            logger.info("✅ Ticker quotes refreshed")
+            
+            # Step 3: Get current positions to avoid duplicates
+            logger.info("🔍 Step 3: Getting current positions...")
             current_positions = await self._get_current_positions(db)
             logger.info(f"📊 Current positions: {current_positions}")
             
-            # Step 3: Pre-filter tickers (remove those with existing positions)
-            logger.info("🔍 Step 3: Pre-filtering tickers...")
+            # Step 4: Pre-filter tickers (remove those with existing positions)
+            logger.info("🔍 Step 4: Pre-filtering tickers...")
             filtered_tickers = [ticker for ticker in tickers if ticker.symbol not in current_positions]
             logger.info(f"📊 Filtered to {len(filtered_tickers)} tickers (removed {len(tickers) - len(filtered_tickers)} with existing positions)")
             
@@ -61,15 +67,15 @@ class RecommenderService:
                 logger.info("❌ No tickers available after filtering")
                 return []
             
-            # Step 4: Process tickers with optimized approach
-            logger.info("🔍 Step 4: Processing tickers...")
+            # Step 5: Process tickers with optimized approach
+            logger.info("🔍 Step 5: Processing tickers...")
             recommendations = []
             processed_count = 0
             skipped_count = 0
             error_count = 0
             
-            # Process tickers with early termination for fast mode
-            max_tickers_to_process = 10 if fast_mode else len(filtered_tickers)
+            # Process all tickers
+            max_tickers_to_process = len(filtered_tickers)
             
             for i, ticker in enumerate(filtered_tickers[:max_tickers_to_process]):
                 processed_count += 1
@@ -137,10 +143,8 @@ class RecommenderService:
                             recommendations.append(recommendation)
                             logger.info(f"✅ Created recommendation for {ticker.symbol} with score {recommendation.score:.3f}")
                             
-                            # Early termination for fast mode if we have enough recommendations
-                            if fast_mode and len(recommendations) >= 3:
-                                logger.info(f"🎯 Fast mode: Reached {len(recommendations)} recommendations, stopping early")
-                                break
+                            # Continue processing all tickers
+                            pass
                         else:
                             logger.warning(f"❌ Failed to create recommendation for {ticker.symbol}")
                     else:
@@ -154,8 +158,8 @@ class RecommenderService:
                     logger.error(f"📋 Traceback: {traceback.format_exc()}")
                     continue
             
-            # Step 5: Summary
-            end_time = now_pacific()
+            # Step 6: Summary
+            end_time = pacific_now()
             duration = (end_time - start_time).total_seconds()
             
             logger.info("=" * 80)
@@ -179,9 +183,9 @@ class RecommenderService:
     
 
 
-    async def _get_universe(self, db: AsyncSession, fast_mode: bool = True) -> List[InterestingTicker]:
+    async def _get_universe(self, db: AsyncSession, fast_mode: bool = False) -> List[InterestingTicker]:
         """Get universe of tickers to analyze using sophisticated filtering."""
-        logger.info(f"🔍 Getting universe of tickers (fast_mode={fast_mode})...")
+        logger.info("🔍 Getting universe of tickers...")
         
         try:
             # First, let's check how many active tickers we have
@@ -194,7 +198,7 @@ class RecommenderService:
             universe_service = UniverseService(db)
             logger.info("📊 Using UniverseService for sophisticated filtering...")
             
-            tickers = await universe_service.get_filtered_universe(fast_mode=fast_mode)
+            tickers = await universe_service.get_filtered_universe()
             logger.info(f"📊 UniverseService returned {len(tickers)} tickers")
             
             if len(tickers) == 0:
@@ -258,7 +262,7 @@ class RecommenderService:
                 and_(
                     Option.symbol == ticker.symbol,
                     Option.option_type == "put",
-                    Option.updated_at >= now_pacific() - timedelta(hours=1),  # Only use data from last hour
+                    Option.updated_at >= pacific_now() - timedelta(hours=1),  # Only use data from last hour
                     # DTE filter: use unified DTE settings
                     Option.dte >= await get_setting(db, "dte_min", 21),
                     Option.dte <= await get_setting(db, "dte_max", 35),
@@ -350,7 +354,7 @@ class RecommenderService:
             
             # Step 2: Get OpenAI analysis if enabled
             analysis = None
-            if settings.openai_enabled:
+            if env_settings.openai_enabled:
                 logger.info(f"🤖 Step 2: Getting OpenAI analysis for {ticker.symbol}...")
                 try:
                     cache_manager = OpenAICacheManager(db)
@@ -386,7 +390,7 @@ class RecommenderService:
                 score=score,
                 rationale_json=rationale,
                 status="proposed",
-                created_at=now_pacific()
+                created_at=pacific_now()
             )
             
             db.add(recommendation)
@@ -402,6 +406,68 @@ class RecommenderService:
             await db.rollback()
             return None
     
+    async def _refresh_ticker_quotes(self, db: AsyncSession, tickers: List[InterestingTicker]) -> None:
+        """Refresh ticker quotes to ensure current prices are available for scoring."""
+        logger.info(f"🔄 Refreshing ticker quotes for {len(tickers)} tickers...")
+        
+        try:
+            from clients.tradier import TradierDataManager
+            
+            # Initialize Tradier client
+            tradier_client = TradierDataManager(db)
+            
+            # Get current prices for all tickers
+            for ticker in tickers:
+                try:
+                    logger.info(f"📊 Getting current price for {ticker.symbol}...")
+                    
+                    # Get quote data from Tradier
+                    quote_data = await tradier_client.client.get_quote(ticker.symbol)
+                    
+                    if quote_data and quote_data.get("last"):
+                        # Check if quote exists
+                        quote_result = await db.execute(
+                            select(TickerQuote).where(TickerQuote.symbol == ticker.symbol)
+                        )
+                        quote = quote_result.scalar_one_or_none()
+                        
+                        current_price = float(quote_data["last"])
+                        volume = int(quote_data.get("volume", 0)) if quote_data.get("volume") else None
+                        
+                        if not quote:
+                            # Create new quote
+                            quote = TickerQuote(
+                                symbol=ticker.symbol,
+                                current_price=current_price,
+                                volume_avg_20d=volume,
+                                volatility_30d=None,  # Will be calculated later if needed
+                                updated_at=pacific_now()
+                            )
+                            db.add(quote)
+                            logger.info(f"✅ Created new quote for {ticker.symbol}: ${current_price}")
+                        else:
+                            # Update existing quote
+                            quote.current_price = current_price
+                            quote.volume_avg_20d = volume
+                            quote.updated_at = pacific_now()
+                            logger.info(f"✅ Updated quote for {ticker.symbol}: ${current_price}")
+                    else:
+                        logger.warning(f"⚠️  No price data available for {ticker.symbol}")
+                        
+                except Exception as e:
+                    logger.warning(f"⚠️  Error getting price for {ticker.symbol}: {e}")
+                    continue
+            
+            # Commit all changes
+            await db.commit()
+            logger.info(f"✅ Successfully refreshed ticker quotes for {len(tickers)} tickers")
+                
+        except Exception as e:
+            logger.error(f"❌ Error refreshing ticker quotes: {e}")
+            import traceback
+            logger.error(f"📋 Traceback: {traceback.format_exc()}")
+            await db.rollback()
+    
     async def dismiss_recommendation(self, db: AsyncSession, recommendation_id: int) -> bool:
         """Dismiss a recommendation."""
         try:
@@ -414,7 +480,7 @@ class RecommenderService:
                 return False
             
             recommendation.status = "dismissed"
-            recommendation.updated_at = now_pacific()
+            recommendation.updated_at = pacific_now()
             
             await db.commit()
             return True
@@ -427,7 +493,7 @@ class RecommenderService:
     async def cleanup_old_recommendations(self, db: AsyncSession, days: int = 7) -> int:
         """Clean up old recommendations."""
         try:
-            cutoff_date = now_pacific() - timedelta(days=days)
+            cutoff_date = pacific_now() - timedelta(days=days)
             
             result = await db.execute(
                 select(Recommendation).where(

@@ -1,3 +1,4 @@
+from utils.timezone import pacific_now
 """Recommendations router."""
 
 import logging
@@ -11,7 +12,7 @@ from db.session import get_async_db
 from db.models import Recommendation, InterestingTicker, Option
 from pydantic import BaseModel
 from services.recommender_service import RecommenderService
-from utils.timezone import now_pacific
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -35,22 +36,20 @@ class RecommendationResponse(BaseModel):
 
 @router.post("/generate")
 async def generate_recommendations(
-    db: AsyncSession = Depends(get_async_db),
-    fast_mode: bool = Query(default=True, description="Use fast mode for quicker processing")
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Generate new recommendations."""
     try:
-        logger.info(f"🚀 Manual recommendation generation requested (fast_mode={fast_mode})")
+        logger.info("🚀 Manual recommendation generation requested")
         
         recommender_service = RecommenderService()
-        recommendations = await recommender_service.generate_recommendations(db, fast_mode=fast_mode)
+        recommendations = await recommender_service.generate_recommendations(db)
         
         return {
             "message": "Recommendation generation completed",
             "status": "success",
-            "fast_mode": fast_mode,
             "recommendations_created": len(recommendations),
-            "timestamp": now_pacific().isoformat(),
+            "timestamp": pacific_now().isoformat(),
             "recommendations": [
                 {
                     "id": rec.id,
@@ -262,22 +261,21 @@ async def get_recommendations_by_symbol(
 
 @router.post("/refresh")
 async def refresh_recommendations(
-    db: AsyncSession = Depends(get_async_db),
-    fast_mode: bool = True
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Refresh recommendations by generating new ones."""
     try:
-        logger.info(f"Manual recommendation refresh requested (fast_mode={fast_mode})")
+        logger.info("Manual recommendation refresh requested")
         
         # Initialize recommender service and generate recommendations directly
         recommender_service = RecommenderService()
-        new_recommendations = await recommender_service.generate_recommendations(db, fast_mode=fast_mode)
+        new_recommendations = await recommender_service.generate_recommendations(db)
         
         return {
             "message": "Recommendations refreshed successfully",
             "status": "success",
             "new_recommendations_count": len(new_recommendations),
-            "timestamp": now_pacific().isoformat(),
+            "timestamp": pacific_now().isoformat(),
             "recommendations": [
                 {
                     "symbol": rec.symbol,

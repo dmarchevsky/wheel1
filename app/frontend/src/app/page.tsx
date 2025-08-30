@@ -1,22 +1,27 @@
 'use client'
 
+import { useState } from 'react'
 import {
   Box,
   Container,
-  Grid,
   Card,
   CardContent,
+  CardHeader,
   Typography,
-  Divider,
+  IconButton,
+  Collapse,
 } from '@mui/material'
 import {
-  TrendingUp as TrendingUpIcon,
-  AccountBalanceWallet as WalletIcon,
-  ShowChart as ChartIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
 } from '@mui/icons-material'
 import RecommendationsPanel from '@/components/RecommendationsPanel'
 
 export default function Dashboard() {
+  const [recommendationsExpanded, setRecommendationsExpanded] = useState(true)
+  const [portfolioExpanded, setPortfolioExpanded] = useState(true)
+  const [activityExpanded, setActivityExpanded] = useState(true)
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -36,46 +41,75 @@ export default function Dashboard() {
           100% { opacity: 1; }
         }
       `}</style>
-      
-
 
       {/* Main Content */}
       <Container maxWidth="xl" sx={{ flexGrow: 1, py: 2 }}>
-        {/* Dashboard Grid Layout */}
-        <Grid container spacing={3}>
+        {/* Dashboard Sections */}
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
           {/* Recommendations Panel */}
-          <Grid item xs={12} md={6}>
-            <RecommendationsPanel maxRecommendations={5} />
-          </Grid>
+          <Card sx={{ borderRadius: 0 }}>
+            <CardHeader
+              title="Latest Recommendations"
+              action={
+                <IconButton
+                  onClick={() => setRecommendationsExpanded(!recommendationsExpanded)}
+                  sx={{ borderRadius: 0 }}
+                >
+                  {recommendationsExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                </IconButton>
+              }
+            />
+            <Collapse in={recommendationsExpanded}>
+              <CardContent sx={{ pt: 0 }}>
+                <RecommendationsPanel maxRecommendations={5} />
+              </CardContent>
+            </Collapse>
+          </Card>
           
-          {/* Additional Dashboard Panels */}
-          <Grid item xs={12} md={6}>
-            <Card sx={{ borderRadius: 0 }}>
-              <CardContent>
-                <Typography variant="h6" component="div" sx={{ mb: 2 }}>
-                  Portfolio Summary
-                </Typography>
+          {/* Portfolio Summary */}
+          <Card sx={{ borderRadius: 0 }}>
+            <CardHeader
+              title="Portfolio Summary"
+              action={
+                <IconButton
+                  onClick={() => setPortfolioExpanded(!portfolioExpanded)}
+                  sx={{ borderRadius: 0 }}
+                >
+                  {portfolioExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                </IconButton>
+              }
+            />
+            <Collapse in={portfolioExpanded}>
+              <CardContent sx={{ pt: 0 }}>
                 <Typography color="textSecondary" align="center" sx={{ py: 8 }}>
                   Portfolio performance and analytics will be displayed here.
                 </Typography>
               </CardContent>
-            </Card>
-          </Grid>
+            </Collapse>
+          </Card>
           
           {/* Recent Activity */}
-          <Grid item xs={12}>
-            <Card sx={{ borderRadius: 0 }}>
-              <CardContent>
-                <Typography variant="h6" component="div" sx={{ mb: 2 }}>
-                  Recent Activity
-                </Typography>
+          <Card sx={{ borderRadius: 0 }}>
+            <CardHeader
+              title="Recent Activity"
+              action={
+                <IconButton
+                  onClick={() => setActivityExpanded(!activityExpanded)}
+                  sx={{ borderRadius: 0 }}
+                >
+                  {activityExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                </IconButton>
+              }
+            />
+            <Collapse in={activityExpanded}>
+              <CardContent sx={{ pt: 0 }}>
                 <Typography color="textSecondary" align="center" sx={{ py: 8 }}>
                   Recent trades and position changes will be displayed here.
                 </Typography>
               </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+            </Collapse>
+          </Card>
+        </Box>
       </Container>
     </Box>
   )

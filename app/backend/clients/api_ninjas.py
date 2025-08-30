@@ -1,3 +1,4 @@
+from utils.timezone import pacific_now
 """API Ninjas client for fetching S&P 500 data."""
 
 import asyncio
@@ -8,7 +9,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from datetime import datetime
 
 from config import settings
-from utils.timezone import now_pacific
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +167,7 @@ class APINinjasClient:
                 
                 # Find the earliest upcoming earnings date
                 from datetime import datetime
-                current_date = now_pacific().date()
+                current_date = pacific_now().date()
                 upcoming_earnings = []
                 
                 # First pass: collect all upcoming earnings dates

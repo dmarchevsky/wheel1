@@ -1,3 +1,4 @@
+from utils.timezone import pacific_now
 """Market data service for dynamic ticker management and S&P 500 universe selection."""
 
 import logging
@@ -11,7 +12,7 @@ from config import settings
 from db.models import InterestingTicker, TickerQuote
 from clients.tradier import TradierDataManager
 from clients.api_ninjas import APINinjasClient
-from utils.timezone import now_pacific
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -84,15 +85,15 @@ class MarketDataService:
                     symbol=symbol,
                     active=True,
                     source="sp500",
-                    added_at=now_pacific(),
-                    updated_at=now_pacific()
+                    added_at=pacific_now(),
+                    updated_at=pacific_now()
                 )
                 self.db.add(ticker)
                 logger.info(f"Created new ticker: {symbol}")
             else:
                 # Update existing ticker
                 ticker.active = True
-                ticker.updated_at = now_pacific()
+                ticker.updated_at = pacific_now()
                 logger.debug(f"Updated existing ticker: {symbol}")
             
             # Fetch and update market data using TradierDataManager
@@ -214,12 +215,12 @@ class MarketDataService:
                 # Create new quote
                 quote = TickerQuote(
                     symbol=symbol,
-                    updated_at=now_pacific()
+                    updated_at=pacific_now()
                 )
                 self.db.add(quote)
                 logger.info(f"Created new quote for {symbol}")
             else:
-                quote.updated_at = now_pacific()
+                quote.updated_at = pacific_now()
                 logger.debug(f"Updated existing quote for {symbol}")
             
             # Update market data from Tradier
@@ -270,7 +271,7 @@ class MarketDataService:
         logger.info(f"Refreshing market data for all active tickers that need updating")
         
         # Get active tickers that need updating (older than 1 hour)
-        cutoff_time = now_pacific() - timedelta(hours=1)
+        cutoff_time = pacific_now() - timedelta(hours=1)
         result = await self.db.execute(
             select(InterestingTicker).where(
                 and_(
@@ -309,7 +310,7 @@ class MarketDataService:
             # Get recently updated tickers
             result = await self.db.execute(
                 select(func.count(InterestingTicker.id)).where(
-                    InterestingTicker.updated_at >= now_pacific() - timedelta(hours=24)
+                    InterestingTicker.updated_at >= pacific_now() - timedelta(hours=24)
                 )
             )
             recent_updates = result.scalar()
@@ -326,7 +327,7 @@ class MarketDataService:
                 "total_active_tickers": total_tickers,
                 "recently_updated": recent_updates,
                 "sector_distribution": dict(sector_counts),
-                "last_update": now_pacific().isoformat()
+                "last_update": pacific_now().isoformat()
             }
             
         except Exception as e:
@@ -374,8 +375,8 @@ class MarketDataService:
                             symbol=symbol,
                             active=True,
                             source="sp500",
-                            added_at=now_pacific(),
-                            updated_at=now_pacific()
+                            added_at=pacific_now(),
+                            updated_at=pacific_now()
                         )
                         self.db.add(ticker)
                         logger.info(f"Created new ticker: {symbol}")

@@ -189,18 +189,6 @@ generate-recommendations:
     @echo "🚀 Generating new recommendations..."
     curl -X POST "{{api-url}}/v1/recommendations/generate" | jq .
 
-generate-recommendations-fast:
-    @echo "⚡ Generating recommendations (fast mode)..."
-    curl -X POST "{{api-url}}/v1/recommendations/generate?fast_mode=true" | jq .
-
-generate-recommendations-slow:
-    @echo "🐌 Generating recommendations (slow mode)..."
-    curl -X POST "{{api-url}}/v1/recommendations/generate?fast_mode=false" | jq .
-
-generate-recommendations-full:
-    @echo "🚀 Generating new recommendations (full mode)..."
-    curl -X POST "{{api-url}}/v1/recommendations/generate?fast_mode=false" | jq .
-
 get-recommendations:
     @echo "📊 Getting current recommendations..."
     curl -X GET "{{api-url}}/v1/recommendations/current" | jq .

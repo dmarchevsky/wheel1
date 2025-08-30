@@ -1,3 +1,4 @@
+from utils.timezone import pacific_now
 """Health check router."""
 
 import logging
@@ -9,7 +10,7 @@ from sqlalchemy import text, select
 from db.session import get_async_db
 from db.models import Recommendation, InterestingTicker, Option
 from services.recommender_service import RecommenderService
-from utils.timezone import now_pacific
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -20,7 +21,7 @@ async def health_check():
     """Basic health check."""
     return {
         "status": "healthy",
-        "timestamp": now_pacific().isoformat(),
+        "timestamp": pacific_now().isoformat(),
         "service": "wheel-strategy-api"
     }
 
@@ -67,7 +68,7 @@ async def readiness_check(db: AsyncSession = Depends(get_async_db)):
         return {
             "status": "ready",
             "database": db_status,
-            "timestamp": now_pacific().isoformat()
+            "timestamp": pacific_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Readiness check failed: {e}")
@@ -77,7 +78,7 @@ async def readiness_check(db: AsyncSession = Depends(get_async_db)):
                 "status": "disconnected",
                 "error": str(e)
             },
-            "timestamp": now_pacific().isoformat()
+            "timestamp": pacific_now().isoformat()
         }
 
 
@@ -86,7 +87,7 @@ async def liveness_check():
     """Liveness check."""
     return {
         "status": "alive",
-        "timestamp": now_pacific().isoformat()
+        "timestamp": pacific_now().isoformat()
     }
 
 
@@ -95,7 +96,7 @@ async def detailed_health_check(db: AsyncSession = Depends(get_async_db)):
     """Detailed health check including all services and components."""
     health_status = {
         "status": "healthy",
-        "timestamp": now_pacific().isoformat(),
+        "timestamp": pacific_now().isoformat(),
         "services": {}
     }
     
@@ -196,7 +197,7 @@ async def recommendations_health_check(db: AsyncSession = Depends(get_async_db))
                     "dismissed": dismissed_recs
                 },
                 "service": "operational",
-                "timestamp": now_pacific().isoformat()
+                "timestamp": pacific_now().isoformat()
             }
         except Exception as db_error:
             # Database tables might not exist yet
@@ -209,12 +210,12 @@ async def recommendations_health_check(db: AsyncSession = Depends(get_async_db))
                 },
                 "service": "operational",
                 "warning": "Database tables not ready yet",
-                "timestamp": now_pacific().isoformat()
+                "timestamp": pacific_now().isoformat()
             }
     except Exception as e:
         logger.error(f"Recommendations health check failed: {e}")
         return {
             "status": "unhealthy",
             "error": str(e),
-            "timestamp": now_pacific().isoformat()
+            "timestamp": pacific_now().isoformat()
         }

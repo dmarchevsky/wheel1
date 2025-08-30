@@ -213,15 +213,11 @@ Test endpoint for options delta parsing (development/debugging).
 #### `POST /v1/recommendations/generate`
 Generate new trade recommendations.
 
-**Query Parameters:**
-- `fast_mode` (bool, optional): Use fast mode for quicker processing (default: true)
-
 **Response:**
 ```json
 {
   "message": "Recommendation generation completed",
   "status": "success",
-  "fast_mode": true,
   "recommendations_created": 3,
   "timestamp": "2025-08-28T23:32:59.589607",
   "recommendations": [

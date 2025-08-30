@@ -1,3 +1,4 @@
+from utils.timezone import pacific_now
 """Positions router."""
 
 from typing import List, Optional
@@ -13,7 +14,7 @@ from pydantic import BaseModel
 from clients.tradier import TradierClient
 from config import settings
 from services.account_service import AccountService
-from utils.timezone import now_pacific
+from datetime import datetime, timezone
 
 router = APIRouter()
 
@@ -135,7 +136,7 @@ async def get_option_positions(
         
         # Calculate DTE
         from datetime import datetime
-        dte = (pos.expiry - now_pacific()).days if pos.expiry else None
+        dte = (pos.expiry - pacific_now()).days if pos.expiry else None
         
         result.append(OptionPositionResponse(
             id=pos.id,
@@ -209,7 +210,7 @@ async def get_portfolio(
     option_position_responses = []
     for pos in option_positions:
         current_price = pos.open_price  # Placeholder
-        dte = (pos.expiry - now_pacific()).days if pos.expiry else None
+        dte = (pos.expiry - pacific_now()).days if pos.expiry else None
         
         option_position_responses.append(OptionPositionResponse(
             id=pos.id,
@@ -277,7 +278,7 @@ async def get_position_by_symbol(
     
     for pos in option_positions:
         current_price = pos.open_price  # Placeholder
-        dte = (pos.expiry - now_pacific()).days if pos.expiry else None
+        dte = (pos.expiry - pacific_now()).days if pos.expiry else None
         
         result["option_positions"].append({
             "contract_symbol": pos.contract_symbol,

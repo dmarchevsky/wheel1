@@ -1,3 +1,4 @@
+from utils.timezone import pacific_now
 """Tradier API client with retry logic and rate limiting."""
 
 import asyncio
@@ -11,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings as env_settings
 from services.settings_service import get_setting
-from utils.timezone import now_pacific, PACIFIC_TZ
+from datetime import datetime, timezone
 from db.models import Option, InterestingTicker, TickerQuote, Position, OptionPosition, Trade
 
 
@@ -530,11 +531,11 @@ class TradierDataManager:
                 try:
                     exp_date = datetime.strptime(exp_str, "%Y-%m-%d")
                     # Convert to timezone-aware datetime for comparison
-                    pacific_now = now_pacific()
+                    current_pacific_time = pacific_now()
                     # Assume expiration date is at market close (4 PM Eastern = 1 PM Pacific)
                     exp_date_pacific = exp_date.replace(hour=13, minute=0, second=0, microsecond=0)
-                    exp_date_pacific = exp_date_pacific.replace(tzinfo=pacific_now.tzinfo)
-                    dte = (exp_date_pacific - pacific_now).days
+                    exp_date_pacific = exp_date_pacific.replace(tzinfo=current_pacific_time.tzinfo)
+                    dte = (exp_date_pacific - current_pacific_time).days
                     expiration_dates.append((exp_str, exp_date, dte))
                 except ValueError as e:
                     logger.warning(f"Invalid expiration date format: {exp_str}")
@@ -621,7 +622,7 @@ class TradierDataManager:
                     existing.open_interest = option.open_interest
                     existing.volume = option.volume
                     existing.dte = option.dte
-                    existing.updated_at = now_pacific()
+                    existing.updated_at = pacific_now()
                     options.append(existing)
                 else:
                     # Create new
@@ -640,11 +641,11 @@ class TradierDataManager:
         try:
             logger.debug(f"Parsing option data: {opt_data}")
             expiry = datetime.strptime(expiration, "%Y-%m-%d")
-            # Localize expiry to Pacific timezone to match now_pacific()
-            expiry = PACIFIC_TZ.localize(expiry)
+                        # Assume UTC timezone for expiry
+            expiry = expiry.replace(tzinfo=timezone.utc)
             
             # Calculate DTE (days to expiration)
-            dte = (expiry - now_pacific()).days
+            dte = (expiry - pacific_now()).days
             
             # Extract greeks data from nested structure
             greeks = opt_data.get("greeks", {})
@@ -742,7 +743,7 @@ class TradierDataManager:
                     if existing:
                         existing.shares = position.shares
                         existing.avg_price = position.avg_price
-                        existing.updated_at = now_pacific()
+                        existing.updated_at = pacific_now()
                         positions.append(existing)
                     else:
                         self.db.add(position)
@@ -781,7 +782,7 @@ class TradierDataManager:
                 option_type=order_data.get("class"),
                 quantity=int(order_data.get("quantity", 0)),
                 price=float(order_data.get("price", 0)),
-                trade_time=now_pacific(),
+                trade_time=pacific_now(),
                 status="pending",
                 meta_json=order_response
             )

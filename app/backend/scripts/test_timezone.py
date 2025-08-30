@@ -23,7 +23,7 @@ async def test_timezone_conversion():
             logger.info("🔍 Testing timezone conversion...")
             
             # Test current time
-            current_pacific = now_pacific()
+            current_pacific = datetime.now(timezone.utc)
             logger.info(f"📍 Current Pacific time: {format_pacific_datetime(current_pacific)}")
             logger.info(f"📍 Is Pacific timezone: {is_pacific_timezone(current_pacific)}")
             

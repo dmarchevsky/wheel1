@@ -1,14 +1,16 @@
+from utils.timezone import pacific_now
 """Trade executor service for executing trades through Tradier."""
 
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from config import settings
 from db.models import Trade, Recommendation, Position, OptionPosition
 from clients.tradier import TradierClient
-from utils.timezone import now_pacific
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -19,13 +21,14 @@ class TradeExecutor:
     def __init__(self):
         self.tradier_client = TradierClient()
     
-    async def execute_recommendation(self, db: Session, recommendation_id: int) -> Optional[Trade]:
+    async def execute_recommendation(self, db: AsyncSession, recommendation_id: int) -> Optional[Trade]:
         """Execute a trade based on a recommendation."""
         try:
             # Get recommendation
-            recommendation = db.query(Recommendation).filter(
-                Recommendation.id == recommendation_id
-            ).first()
+            result = await db.execute(
+                select(Recommendation).where(Recommendation.id == recommendation_id)
+            )
+            recommendation = result.scalar_one_or_none()
             
             if not recommendation:
                 logger.error(f"Recommendation {recommendation_id} not found")
@@ -41,8 +44,8 @@ class TradeExecutor:
             if trade:
                 # Update recommendation status
                 recommendation.status = "executed"
-                recommendation.updated_at = now_pacific()
-                db.commit()
+                recommendation.updated_at = pacific_now()
+                await db.commit()
                 
                 logger.info(f"Successfully executed recommendation {recommendation_id}")
             
@@ -50,10 +53,10 @@ class TradeExecutor:
             
         except Exception as e:
             logger.error(f"Error executing recommendation {recommendation_id}: {e}")
-            db.rollback()
+            await db.rollback()
             return None
     
-    async def _execute_put_sale(self, db: Session, recommendation: Recommendation) -> Optional[Trade]:
+    async def _execute_put_sale(self, db: AsyncSession, recommendation: Recommendation) -> Optional[Trade]:
         """Execute a cash-secured put sale."""
         try:
             # Get option details
@@ -91,11 +94,11 @@ class TradeExecutor:
                 price=option.bid,
                 order_id=order_result["id"],
                 status="pending",
-                created_at=now_pacific()
+                created_at=pacific_now()
             )
             
             db.add(trade)
-            db.commit()
+            await db.commit()
             
             logger.info(f"Created trade record for order {order_result['id']}")
             return trade
@@ -104,11 +107,14 @@ class TradeExecutor:
             logger.error(f"Error executing put sale: {e}")
             return None
     
-    async def execute_covered_call(self, db: Session, position_id: int, strike: float, expiry: str) -> Optional[Trade]:
+    async def execute_covered_call(self, db: AsyncSession, position_id: int, strike: float, expiry: str) -> Optional[Trade]:
         """Execute a covered call."""
         try:
             # Get position details
-            position = db.query(Position).filter(Position.id == position_id).first()
+            result = await db.execute(
+                select(Position).where(Position.id == position_id)
+            )
+            position = result.scalar_one_or_none()
             
             if not position:
                 logger.error(f"Position {position_id} not found")
@@ -150,11 +156,11 @@ class TradeExecutor:
                 price=1.00,  # Placeholder price
                 order_id=order_result["id"],
                 status="pending",
-                created_at=now_pacific()
+                created_at=pacific_now()
             )
             
             db.add(trade)
-            db.commit()
+            await db.commit()
             
             logger.info(f"Created covered call trade record for order {order_result['id']}")
             return trade
@@ -163,11 +169,14 @@ class TradeExecutor:
             logger.error(f"Error executing covered call: {e}")
             return None
     
-    async def close_position(self, db: Session, position_id: int) -> Optional[Trade]:
+    async def close_position(self, db: AsyncSession, position_id: int) -> Optional[Trade]:
         """Close an option position."""
         try:
             # Get position details
-            position = db.query(OptionPosition).filter(OptionPosition.id == position_id).first()
+            result = await db.execute(
+                select(OptionPosition).where(OptionPosition.id == position_id)
+            )
+            position = result.scalar_one_or_none()
             
             if not position:
                 logger.error(f"Option position {position_id} not found")
@@ -203,11 +212,11 @@ class TradeExecutor:
                 price=0,  # Market order, price will be filled
                 order_id=order_result["id"],
                 status="pending",
-                created_at=now_pacific()
+                created_at=pacific_now()
             )
             
             db.add(trade)
-            db.commit()
+            await db.commit()
             
             logger.info(f"Created close position trade record for order {order_result['id']}")
             return trade
@@ -216,10 +225,13 @@ class TradeExecutor:
             logger.error(f"Error closing position {position_id}: {e}")
             return None
     
-    async def check_order_status(self, db: Session, trade_id: int) -> bool:
+    async def check_order_status(self, db: AsyncSession, trade_id: int) -> bool:
         """Check the status of a trade order."""
         try:
-            trade = db.query(Trade).filter(Trade.id == trade_id).first()
+            result = await db.execute(
+                select(Trade).where(Trade.id == trade_id)
+            )
+            trade = result.scalar_one_or_none()
             
             if not trade:
                 logger.error(f"Trade {trade_id} not found")
@@ -237,9 +249,9 @@ class TradeExecutor:
             trade.status = status
             
             if status in ["filled", "cancelled", "rejected"]:
-                trade.updated_at = now_pacific()
+                trade.updated_at = pacific_now()
             
-            db.commit()
+            await db.commit()
             
             logger.info(f"Updated trade {trade_id} status to {status}")
             return True
@@ -248,12 +260,13 @@ class TradeExecutor:
             logger.error(f"Error checking order status for trade {trade_id}: {e}")
             return False
     
-    def get_trade_history(self, db: Session, limit: int = 50) -> list:
+    async def get_trade_history(self, db: AsyncSession, limit: int = 50) -> list:
         """Get trade history."""
         try:
-            trades = db.query(Trade).order_by(
-                Trade.created_at.desc()
-            ).limit(limit).all()
+            result = await db.execute(
+                select(Trade).order_by(Trade.created_at.desc()).limit(limit)
+            )
+            trades = result.scalars().all()
             
             return trades
             
