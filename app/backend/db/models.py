@@ -122,10 +122,24 @@ class Recommendation(Base):
     id = Column(Integer, primary_key=True, index=True)
     symbol = Column(String, ForeignKey("interesting_tickers.symbol"), nullable=False)
     option_id = Column(Integer, ForeignKey("options.id"), nullable=True)
-    rationale_json = Column(JSONB, nullable=True)  # Scoring breakdown
+    rationale_json = Column(JSONB, nullable=True)  # Scoring breakdown (legacy)
     score = Column(Float, nullable=False)
     status = Column(String, default="proposed")  # proposed, executed, dismissed
     created_at = Column(DateTime(timezone=True), default=pacific_now)
+    
+    # Expanded rationale fields
+    annualized_yield = Column(Float, nullable=True)
+    proximity_score = Column(Float, nullable=True)
+    liquidity_score = Column(Float, nullable=True)
+    risk_adjustment = Column(Float, nullable=True)
+    qualitative_score = Column(Float, nullable=True)
+    dte = Column(Integer, nullable=True)
+    spread_pct = Column(Float, nullable=True)
+    mid_price = Column(Float, nullable=True)
+    delta = Column(Float, nullable=True)
+    iv_rank = Column(Float, nullable=True)
+    open_interest = Column(Integer, nullable=True)
+    volume = Column(Integer, nullable=True)
     
     # Relationships
     ticker = relationship("InterestingTicker", back_populates="recommendations")

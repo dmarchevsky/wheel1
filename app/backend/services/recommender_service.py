@@ -388,7 +388,20 @@ class RecommenderService:
                 symbol=ticker.symbol,
                 option_id=option.id,
                 score=score,
-                rationale_json=rationale,
+                rationale_json=rationale,  # Keep for backward compatibility
+                # Populate expanded fields
+                annualized_yield=rationale.get("annualized_yield"),
+                proximity_score=rationale.get("proximity_score"),
+                liquidity_score=rationale.get("liquidity_score"),
+                risk_adjustment=rationale.get("risk_adjustment"),
+                qualitative_score=rationale.get("qualitative_score"),
+                dte=rationale.get("dte"),
+                spread_pct=rationale.get("spread_pct"),
+                mid_price=rationale.get("mid_price"),
+                delta=rationale.get("delta"),
+                iv_rank=rationale.get("iv_rank"),
+                open_interest=rationale.get("open_interest"),
+                volume=rationale.get("volume"),
                 status="proposed",
                 created_at=pacific_now()
             )

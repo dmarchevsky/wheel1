@@ -92,15 +92,21 @@ async def export_recommendations(
             data.append({
                 "Recommendation ID": rec.id,
                 "Symbol": rec.symbol,
-                "Option Symbol": rec.option_symbol,
-                "Strategy": rec.strategy,
-                "Action": rec.action,
-                "Quantity": rec.quantity,
-                "Price": rec.price,
                 "Status": rec.status,
                 "Score": rec.score,
-                "Created At": rec.created_at.isoformat() if rec.created_at else None,
-                "Expires At": rec.expires_at.isoformat() if rec.expires_at else None
+                "Annualized Yield (%)": rec.annualized_yield,
+                "Proximity Score": rec.proximity_score,
+                "Liquidity Score": rec.liquidity_score,
+                "Risk Adjustment": rec.risk_adjustment,
+                "Qualitative Score": rec.qualitative_score,
+                "DTE": rec.dte,
+                "Spread (%)": rec.spread_pct,
+                "Mid Price": rec.mid_price,
+                "Delta": rec.delta,
+                "IV Rank": rec.iv_rank,
+                "Open Interest": rec.open_interest,
+                "Volume": rec.volume,
+                "Created At": rec.created_at.isoformat() if rec.created_at else None
             })
         
         # Create DataFrame and export to Excel

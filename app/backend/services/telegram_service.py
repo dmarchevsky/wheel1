@@ -119,16 +119,16 @@ Ready to start trading! 🚀
                 
                 for i, rec in enumerate(recommendations, 1):
                     score_pct = rec.score * 100
-                    annualized_yield = rec.rationale_json.get('annualized_yield', 0) if rec.rationale_json else 0
+                    annualized_yield = rec.annualized_yield or rec.rationale_json.get('annualized_yield', 0) if rec.rationale_json else 0
                     
                     message += f"{i}. **{rec.symbol}**\n"
                     message += f"   Score: {score_pct:.1f}%\n"
                     message += f"   Annualized Yield: {annualized_yield:.1f}%\n"
                     
-                    if rec.rationale_json:
-                        dte = rec.rationale_json.get('dte', 'N/A')
-                        spread = rec.rationale_json.get('spread_pct', 'N/A')
-                        message += f"   DTE: {dte} • Spread: {spread:.1f}%\n"
+                    # Use new fields if available, fallback to rationale_json
+                    dte = rec.dte or (rec.rationale_json.get('dte', 'N/A') if rec.rationale_json else 'N/A')
+                    spread = rec.spread_pct or (rec.rationale_json.get('spread_pct', 'N/A') if rec.rationale_json else 'N/A')
+                    message += f"   DTE: {dte} • Spread: {spread:.1f}%\n"
                     
                     message += "\n"
                 

@@ -37,6 +37,19 @@ export interface Recommendation {
   rationale: Record<string, any>
   status: string
   created_at: string
+  // Expanded rationale fields
+  annualized_yield?: number
+  proximity_score?: number
+  liquidity_score?: number
+  risk_adjustment?: number
+  qualitative_score?: number
+  dte?: number
+  spread_pct?: number
+  mid_price?: number
+  delta?: number
+  iv_rank?: number
+  open_interest?: number
+  volume?: number
 }
 
 export interface AccountBalance {
