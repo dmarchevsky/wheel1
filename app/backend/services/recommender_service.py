@@ -386,7 +386,7 @@ class RecommenderService:
             logger.info(f"💾 Step 4: Saving recommendation to database for {ticker.symbol}...")
             recommendation = Recommendation(
                 symbol=ticker.symbol,
-                option_id=option.id,
+                option_symbol=option.symbol,  # References options.symbol
                 score=score,
                 rationale_json=rationale,  # Keep for backward compatibility
                 # Populate expanded fields

@@ -596,16 +596,9 @@ class TradierDataManager:
             # Store filtered options
             options = []
             for option in filtered_options:
-                # Upsert option data
+                # Upsert option using the Tradier symbol as primary key
                 result = await self.db.execute(
-                    select(Option).where(
-                        and_(
-                            Option.symbol == symbol,
-                            Option.expiry == option.expiry,
-                            Option.strike == option.strike,
-                            Option.option_type == option.option_type
-                        )
-                    )
+                    select(Option).where(Option.symbol == option.symbol)
                 )
                 existing = result.scalar_one_or_none()
                 
@@ -614,6 +607,7 @@ class TradierDataManager:
                     existing.bid = option.bid
                     existing.ask = option.ask
                     existing.last = option.last
+                    existing.price = option.price
                     existing.delta = option.delta  # Already rounded to 2 decimal places
                     existing.gamma = option.gamma  # Already rounded to 2 decimal places
                     existing.theta = option.theta  # Already rounded to 2 decimal places
@@ -665,14 +659,38 @@ class TradierDataManager:
             theta_rounded = round(float(greeks.get("theta", 0)), 2) if greeks.get("theta") else None
             vega_rounded = round(float(greeks.get("vega", 0)), 2) if greeks.get("vega") else None
             
+            # Calculate price from bid, ask, last
+            bid = float(opt_data.get("bid", 0)) if opt_data.get("bid") else None
+            ask = float(opt_data.get("ask", 0)) if opt_data.get("ask") else None
+            last = float(opt_data.get("last", 0)) if opt_data.get("last") else None
+            
+            # Calculate price: prefer mid price (bid+ask)/2, fallback to last, then ask, then bid
+            price = None
+            if bid is not None and ask is not None:
+                price = (bid + ask) / 2
+            elif last is not None:
+                price = last
+            elif ask is not None:
+                price = ask
+            elif bid is not None:
+                price = bid
+            
+            # Get the Tradier API symbol (e.g., VXX190517P00016000)
+            tradier_symbol = opt_data.get("symbol")
+            if not tradier_symbol:
+                logger.warning(f"No symbol found in option data for {symbol}")
+                return None
+            
             option = Option(
-                symbol=symbol,
+                symbol=tradier_symbol,  # Use Tradier API symbol as primary key
+                underlying_symbol=symbol,  # The underlying stock symbol
                 expiry=expiry,
                 strike=float(opt_data.get("strike", 0)),
                 option_type=opt_data.get("option_type", "").lower(),
-                bid=float(opt_data.get("bid", 0)) if opt_data.get("bid") else None,
-                ask=float(opt_data.get("ask", 0)) if opt_data.get("ask") else None,
-                last=float(opt_data.get("last", 0)) if opt_data.get("last") else None,
+                bid=bid,
+                ask=ask,
+                last=last,
+                price=price,  # Calculated price field
                 delta=delta_rounded,
                 gamma=gamma_rounded,
                 theta=theta_rounded,

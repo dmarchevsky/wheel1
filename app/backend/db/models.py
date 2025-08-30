@@ -86,14 +86,15 @@ class Option(Base):
     """Options chain data."""
     __tablename__ = "options"
     
-    id = Column(Integer, primary_key=True, index=True)
-    symbol = Column(String, ForeignKey("interesting_tickers.symbol"), nullable=False)
+    symbol = Column(String, primary_key=True)  # Tradier API symbol (e.g., VXX190517P00016000)
+    underlying_symbol = Column(String, ForeignKey("interesting_tickers.symbol"), nullable=False)
     expiry = Column(DateTime(timezone=True), nullable=False)
     strike = Column(Float, nullable=False)
     option_type = Column(String, nullable=False)  # 'put' or 'call'
     bid = Column(Float, nullable=True)
     ask = Column(Float, nullable=True)
     last = Column(Float, nullable=True)
+    price = Column(Float, nullable=True)  # Calculated price field
     delta = Column(Float, nullable=True)
     gamma = Column(Float, nullable=True)
     theta = Column(Float, nullable=True)
@@ -106,12 +107,19 @@ class Option(Base):
     updated_at = Column(DateTime(timezone=True), default=pacific_now, onupdate=pacific_now)
     
     # Relationships
-    ticker = relationship("InterestingTicker", back_populates="options")
-    recommendations = relationship("Recommendation", back_populates="option")
+    ticker = relationship("InterestingTicker", back_populates="options", foreign_keys=[underlying_symbol])
+    recommendations = relationship("Recommendation", back_populates="option", foreign_keys="[Recommendation.option_symbol]")
     
-    # Composite unique constraint
+    # Indexes
     __table_args__ = (
-        Index('idx_symbol_expiry_strike_type', 'symbol', 'expiry', 'strike', 'option_type', unique=True),
+        Index('idx_options_underlying_symbol', 'underlying_symbol'),
+        Index('idx_options_expiry', 'expiry'),
+        Index('idx_options_strike', 'strike'),
+        Index('idx_options_type', 'option_type'),
+        Index('idx_options_dte', 'dte'),
+        Index('idx_options_delta', 'delta'),
+        Index('idx_options_price', 'price'),
+        Index('idx_options_underlying_expiry_type', 'underlying_symbol', 'expiry', 'option_type'),
     )
 
 
@@ -121,7 +129,7 @@ class Recommendation(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     symbol = Column(String, ForeignKey("interesting_tickers.symbol"), nullable=False)
-    option_id = Column(Integer, ForeignKey("options.id"), nullable=True)
+    option_symbol = Column(String, ForeignKey("options.symbol"), nullable=True)  # References options.symbol
     rationale_json = Column(JSONB, nullable=True)  # Scoring breakdown (legacy)
     score = Column(Float, nullable=False)
     status = Column(String, default="proposed")  # proposed, executed, dismissed
@@ -143,7 +151,7 @@ class Recommendation(Base):
     
     # Relationships
     ticker = relationship("InterestingTicker", back_populates="recommendations")
-    option = relationship("Option", back_populates="recommendations")
+    option = relationship("Option", back_populates="recommendations", foreign_keys=[option_symbol])
     trades = relationship("Trade", back_populates="recommendation")
 
 

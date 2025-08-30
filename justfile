@@ -145,23 +145,34 @@ format-frontend:
 # DATABASE COMMANDS
 # =============================================================================
 
-# Run database migrations
 # Database migration commands
 db-migrate:
     @echo "Running database migrations..."
-    cd app/backend && alembic upgrade head
+    sudo docker exec wheel_api alembic upgrade head
 
-db-migrate-create:
+db-migrate-create message:
     @echo "Creating new migration..."
-    cd app/backend && alembic revision --autogenerate -m "$(message)"
+    sudo docker exec wheel_api alembic revision --autogenerate -m "{{message}}"
 
 db-migrate-status:
     @echo "Checking migration status..."
-    cd app/backend && alembic current
+    sudo docker exec wheel_api alembic current
 
 db-migrate-history:
     @echo "Migration history..."
-    cd app/backend && alembic history
+    sudo docker exec wheel_api alembic history
+
+db-migrate-downgrade revision:
+    @echo "Downgrading to revision {{revision}}..."
+    sudo docker exec wheel_api alembic downgrade {{revision}}
+
+db-migrate-upgrade revision:
+    @echo "Upgrading to revision {{revision}}..."
+    sudo docker exec wheel_api alembic upgrade {{revision}}
+
+db-migrate-stamp revision:
+    @echo "Stamping database to revision {{revision}}..."
+    sudo docker exec wheel_api alembic stamp {{revision}}
 
 # Market data commands
 update-sp500:
@@ -241,7 +252,7 @@ refresh-ticker symbol:
     @echo "📊 Refreshing specific ticker data for {{symbol}}..."
     curl -X POST "{{api-url}}/v1/market-data/interesting-tickers/{{symbol}}/refresh" | jq .
 
-# Reset database (drop and recreate)
+# Database management commands
 db-reset:
     @echo "Resetting database..."
     {{dev-compose}} down -v
@@ -250,10 +261,75 @@ db-reset:
     just db-migrate
     just seed
 
+db-backup:
+    @echo "Creating database backup..."
+    sudo docker exec wheel_db pg_dump -U wheel -d wheel > backup_$(date +%Y%m%d_%H%M%S).sql
+
+db-restore backup_file:
+    @echo "Restoring database from {{backup_file}}..."
+    sudo docker exec -i wheel_db psql -U wheel -d wheel < {{backup_file}}
+
+db-connect:
+    @echo "Connecting to database..."
+    sudo docker exec -it wheel_db psql -U wheel -d wheel
+
+db-tables:
+    @echo "Listing database tables..."
+    sudo docker exec wheel_db psql -U wheel -d wheel -c "\dt"
+
+db-table-info table_name:
+    @echo "Showing table structure for {{table_name}}..."
+    sudo docker exec wheel_db psql -U wheel -d wheel -c "\d {{table_name}}"
+
+db-count table_name:
+    @echo "Counting rows in {{table_name}}..."
+    sudo docker exec wheel_db psql -U wheel -d wheel -c "SELECT COUNT(*) FROM {{table_name}};"
+
+db-schema:
+    @echo "Showing database schema..."
+    sudo docker exec wheel_db psql -U wheel -d wheel -c "\dn+"
+    @echo ""
+    @echo "Tables:"
+    sudo docker exec wheel_db psql -U wheel -d wheel -c "\dt+"
+    @echo ""
+    @echo "Indexes:"
+    sudo docker exec wheel_db psql -U wheel -d wheel -c "\di+"
+
+db-migration-info:
+    @echo "Migration Information:"
+    @echo "====================="
+    @echo ""
+    @echo "Current migration:"
+    just db-migrate-status
+    @echo ""
+    @echo "Recent migration history:"
+    just db-migrate-history
+
+# Database table-specific commands
+db-recommendations:
+    @echo "Recent recommendations:"
+    sudo docker exec wheel_db psql -U wheel -d wheel -c "SELECT id, symbol, option_symbol, annualized_yield, dte, spread_pct, created_at FROM recommendations ORDER BY created_at DESC LIMIT 10;"
+
+db-recommendations-count:
+    @echo "Recommendations count by status:"
+    sudo docker exec wheel_db psql -U wheel -d wheel -c "SELECT status, COUNT(*) FROM recommendations GROUP BY status;"
+
+db-options-count:
+    @echo "Options count by underlying symbol:"
+    sudo docker exec wheel_db psql -U wheel -d wheel -c "SELECT underlying_symbol, COUNT(*) FROM options GROUP BY underlying_symbol ORDER BY COUNT(*) DESC LIMIT 10;"
+
+db-options-sample symbol:
+    @echo "Sample options for {{symbol}}:"
+    sudo docker exec wheel_db psql -U wheel -d wheel -c "SELECT symbol, underlying_symbol, strike, option_type, price, dte, delta FROM options WHERE underlying_symbol = '{{symbol}}' ORDER BY expiry LIMIT 5;"
+
+db-recommendations-with-options:
+    @echo "Recent recommendations with option details:"
+    sudo docker exec wheel_db psql -U wheel -d wheel -c "SELECT r.id, r.symbol, r.option_symbol, o.strike, o.option_type, o.price, r.annualized_yield, r.dte, r.spread_pct FROM recommendations r JOIN options o ON r.option_symbol = o.symbol ORDER BY r.created_at DESC LIMIT 5;"
+
 # Seed database with initial data
 seed:
     @echo "Seeding database..."
-    cd app/backend && python scripts/seed.py
+    sudo docker exec wheel_api python scripts/seed.py
 
 # =============================================================================
 # MONITORING COMMANDS
@@ -649,7 +725,26 @@ help:
     @echo ""
     @echo "DATABASE:"
     @echo "  db-migrate             - Run database migrations"
+    @echo "  db-migrate-create MSG  - Create new migration"
+    @echo "  db-migrate-status      - Check migration status"
+    @echo "  db-migrate-history     - Show migration history"
+    @echo "  db-migrate-downgrade R - Downgrade to revision"
+    @echo "  db-migrate-upgrade R   - Upgrade to revision"
+    @echo "  db-migrate-stamp R     - Stamp database to revision"
     @echo "  db-reset               - Reset database"
+    @echo "  db-backup              - Create database backup"
+    @echo "  db-restore FILE        - Restore database from backup"
+    @echo "  db-connect             - Connect to database"
+    @echo "  db-tables              - List database tables"
+    @echo "  db-table-info TABLE    - Show table structure"
+    @echo "  db-count TABLE         - Count rows in table"
+    @echo "  db-schema              - Show database schema"
+    @echo "  db-migration-info      - Show migration information"
+    @echo "  db-recommendations     - Show recent recommendations"
+    @echo "  db-recommendations-count - Count recommendations by status"
+    @echo "  db-options-count       - Count options by underlying symbol"
+    @echo "  db-options-sample SYMBOL - Show sample options for symbol"
+    @echo "  db-recommendations-with-options - Show recommendations with option details"
     @echo "  seed                   - Seed database"
     @echo ""
     @echo "RECOMMENDATIONS:"

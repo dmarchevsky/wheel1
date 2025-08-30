@@ -81,6 +81,16 @@ def build_rationale_dict(recommendation: Recommendation) -> dict:
     return rationale
 
 
+async def get_option_for_recommendation(db: AsyncSession, rec: Recommendation) -> Optional[Option]:
+    """Get option for recommendation using option_symbol field."""
+    option = None
+    if rec.option_symbol:
+        option_stmt = select(Option).where(Option.symbol == rec.option_symbol)
+        option_result = await db.execute(option_stmt)
+        option = option_result.scalar_one_or_none()
+    return option
+
+
 def build_recommendation_response(recommendation: Recommendation, option: Optional[Option] = None) -> RecommendationResponse:
     """Build recommendation response with expanded fields."""
     rationale = build_rationale_dict(recommendation)
@@ -158,12 +168,7 @@ async def get_current_recommendations(
         
         response_list = []
         for rec in recommendations:
-            option = None
-            if rec.option_id:
-                option_stmt = select(Option).where(Option.id == rec.option_id)
-                option_result = await db.execute(option_stmt)
-                option = option_result.scalar_one_or_none()
-            
+            option = await get_option_for_recommendation(db, rec)
             response_list.append(build_recommendation_response(rec, option))
         
         return response_list
@@ -198,12 +203,7 @@ async def get_recommendation_history(
         
         response_list = []
         for rec in recommendations:
-            option = None
-            if rec.option_id:
-                option_stmt = select(Option).where(Option.id == rec.option_id)
-                option_result = await db.execute(option_stmt)
-                option = option_result.scalar_one_or_none()
-            
+            option = await get_option_for_recommendation(db, rec)
             response_list.append(build_recommendation_response(rec, option))
         
         return response_list
@@ -227,11 +227,7 @@ async def get_recommendation(
         if not recommendation:
             raise HTTPException(status_code=404, detail="Recommendation not found")
         
-        option = None
-        if recommendation.option_id:
-            option_stmt = select(Option).where(Option.id == recommendation.option_id)
-            option_result = await db.execute(option_stmt)
-            option = option_result.scalar_one_or_none()
+        option = await get_option_for_recommendation(db, recommendation)
         
         return build_recommendation_response(recommendation, option)
     except Exception as e:
@@ -284,12 +280,7 @@ async def get_recommendations_by_symbol(
         
         response_list = []
         for rec in recommendations:
-            option = None
-            if rec.option_id:
-                option_stmt = select(Option).where(Option.id == rec.option_id)
-                option_result = await db.execute(option_stmt)
-                option = option_result.scalar_one_or_none()
-            
+            option = await get_option_for_recommendation(db, rec)
             response_list.append(build_recommendation_response(rec, option))
         
         return response_list
