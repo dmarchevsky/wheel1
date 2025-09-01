@@ -13,9 +13,95 @@ api-url := "http://localhost:8000"
 frontend-url := "http://localhost:3000"
 nginx-url := "http://localhost/health"
 
-# Default target
-default:
-    @just --list
+
+
+# =============================================================================
+# HELP
+# =============================================================================
+
+# Show available commands and help
+help:
+    @echo "WHEEL STRATEGY - Available Commands"
+    @echo "=================================="
+    @echo ""
+    @echo "SETUP:"
+    @echo "  setup                  - Initial development setup"
+    @echo ""
+    @echo "DEVELOPMENT:"
+    @echo "  dev                    - Start development environment with hot-reloading"
+    @echo "  dev-direct             - Start without nginx proxy (direct access)"
+    @echo "  dev-backend            - Start backend services only"
+    @echo "  dev-frontend           - Start frontend only"
+    @echo "  dev-status             - Check development environment status"
+    @echo "  dev-logs               - View development logs"
+    @echo "  dev-stop               - Stop development environment"
+    @echo ""
+    @echo "PRODUCTION:"
+    @echo "  build                  - Build production images"
+    @echo "  deploy                 - Deploy to production"
+    @echo "  prod                   - Start production environment (for testing)"
+    @echo "  prod-stop              - Stop production environment"
+    @echo ""
+    @echo "DATABASE:"
+    @echo "  db-migrate             - Run database migrations"
+    @echo "  db-migrate-create MSG  - Create new migration"
+    @echo "  db-migrate-status      - Check migration status"
+    @echo "  db-migrate-history     - Show migration history"
+    @echo "  db-migrate-downgrade R - Downgrade to revision"
+    @echo "  db-migrate-upgrade R   - Upgrade to revision"
+    @echo "  db-migrate-stamp R     - Stamp database to revision"
+    @echo "  db-reset               - Reset database"
+    @echo "  db-backup              - Create database backup"
+    @echo "  db-restore FILE        - Restore database from backup"
+    @echo "  db-connect             - Connect to database"
+    @echo "  db-tables              - List database tables"
+    @echo "  db-table-info TABLE    - Show table structure"
+    @echo "  db-count TABLE         - Count rows in table"
+    @echo "  db-schema              - Show database schema"
+    @echo "  db-migration-info      - Show migration information"
+    @echo "  db-options-count       - Count options by underlying symbol"
+    @echo "  db-options-sample SYMBOL - Show sample options for symbol"
+    @echo ""
+    @echo "RECOMMENDATIONS:"
+    @echo "  generate-recommendations     - Generate new recommendations (fast mode)"
+    @echo "  get-recommendations          - Get current recommendations"
+    @echo "  get-recommendation-history   - Get recommendation history"
+    @echo ""
+    @echo "MARKET DATA:"
+    @echo "  update-sp500                - Update S&P 500 universe"
+    @echo "  refresh-market-data         - Refresh market data"
+    @echo "  market-population           - Complete market population (SP500 + fundamentals)"
+    @echo "  update-fundamentals         - Update fundamentals for all tickers"
+    @echo "  calculate-universe-scores   - Calculate universe scores for all tickers"
+    @echo "  update-recommendation-tickers - Update recommendation tickers (top 20 SP500 + manual)"
+
+    @echo ""
+    @echo "TICKER MANAGEMENT:"
+    @echo "  refresh-ticker-data          - Refresh all ticker data"
+    @echo "  refresh-ticker SYMBOL        - Refresh specific ticker data"
+    @echo ""
+    @echo "MONITORING (Development):"
+    @echo "  logs                   - Show all development logs"
+    @echo "  logs tail=true         - Follow all development logs"
+    @echo "  logs-{service}         - Show specific development service logs"
+    @echo "  logs-{service} tail=true - Follow specific development service logs"
+    @echo "  health                 - Check development services health"
+    @echo "  health-{service}       - Check specific development service health"
+    @echo "  health-recommendations - Check recommendations service health"
+    @echo ""
+    @echo "MONITORING (Production):"
+    @echo "  logs-prod              - Show all production logs"
+    @echo "  logs-prod tail=true    - Follow all production logs"
+    @echo "  logs-prod-{service}    - Show specific production service logs"
+    @echo "  logs-prod-{service} tail=true - Follow specific production service logs"
+    @echo "  health-prod            - Check production services health"
+    @echo ""
+    @echo "UTILITIES:"
+    @echo "  export                 - Export trade data"
+    @echo "  clean                  - Clean up development containers"
+    @echo "  clean-cache            - Clear development Redis cache"
+    @echo "  clean-prod             - Clean up production containers"
+    @echo "  clean-cache-prod       - Clear production Redis cache"
 
 # =============================================================================
 # DEVELOPMENT COMMANDS
@@ -84,62 +170,13 @@ prod-stop:
 # TESTING COMMANDS
 # =============================================================================
 
-# Run all tests
-test:
-    @echo "Running all tests..."
-    just test-backend
-    just test-frontend
 
-# Run backend tests
-test-backend:
-    @echo "Running backend tests..."
-    cd app/backend && python -m pytest tests/ -v
-
-# Run frontend type checking
-test-frontend-type:
-    @echo "Running frontend type checking..."
-    cd app/frontend && npm run type-check
-
-# Test nginx proxy functionality
-test-proxy:
-    @echo "Testing nginx reverse proxy..."
-    ./infra/test-proxy.sh
 
 # =============================================================================
 # CODE QUALITY COMMANDS
 # =============================================================================
 
-# Run all linters and formatters
-lint:
-    @echo "Running all linters..."
-    just lint-backend
-    just lint-frontend
 
-# Lint backend code
-lint-backend:
-    @echo "Linting backend..."
-    cd app/backend && ruff check . && black --check . && isort --check-only .
-
-# Lint frontend code
-lint-frontend:
-    @echo "Linting frontend..."
-    cd app/frontend && npm run lint
-
-# Format all code
-format:
-    @echo "Formatting all code..."
-    just format-backend
-    just format-frontend
-
-# Format backend code
-format-backend:
-    @echo "Formatting backend..."
-    cd app/backend && ruff check . --fix && black . && isort .
-
-# Format frontend code
-format-frontend:
-    @echo "Formatting frontend..."
-    cd app/frontend && npx prettier --write .
 
 # =============================================================================
 # DATABASE COMMANDS
@@ -183,9 +220,24 @@ refresh-market-data:
     @echo "Refreshing market data..."
     curl -X POST "{{api-url}}/v1/market-data/refresh-market-data"
 
-populate-sp500-fundamentals:
-    @echo "Populating SP500 fundamentals and earnings data..."
-    curl -X POST "{{api-url}}/v1/market-data/populate-sp500-fundamentals-earnings" | jq .
+# New data fetch logic commands
+market-population:
+    @echo "🔄 Running complete market population (SP500 + fundamentals)..."
+    curl -X POST "{{api-url}}/v1/market-data/market-population" | jq .
+
+update-fundamentals:
+    @echo "📊 Updating fundamentals for all tickers..."
+    curl -X POST "{{api-url}}/v1/market-data/update-all-fundamentals" | jq .
+
+calculate-universe-scores:
+    @echo "🎯 Calculating universe scores for all tickers..."
+    curl -X POST "{{api-url}}/v1/market-data/calculate-universe-scores" | jq .
+
+update-recommendation-tickers:
+    @echo "📈 Updating recommendation tickers (top 20 SP500 + manual)..."
+    curl -X POST "{{api-url}}/v1/market-data/update-recommendation-tickers" | jq .
+
+
 
 check-scheduled-jobs:
     @echo "Checking scheduled jobs status..."
@@ -208,40 +260,7 @@ get-recommendation-history:
     @echo "📊 Getting recommendation history..."
     curl -X GET "{{api-url}}/v1/recommendations/history" | jq .
 
-# API testing
-test-tradier:
-    @echo "🔗 Testing Tradier API connection..."
-    curl -X GET "{{api-url}}/v1/tradier-test" | jq .
 
-test-api-ninjas:
-    @echo "🔗 Testing API Ninjas connection..."
-    curl -X GET "{{api-url}}/v1/market-data/interesting-tickers/AAPL" | jq .
-
-test-delta-parsing:
-    @echo "🔗 Testing delta parsing with mock data..."
-    curl -X GET "{{api-url}}/v1/market-data/test-delta-parsing" | jq .
-
-# Test timezone conversion
-test-timezone:
-    @echo "🕐 Testing Pacific timezone conversion..."
-    cd app/backend && python scripts/test_timezone.py
-
-# Test option filtering
-test-option-filtering:
-    @echo "🔍 Testing option chain filtering with delta and DTE criteria..."
-    cd app/backend && python scripts/test_option_filtering.py
-
-test-options-fetch:
-    @echo "🔗 Testing options data fetching for AAPL..."
-    curl -X POST "{{api-url}}/v1/market-data/tickers/AAPL/options" | jq .
-
-test-tradier-fundamentals:
-    @echo "🔗 Testing Tradier fundamentals API..."
-    curl -X GET "{{api-url}}/v1/market-data/tradier-fundamentals/AFRM" | jq .
-
-test-tradier-quote:
-    @echo "🔗 Testing Tradier quote API..."
-    curl -X GET "{{api-url}}/v1/market-data/tradier-quote/AFRM" | jq .
 
 # Ticker management
 refresh-ticker-data:
@@ -259,7 +278,6 @@ db-reset:
     {{dev-compose}} up db -d
     sleep 5
     just db-migrate
-    just seed
 
 db-backup:
     @echo "Creating database backup..."
@@ -306,14 +324,6 @@ db-migration-info:
     just db-migrate-history
 
 # Database table-specific commands
-db-recommendations:
-    @echo "Recent recommendations:"
-    sudo docker exec wheel_db psql -U wheel -d wheel -c "SELECT id, symbol, option_symbol, annualized_yield, dte, spread_pct, created_at FROM recommendations ORDER BY created_at DESC LIMIT 10;"
-
-db-recommendations-count:
-    @echo "Recommendations count by status:"
-    sudo docker exec wheel_db psql -U wheel -d wheel -c "SELECT status, COUNT(*) FROM recommendations GROUP BY status;"
-
 db-options-count:
     @echo "Options count by underlying symbol:"
     sudo docker exec wheel_db psql -U wheel -d wheel -c "SELECT underlying_symbol, COUNT(*) FROM options GROUP BY underlying_symbol ORDER BY COUNT(*) DESC LIMIT 10;"
@@ -322,14 +332,7 @@ db-options-sample symbol:
     @echo "Sample options for {{symbol}}:"
     sudo docker exec wheel_db psql -U wheel -d wheel -c "SELECT symbol, underlying_symbol, strike, option_type, price, dte, delta FROM options WHERE underlying_symbol = '{{symbol}}' ORDER BY expiry LIMIT 5;"
 
-db-recommendations-with-options:
-    @echo "Recent recommendations with option details:"
-    sudo docker exec wheel_db psql -U wheel -d wheel -c "SELECT r.id, r.symbol, r.option_symbol, o.strike, o.option_type, o.price, r.annualized_yield, r.dte, r.spread_pct FROM recommendations r JOIN options o ON r.option_symbol = o.symbol ORDER BY r.created_at DESC LIMIT 5;"
 
-# Seed database with initial data
-seed:
-    @echo "Seeding database..."
-    sudo docker exec wheel_api python scripts/seed.py
 
 # =============================================================================
 # MONITORING COMMANDS
@@ -687,101 +690,4 @@ clean-cache-prod:
     @echo "Clearing production cache..."
     {{prod-compose}} exec redis redis-cli FLUSHALL
 
-# =============================================================================
-# HELP
-# =============================================================================
 
-# Show available commands
-help:
-    @echo "Available commands:"
-    @echo ""
-    @echo "SETUP:"
-    @echo "  setup                  - Initial development setup"
-    @echo ""
-    @echo "DEVELOPMENT:"
-    @echo "  dev                    - Start development environment with hot-reloading"
-    @echo "  dev-direct             - Start without nginx proxy (direct access)"
-    @echo "  dev-backend            - Start backend services only"
-    @echo "  dev-frontend           - Start frontend only"
-    @echo "  dev-status             - Check development environment status"
-    @echo "  dev-logs               - View development logs"
-    @echo "  dev-stop               - Stop development environment"
-    @echo ""
-    @echo "PRODUCTION:"
-    @echo "  build                  - Build production images"
-    @echo "  deploy                 - Deploy to production"
-    @echo "  prod                   - Start production environment (for testing)"
-    @echo "  prod-stop              - Stop production environment"
-    @echo ""
-    @echo "TESTING:"
-    @echo "  test                   - Run all tests"
-    @echo "  test-backend           - Run backend tests"
-    @echo "  test-frontend-type     - Run frontend type checking"
-    @echo "  test-proxy             - Test nginx reverse proxy"
-    @echo ""
-    @echo "CODE QUALITY:"
-    @echo "  lint                   - Run all linters"
-    @echo "  format                 - Format all code"
-    @echo ""
-    @echo "DATABASE:"
-    @echo "  db-migrate             - Run database migrations"
-    @echo "  db-migrate-create MSG  - Create new migration"
-    @echo "  db-migrate-status      - Check migration status"
-    @echo "  db-migrate-history     - Show migration history"
-    @echo "  db-migrate-downgrade R - Downgrade to revision"
-    @echo "  db-migrate-upgrade R   - Upgrade to revision"
-    @echo "  db-migrate-stamp R     - Stamp database to revision"
-    @echo "  db-reset               - Reset database"
-    @echo "  db-backup              - Create database backup"
-    @echo "  db-restore FILE        - Restore database from backup"
-    @echo "  db-connect             - Connect to database"
-    @echo "  db-tables              - List database tables"
-    @echo "  db-table-info TABLE    - Show table structure"
-    @echo "  db-count TABLE         - Count rows in table"
-    @echo "  db-schema              - Show database schema"
-    @echo "  db-migration-info      - Show migration information"
-    @echo "  db-recommendations     - Show recent recommendations"
-    @echo "  db-recommendations-count - Count recommendations by status"
-    @echo "  db-options-count       - Count options by underlying symbol"
-    @echo "  db-options-sample SYMBOL - Show sample options for symbol"
-    @echo "  db-recommendations-with-options - Show recommendations with option details"
-    @echo "  seed                   - Seed database"
-    @echo ""
-    @echo "RECOMMENDATIONS:"
-    @echo "  generate-recommendations     - Generate new recommendations (fast mode)"
-    @echo "  generate-recommendations-full - Generate new recommendations (full mode)"
-    @echo "  get-recommendations          - Get current recommendations"
-    @echo "  get-recommendation-history   - Get recommendation history"
-    @echo ""
-    @echo "API TESTING:"
-    @echo "  test-tradier                 - Test Tradier API connection"
-    @echo "  test-tradier-quote           - Test Tradier quote API"
-    @echo "  test-tradier-fundamentals    - Test Tradier fundamentals API"
-    @echo "  test-api-ninjas              - Test API Ninjas connection"
-    @echo ""
-    @echo "TICKER MANAGEMENT:"
-    @echo "  refresh-ticker-data          - Refresh all ticker data"
-    @echo "  refresh-ticker SYMBOL        - Refresh specific ticker data"
-    @echo ""
-    @echo "MONITORING (Development):"
-    @echo "  logs                   - Show all development logs"
-    @echo "  logs tail=true         - Follow all development logs"
-    @echo "  logs-{service}         - Show specific development service logs"
-    @echo "  logs-{service} tail=true - Follow specific development service logs"
-    @echo "  health                 - Check development services health"
-    @echo "  health-{service}       - Check specific development service health"
-    @echo "  health-recommendations - Check recommendations service health"
-    @echo ""
-    @echo "MONITORING (Production):"
-    @echo "  logs-prod              - Show all production logs"
-    @echo "  logs-prod tail=true    - Follow all production logs"
-    @echo "  logs-prod-{service}    - Show specific production service logs"
-    @echo "  logs-prod-{service} tail=true - Follow specific production service logs"
-    @echo "  health-prod            - Check production services health"
-    @echo ""
-    @echo "UTILITIES:"
-    @echo "  export                 - Export trade data"
-    @echo "  clean                  - Clean up development containers"
-    @echo "  clean-cache            - Clear development Redis cache"
-    @echo "  clean-prod             - Clean up production containers"
-    @echo "  clean-cache-prod       - Clear production Redis cache"
