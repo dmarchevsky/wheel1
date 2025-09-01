@@ -11,11 +11,11 @@ import {
   IconButton,
   Collapse,
   Tooltip,
+  CircularProgress,
 } from '@mui/material'
 import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
-  Refresh as RefreshIcon,
   AutoAwesome as AutoAwesomeIcon,
 } from '@mui/icons-material'
 import RecommendationsPanel from '@/components/RecommendationsPanel'
@@ -81,16 +81,7 @@ export default function Dashboard() {
                         }
                       }}
                     >
-                      <AutoAwesomeIcon />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="Refresh recommendations">
-                    <IconButton
-                      onClick={handleRefresh}
-                      disabled={refreshing}
-                      size="small"
-                    >
-                      <RefreshIcon />
+                      {refreshing ? <CircularProgress size={20} /> : <AutoAwesomeIcon />}
                     </IconButton>
                   </Tooltip>
                   <IconButton

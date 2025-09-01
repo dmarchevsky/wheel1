@@ -245,27 +245,28 @@ async def get_current_recommendations(
 ):
     """Get current recommendations - only latest recommendation per ticker."""
     try:
-        from sqlalchemy import func, and_
+        from sqlalchemy import func, and_, distinct
         
-        # Create a subquery to get the latest recommendation ID per ticker
-        latest_per_ticker = select(
-            Recommendation.symbol,
-            func.max(Recommendation.id).label('latest_id')
-        ).where(
+        # Get all proposed recommendations ordered by symbol and creation date
+        stmt = select(Recommendation).where(
             Recommendation.status == "proposed"
-        ).group_by(Recommendation.symbol).subquery()
-        
-        # Main query to get the full recommendation data for latest per ticker
-        stmt = select(Recommendation).join(
-            latest_per_ticker,
-            and_(
-                Recommendation.symbol == latest_per_ticker.c.symbol,
-                Recommendation.id == latest_per_ticker.c.latest_id
-            )
-        ).order_by(desc(Recommendation.score)).limit(limit)
+        ).order_by(Recommendation.symbol, desc(Recommendation.created_at))
         
         result = await db.execute(stmt)
-        recommendations = result.scalars().all()
+        all_recommendations = result.scalars().all()
+        
+        # Filter to get only the latest per ticker in Python
+        seen_tickers = set()
+        recommendations = []
+        
+        for rec in all_recommendations:
+            if rec.symbol not in seen_tickers:
+                recommendations.append(rec)
+                seen_tickers.add(rec.symbol)
+        
+        # Sort by score and limit
+        recommendations.sort(key=lambda x: x.score, reverse=True)
+        recommendations = recommendations[:limit]
         
         response_list = []
         for rec in recommendations:

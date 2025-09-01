@@ -18,11 +18,9 @@ import {
   CircularProgress,
 } from '@mui/material'
 import {
-  Refresh as RefreshIcon,
   TrendingUp as TrendingUpIcon,
   Close as CloseIcon,
   Info as InfoIcon,
-  AutoAwesome as AutoAwesomeIcon,
   ShoppingCart as TradeIcon,
   Delete as DeleteIcon,
 } from '@mui/icons-material'
@@ -149,43 +147,10 @@ export default function RecommendationsPanel({ maxRecommendations = 5 }: Recomme
   }
 
   return (
-    <Card sx={{ borderRadius: 0 }}>
-      <CardHeader
-        title="Latest Recommendations"
-        action={
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Tooltip title="Generate new recommendations (may take up to 30 seconds)">
-              <IconButton
-                onClick={handleRefresh}
-                disabled={refreshing}
-                size="small"
-                sx={{ 
-                  color: 'success.main',
-                  '&:hover': {
-                    backgroundColor: 'success.main',
-                    color: 'success.contrastText',
-                  }
-                }}
-              >
-                {refreshing ? <CircularProgress size={20} /> : <AutoAwesomeIcon />}
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Refresh recommendations (may take up to 30 seconds)">
-              <IconButton
-                onClick={handleRefresh}
-                disabled={refreshing}
-                size="small"
-              >
-                {refreshing ? <CircularProgress size={20} /> : <RefreshIcon />}
-              </IconButton>
-            </Tooltip>
-          </Box>
-        }
-      />
+    <Box>
+      {refreshing && <LinearProgress sx={{ mb: 2 }} />}
       
-      {refreshing && <LinearProgress />}
-      
-      <CardContent>
+      <Box>
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}
@@ -212,27 +177,27 @@ export default function RecommendationsPanel({ maxRecommendations = 5 }: Recomme
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
                             <Typography variant="subtitle1" component="div" sx={{ fontWeight: 600, fontSize: '1rem' }}>
                               {recommendation.underlying_ticker || recommendation.symbol}
-                            </Typography>
+                        </Typography>
                             <Chip
                               label={recommendation.option_type?.toUpperCase() || 'PUT'}
                               size="small"
                               color="primary"
                               sx={{ borderRadius: 0, height: 20, fontSize: '0.7rem' }}
                             />
-                            {recommendation.strike && (
-                              <Chip
+                        {recommendation.strike && (
+                          <Chip
                                 label={`$${recommendation.strike.toFixed(2)}`}
-                                size="small"
-                                variant="outlined"
+                            size="small"
+                            variant="outlined"
                                 sx={{ borderRadius: 0, height: 20, fontSize: '0.7rem' }}
-                              />
-                            )}
-                            {recommendation.expiry && (
-                              <Chip
-                                label={formatExpiry(recommendation.expiry)}
-                                size="small"
-                                variant="outlined"
-                                color="secondary"
+                          />
+                        )}
+                        {recommendation.expiry && (
+                          <Chip
+                            label={formatExpiry(recommendation.expiry)}
+                            size="small"
+                            variant="outlined"
+                            color="secondary"
                                 sx={{ borderRadius: 0, height: 20, fontSize: '0.7rem' }}
                               />
                             )}
@@ -375,7 +340,7 @@ export default function RecommendationsPanel({ maxRecommendations = 5 }: Recomme
                         
 
                       </Box>
-
+                      
                       {/* Vertical Button Section */}
                       <Box sx={{ 
                         display: 'flex', 
@@ -391,7 +356,7 @@ export default function RecommendationsPanel({ maxRecommendations = 5 }: Recomme
                         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
                           <Tooltip title="Trade this option">
                             <IconButton
-                              size="small"
+                          size="small"
                               color="primary"
                               onClick={() => handleTrade(recommendation)}
                               sx={{ p: 0.5 }}
@@ -399,15 +364,15 @@ export default function RecommendationsPanel({ maxRecommendations = 5 }: Recomme
                               <TradeIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
-                          <Tooltip title="Dismiss recommendation">
-                            <IconButton
-                              size="small"
-                              onClick={() => handleDismiss(recommendation.id)}
+                        <Tooltip title="Dismiss recommendation">
+                          <IconButton
+                            size="small"
+                            onClick={() => handleDismiss(recommendation.id)}
                               sx={{ p: 0.5 }}
-                            >
+                          >
                               <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
+                          </IconButton>
+                        </Tooltip>
                         </Box>
                         <Typography 
                           variant="caption" 
@@ -437,7 +402,7 @@ export default function RecommendationsPanel({ maxRecommendations = 5 }: Recomme
             ))}
           </Grid>
         )}
-      </CardContent>
-    </Card>
+      </Box>
+    </Box>
   )
 }
