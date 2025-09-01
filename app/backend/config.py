@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     # API Ninjas
     api_ninjas_api_key: str = Field(env="API_NINJAS_API_KEY")
     
+    # Financial Modeling Prep API
+    fmp_api_key: Optional[str] = Field(default=None, env="FMP_API_KEY")
+    
     # Risk/Scoring Thresholds
     put_delta_min: float = Field(default=0.25, env="PUT_DELTA_MIN")
     put_delta_max: float = Field(default=0.35, env="PUT_DELTA_MAX")

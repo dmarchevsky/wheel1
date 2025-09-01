@@ -329,9 +329,9 @@ class Worker:
                     
                     # Send Telegram notification
                     await self.telegram_service.send_message(
-                        f"🔄 S&P 500 Universe Updated\n"
-                        f"✅ Updated {len(updated_tickers)} tickers\n"
-                        f"📊 Active tickers: {len(updated_tickers)}"
+                        f"S&P 500 Universe Updated\n"
+                        f"Updated {len(updated_tickers)} tickers\n"
+                        f"Active tickers: {len(updated_tickers)}"
                     )
                 else:
                     logger.warning("No tickers updated in S&P 500 universe")
@@ -365,6 +365,107 @@ class Worker:
         except Exception as e:
             logger.error(f"Error in market data refresh job: {e}")
     
+    async def _run_monthly_market_population_job(self):
+        """Run the monthly market population job (SP500 update + fundamentals)."""
+        try:
+            logger.info("Running monthly market population job...")
+            
+            # Get database session
+            async with AsyncSessionLocal() as db:
+                # Initialize market data service
+                market_data_service = MarketDataService(db)
+                
+                # Step 1: Update SP500 universe
+                logger.info("Step 1: Updating SP500 universe...")
+                sp500_result = await market_data_service.update_sp500_universe()
+                
+                # Step 2: Update all fundamentals
+                logger.info("Step 2: Updating all fundamentals...")
+                fundamentals_result = await market_data_service.update_all_fundamentals()
+                
+                if fundamentals_result["success"]:
+                    logger.info(f"Monthly market population completed successfully")
+                    logger.info(f"SP500: {len(sp500_result)} tickers, Fundamentals: {fundamentals_result['successful_updates']}/{fundamentals_result['total_processed']} successful")
+                    
+                    # Send Telegram notification
+                    message = (
+                        f"**Monthly Market Population Complete**\n\n"
+                        f"**SP500 Update**: {len(sp500_result)} tickers\n"
+                        f"**Fundamentals**: {fundamentals_result['successful_updates']}/{fundamentals_result['total_processed']} successful ({fundamentals_result['success_rate']:.1f}%)\n"
+                        f"**Timestamp**: {fundamentals_result['timestamp']}"
+                    )
+                    
+                    await self.telegram_service.send_message(message)
+                else:
+                    logger.error("Failed to complete monthly market population")
+                
+        except Exception as e:
+            logger.error(f"Error in monthly market population job: {e}")
+    
+    async def _run_daily_universe_scoring_job(self):
+        """Run the daily universe scoring job."""
+        try:
+            logger.info("Running daily universe scoring job...")
+            
+            # Get database session
+            async with AsyncSessionLocal() as db:
+                # Initialize market data service
+                market_data_service = MarketDataService(db)
+                
+                # Calculate universe scores
+                result = await market_data_service.calculate_universe_scores()
+                
+                if result["success"]:
+                    logger.info(f"Daily universe scoring completed successfully")
+                    logger.info(f"Scored {result['scored_tickers']}/{result['total_tickers']} tickers")
+                    
+                    # Send Telegram notification
+                    message = (
+                        f"**Daily Universe Scoring Complete**\n\n"
+                        f"**Scored**: {result['scored_tickers']}/{result['total_tickers']} tickers\n"
+                        f"**Timestamp**: {result['timestamp']}"
+                    )
+                    
+                    await self.telegram_service.send_message(message)
+                else:
+                    logger.error("Failed to complete daily universe scoring")
+                
+        except Exception as e:
+            logger.error(f"Error in daily universe scoring job: {e}")
+    
+    async def _run_daily_recommendation_updates_job(self):
+        """Run the daily recommendation updates job (top 20 SP500 + manual tickers)."""
+        try:
+            logger.info("Running daily recommendation updates job...")
+            
+            # Get database session
+            async with AsyncSessionLocal() as db:
+                # Initialize market data service
+                market_data_service = MarketDataService(db)
+                
+                # Update recommendation tickers
+                result = await market_data_service.update_recommendation_tickers()
+                
+                if result["success"]:
+                    logger.info(f"Daily recommendation updates completed successfully")
+                    logger.info(f"Updated {result['updated_quotes']} quotes, {result['updated_options']} option chains")
+                    
+                    # Send Telegram notification
+                    message = (
+                        f"**Daily Recommendation Updates Complete**\n\n"
+                        f"**Quotes Updated**: {result['updated_quotes']}\n"
+                        f"**Option Chains Updated**: {result['updated_options']}\n"
+                        f"**Total Tickers**: {result['total_tickers']}\n"
+                        f"**Timestamp**: {result['timestamp']}"
+                    )
+                    
+                    await self.telegram_service.send_message(message)
+                else:
+                    logger.error("Failed to complete daily recommendation updates")
+                
+        except Exception as e:
+            logger.error(f"Error in daily recommendation updates job: {e}")
+    
     async def _run_weekly_sp500_population_job(self):
         """Run the weekly SP500 fundamentals and earnings population job."""
         try:
@@ -379,15 +480,15 @@ class Worker:
                 result = await market_data_service.populate_sp500_fundamentals_and_earnings()
                 
                 if result["success"]:
-                    logger.info(f"✅ Weekly SP500 population completed successfully")
-                    logger.info(f"📊 Results: {result['successful_updates']}/{result['total_processed']} successful updates ({result['success_rate']:.1f}%)")
+                    logger.info(f"Weekly SP500 population completed successfully")
+                    logger.info(f"Results: {result['successful_updates']}/{result['total_processed']} successful updates ({result['success_rate']:.1f}%)")
                     
                     # Send Telegram notification with results
                     message = (
-                        f"🔄 **Weekly SP500 Population Complete**\n\n"
-                        f"✅ **Success Rate**: {result['success_rate']:.1f}%\n"
-                        f"📊 **Updated**: {result['successful_updates']}/{result['total_processed']} tickers\n"
-                        f"⏰ **Timestamp**: {result['timestamp']}\n\n"
+                        f"**Weekly SP500 Population Complete**\n\n"
+                        f"**Success Rate**: {result['success_rate']:.1f}%\n"
+                        f"**Updated**: {result['successful_updates']}/{result['total_processed']} tickers\n"
+                        f"**Timestamp**: {result['timestamp']}\n\n"
                         f"**Top 10 Successful Updates:**\n"
                     )
                     
@@ -401,11 +502,11 @@ class Worker:
                     await self.telegram_service.send_message(message)
                     
                 else:
-                    logger.error(f"❌ Weekly SP500 population failed: {result.get('error', 'Unknown error')}")
+                    logger.error(f"Weekly SP500 population failed: {result.get('error', 'Unknown error')}")
                     
                     # Send error notification
                     error_message = (
-                        f"❌ **Weekly SP500 Population Failed**\n\n"
+                        f"**Weekly SP500 Population Failed**\n\n"
                         f"**Error**: {result.get('error', 'Unknown error')}\n"
                         f"**Timestamp**: {result['timestamp']}"
                     )
@@ -417,7 +518,7 @@ class Worker:
             # Send error notification
             try:
                 error_message = (
-                    f"❌ **Weekly SP500 Population Job Error**\n\n"
+                    f"**Weekly SP500 Population Job Error**\n\n"
                     f"**Error**: {str(e)}\n"
                     f"**Timestamp**: {datetime.now(timezone.utc).isoformat()}"
                 )

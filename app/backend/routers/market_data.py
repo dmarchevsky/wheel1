@@ -84,6 +84,119 @@ async def refresh_market_data(
         raise HTTPException(status_code=500, detail=f"Failed to refresh market data: {str(e)}")
 
 
+# =============================================================================
+# NEW DATA FETCH LOGIC ENDPOINTS
+# =============================================================================
+
+@router.post("/update-all-fundamentals")
+async def update_all_fundamentals(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Update fundamentals for all interesting_tickers using SEC API and API Ninjas."""
+    try:
+        logger.info("Manual fundamentals update requested")
+        
+        market_data_service = MarketDataService(db)
+        result = await market_data_service.update_all_fundamentals()
+        
+        return {
+            "message": "Fundamentals update completed",
+            "status": "success" if result["success"] else "failed",
+            "data": result,
+            "timestamp": pacific_now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to update fundamentals: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update fundamentals: {str(e)}")
+
+
+@router.post("/calculate-universe-scores")
+async def calculate_universe_scores(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Calculate universe scores for all interesting_tickers."""
+    try:
+        logger.info("Manual universe scoring requested")
+        
+        market_data_service = MarketDataService(db)
+        result = await market_data_service.calculate_universe_scores()
+        
+        return {
+            "message": "Universe scoring completed",
+            "status": "success" if result["success"] else "failed",
+            "data": result,
+            "timestamp": pacific_now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to calculate universe scores: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to calculate universe scores: {str(e)}")
+
+
+@router.post("/update-recommendation-tickers")
+async def update_recommendation_tickers(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Update ticker quotes and option chains for top 20 SP500 and manual tickers."""
+    try:
+        logger.info("Manual recommendation tickers update requested")
+        
+        market_data_service = MarketDataService(db)
+        result = await market_data_service.update_recommendation_tickers()
+        
+        return {
+            "message": "Recommendation tickers update completed",
+            "status": "success" if result["success"] else "failed",
+            "data": result,
+            "timestamp": pacific_now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to update recommendation tickers: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update recommendation tickers: {str(e)}")
+
+
+@router.post("/market-population")
+async def run_market_population(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Run complete market population (SP500 update + fundamentals update)."""
+    try:
+        logger.info("Manual market population requested")
+        
+        market_data_service = MarketDataService(db)
+        
+        # Step 1: Update SP500 universe
+        logger.info("Step 1: Updating SP500 universe...")
+        sp500_result = await market_data_service.update_sp500_universe()
+        
+        # Step 2: Update all fundamentals
+        logger.info("Step 2: Updating all fundamentals...")
+        fundamentals_result = await market_data_service.update_all_fundamentals()
+        
+        return {
+            "message": "Market population completed",
+            "status": "success",
+            "data": {
+                "sp500_update": {
+                    "updated_tickers_count": len(sp500_result),
+                    "tickers": [t.symbol for t in sp500_result[:10]]
+                },
+                "fundamentals_update": fundamentals_result
+            },
+            "timestamp": pacific_now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to run market population: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to run market population: {str(e)}")
+
+
 @router.get("/summary")
 async def get_market_summary(
     db: AsyncSession = Depends(get_async_db)

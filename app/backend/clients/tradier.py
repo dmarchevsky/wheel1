@@ -47,8 +47,8 @@ class TradierClient:
         }
         self.client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
         
-        logger.info(f"Tradier client initialized with base URL: {self.base_url}")
-        logger.info(f"Tradier account ID: {self.account_id}")
+        logger.debug(f"Tradier client initialized with base URL: {self.base_url}")
+        logger.debug(f"Tradier account ID: {self.account_id}")
     
     async def __aenter__(self):
         return self
@@ -74,7 +74,7 @@ class TradierClient:
             query_string = urllib.parse.urlencode(params)
             full_url = f"{url}?{query_string}"
         
-        logger.info(f"🌐 Tradier API request: {method} {full_url}")
+        logger.debug(f"Tradier API request: {method} {full_url}")
         
         try:
             response = await self.client.request(
@@ -90,7 +90,7 @@ class TradierClient:
             response_text = response.text.strip()
             
             if not response_text:
-                logger.warning(f"⚠️ Empty response received for {method} {url}")
+                logger.warning(f"Empty response received for {method} {url}")
                 return {}
             
             try:
@@ -99,23 +99,23 @@ class TradierClient:
                 # Check for Tradier API errors
                 if "errors" in data:
                     error_msg = data["errors"].get("error", "Unknown Tradier API error")
-                    logger.error(f"❌ Tradier API error: {error_msg}")
+                    logger.error(f"Tradier API error: {error_msg}")
                     raise TradierAPIError(f"Tradier API error: {error_msg}")
                 
                 return data
             except ValueError as e:
-                logger.error(f"❌ Failed to parse JSON response: {e}")
+                logger.error(f"Failed to parse JSON response: {e}")
                 raise TradierAPIError(f"Invalid JSON response: {e}")
             
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 # Rate limited - wait and retry
-                logger.warning("⚠️ Rate limited by Tradier API, waiting 2 seconds...")
+                logger.warning("Rate limited by Tradier API, waiting 2 seconds...")
                 await asyncio.sleep(2)
                 raise
             elif e.response.status_code in [301, 302, 303, 307, 308]:
                 # Redirect error - this shouldn't happen with follow_redirects=True
-                logger.error(f"⚠️ Unexpected redirect response: {e.response.status_code}")
+                logger.error(f"Unexpected redirect response: {e.response.status_code}")
                 raise TradierAPIError(f"Unexpected redirect: {e.response.status_code}")
             
             raise TradierAPIError(f"HTTP {e.response.status_code}: {e.response.text}")
@@ -124,7 +124,7 @@ class TradierClient:
             raise TradierAPIError(f"Request error: {str(e)}")
             
         except Exception as e:
-            logger.error(f"❌ Unexpected Tradier API error: {str(e)}")
+            logger.error(f"Unexpected Tradier API error: {str(e)}")
             raise TradierAPIError(f"Unexpected error: {str(e)}")
     
     async def get_quote(self, symbol: str) -> Dict[str, Any]:

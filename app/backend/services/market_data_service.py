@@ -9,9 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import and_, or_, func, select
 
 from config import settings
-from db.models import InterestingTicker, TickerQuote
+from db.models import InterestingTicker, TickerQuote, Option
 from clients.tradier import TradierDataManager
 from clients.api_ninjas import APINinjasClient
+from clients.fmp_api import FMPAPIClient
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -24,10 +25,11 @@ class MarketDataService:
         self.db = db
         self.tradier_data = TradierDataManager(db)
         self.api_ninjas = APINinjasClient()
+        self.fmp_api = FMPAPIClient()
     
     async def update_sp500_universe(self) -> List[InterestingTicker]:
         """Update the ticker universe with current S&P 500 constituents."""
-        logger.info("Updating S&P 500 universe...")
+        logger.info("🔄 Updating S&P 500 universe...")
         
         try:
             # Get current S&P 500 constituents using API Ninjas
@@ -60,8 +62,176 @@ class MarketDataService:
             # Deactivate tickers no longer in S&P 500
             await self._deactivate_old_tickers(sp500_symbols)
             
-            logger.info(f"Successfully updated {len(updated_tickers)} tickers")
+            logger.info(f"Successfully updated {len(updated_tickers)} S&P 500 tickers")
             return updated_tickers
+            
+        except Exception as e:
+            logger.error(f"Error updating S&P 500 universe: {e}")
+            return []
+    
+    async def update_all_fundamentals(self) -> Dict[str, Any]:
+        """Update fundamentals for all interesting_tickers using FMP API and API Ninjas."""
+        logger.info("🔄 Updating fundamentals for all interesting tickers...")
+        
+        try:
+            # Get all active tickers
+            result = await self.db.execute(
+                select(InterestingTicker).where(InterestingTicker.active == True)
+            )
+            all_tickers = result.scalars().all()
+            
+            if not all_tickers:
+                logger.warning("No active tickers found")
+                return {"success": False, "message": "No active tickers found"}
+            
+            logger.info(f"Updating fundamentals for {len(all_tickers)} tickers")
+            
+            successful_updates = 0
+            failed_updates = 0
+            updated_tickers = []
+            
+            for i, ticker in enumerate(all_tickers):
+                try:
+                    logger.info(f"Processing fundamentals for {i+1}/{len(all_tickers)}: {ticker.symbol}")
+                    
+                    # Update fundamentals
+                    updated_ticker = await self._update_ticker_fundamentals(ticker)
+                    if updated_ticker:
+                        successful_updates += 1
+                        updated_tickers.append(ticker.symbol)
+                        logger.info(f"✅ Updated fundamentals for {ticker.symbol}")
+                    else:
+                        failed_updates += 1
+                        logger.warning(f"❌ Failed to update fundamentals for {ticker.symbol}")
+                    
+                    # Rate limiting
+                    if (i + 1) % 5 == 0:
+                        logger.info(f"Processed {i + 1}/{len(all_tickers)} tickers, pausing...")
+                        await asyncio.sleep(1)
+                        
+                except Exception as e:
+                    failed_updates += 1
+                    logger.error(f"Error updating fundamentals for {ticker.symbol}: {e}")
+                    continue
+            
+            # Commit all changes
+            await self.db.commit()
+            
+            success_rate = (successful_updates / len(all_tickers)) * 100 if all_tickers else 0
+            
+            result = {
+                "success": True,
+                "total_processed": len(all_tickers),
+                "successful_updates": successful_updates,
+                "failed_updates": failed_updates,
+                "success_rate": success_rate,
+                "updated_tickers": updated_tickers,
+                "timestamp": pacific_now().isoformat()
+            }
+            
+            logger.info(f"Fundamentals update completed: {successful_updates}/{len(all_tickers)} successful ({success_rate:.1f}%)")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error updating all fundamentals: {e}")
+            await self.db.rollback()
+            return {"success": False, "error": str(e)}
+    
+    async def _update_ticker_fundamentals(self, ticker: InterestingTicker) -> Optional[InterestingTicker]:
+        """Update ticker fundamentals using FMP API and API Ninjas."""
+        try:
+            symbol = ticker.symbol
+            
+            # 1. Update company info using FMP API (comprehensive data)
+            logger.info(f"📊 Fetching company profile from FMP API for {symbol}")
+            fmp_profile = await self.fmp_api.get_company_profile(symbol)
+            
+            if fmp_profile:
+                # Update company name, sector, industry
+                if not ticker.name and fmp_profile.get("name"):
+                    ticker.name = fmp_profile["name"]
+                    logger.info(f"✅ Updated name for {symbol}: {ticker.name}")
+                
+                if not ticker.sector and fmp_profile.get("sector"):
+                    ticker.sector = fmp_profile["sector"]
+                    logger.info(f"✅ Updated sector for {symbol}: {ticker.sector}")
+                
+                if not ticker.industry and fmp_profile.get("industry"):
+                    ticker.industry = fmp_profile["industry"]
+                    logger.info(f"✅ Updated industry for {symbol}: {ticker.industry}")
+                
+                # Update market cap from FMP (more reliable than API Ninjas)
+                if fmp_profile.get("market_cap"):
+                    # Convert to billions if needed
+                    market_cap = fmp_profile["market_cap"]
+                    if market_cap and market_cap > 0:
+                        ticker.market_cap = market_cap / 1000000000  # Convert to billions
+                        logger.info(f"✅ Updated market cap for {symbol}: ${ticker.market_cap:.1f}B")
+                
+                # Update beta from FMP
+                if fmp_profile.get("beta") is not None:
+                    ticker.beta = fmp_profile["beta"]
+                    logger.info(f"✅ Updated beta for {symbol}: {ticker.beta}")
+                
+                # Update P/E ratio from FMP
+                if fmp_profile.get("pe_ratio") is not None:
+                    ticker.pe_ratio = fmp_profile["pe_ratio"]
+                    logger.info(f"✅ Updated P/E ratio for {symbol}: {ticker.pe_ratio}")
+                
+                # Update dividend yield from FMP
+                if fmp_profile.get("dividend_yield") is not None:
+                    ticker.dividend_yield = fmp_profile["dividend_yield"]
+                    logger.info(f"✅ Updated dividend yield for {symbol}: {ticker.dividend_yield}")
+                
+                logger.info(f"✅ Updated FMP profile data for {symbol}")
+            else:
+                logger.warning(f"⚠️ No FMP profile data for {symbol}")
+            
+            # 2. Update earnings dates using API Ninjas (keep as fallback)
+            logger.info(f"📅 Fetching earnings data for {symbol}")
+            earnings_data = await self.api_ninjas.get_earnings_calendar(symbol)
+            if earnings_data and earnings_data.get("earnings_date"):
+                ticker.next_earnings_date = earnings_data["earnings_date"]
+                logger.info(f"✅ Updated earnings date for {symbol}: {earnings_data['earnings_date']}")
+            else:
+                logger.warning(f"⚠️ No earnings data for {symbol}")
+            
+            # 3. Fallback to API Ninjas for market cap if FMP didn't provide it
+            if not ticker.market_cap:
+                logger.info(f"💰 Fetching market cap from API Ninjas for {symbol}")
+                market_cap_data = await self.api_ninjas.get_market_cap(symbol)
+                if market_cap_data and market_cap_data.get("market_cap"):
+                    ticker.market_cap = market_cap_data["market_cap"]
+                    logger.info(f"✅ Updated market cap from API Ninjas for {symbol}: ${ticker.market_cap:.1f}B")
+                else:
+                    logger.warning(f"⚠️ No market cap data available for {symbol}")
+            
+            # 4. Fallback to Tradier for fundamentals if FMP didn't provide them
+            if not ticker.pe_ratio or not ticker.beta or not ticker.dividend_yield:
+                logger.info(f"📈 Fetching additional fundamentals from Tradier for {symbol}")
+                tradier_data = await self.tradier_data.sync_ticker_data(symbol)
+                if tradier_data:
+                    if not ticker.pe_ratio and tradier_data.get("pe_ratio") is not None:
+                        ticker.pe_ratio = tradier_data["pe_ratio"]
+                    
+                    if not ticker.dividend_yield and tradier_data.get("dividend_yield") is not None:
+                        ticker.dividend_yield = tradier_data["dividend_yield"]
+                    
+                    if not ticker.beta and tradier_data.get("beta") is not None:
+                        ticker.beta = tradier_data["beta"]
+                    
+                    logger.info(f"✅ Updated Tradier fundamentals for {symbol}")
+                else:
+                    logger.warning(f"⚠️ No Tradier data for {symbol}")
+            
+            # Update timestamp
+            ticker.updated_at = pacific_now()
+            
+            return ticker
+            
+        except Exception as e:
+            logger.error(f"Error updating fundamentals for {ticker.symbol}: {e}")
+            return None
             
         except Exception as e:
             logger.error(f"Error updating S&P 500 universe: {e}")
@@ -202,6 +372,264 @@ class MarketDataService:
             import traceback
             logger.error(f"📋 Full traceback: {traceback.format_exc()}")
     
+    async def _calculate_universe_score(self, ticker: InterestingTicker) -> float:
+        """Calculate universe score specifically optimized for Wheel Strategy."""
+        try:
+            score = 0.0
+            
+            # Get quote data
+            result = await self.db.execute(
+                select(TickerQuote).where(TickerQuote.symbol == ticker.symbol)
+            )
+            quote = result.scalar_one_indexed()
+            
+            # =============================================================================
+            # WHEEL STRATEGY OPTIMIZED SCORING
+            # =============================================================================
+            
+            # 1. OPTIONS SUITABILITY (40% of total score)
+            options_score = await self._calculate_options_suitability_score(ticker, quote)
+            score += options_score * 0.4
+            
+            # 2. TECHNICAL SETUP (25% of total score)
+            technical_score = await self._calculate_technical_setup_score(ticker, quote)
+            score += technical_score * 0.25
+            
+            # 3. FUNDAMENTAL QUALITY (20% of total score)
+            fundamental_score = await self._calculate_fundamental_quality_score(ticker)
+            score += fundamental_score * 0.20
+            
+            # 4. RISK ASSESSMENT (15% of total score)
+            risk_score = await self._calculate_risk_assessment_score(ticker, quote)
+            score += risk_score * 0.15
+            
+            return min(score, 1.0)  # Cap at 1.0
+            
+        except Exception as e:
+            logger.error(f"Error calculating wheel strategy score for {ticker.symbol}: {e}")
+            return 0.0
+    
+    async def _calculate_options_suitability_score(self, ticker: InterestingTicker, quote: TickerQuote) -> float:
+        """Calculate options suitability score for wheel strategy."""
+        try:
+            score = 0.0
+            
+            # Check if we have recent options data
+            result = await self.db.execute(
+                select(Option).where(
+                    and_(
+                        Option.symbol == ticker.symbol,
+                        Option.option_type == "put",
+                        Option.updated_at >= pacific_now() - timedelta(hours=24)
+                    )
+                )
+            )
+            recent_options = result.scalars().all()
+            
+            if recent_options:
+                # Calculate average metrics from recent options
+                total_oi = sum(opt.open_interest or 0 for opt in recent_options)
+                total_volume = sum(opt.volume or 0 for opt in recent_options)
+                avg_iv = sum(opt.implied_volatility or 0 for opt in recent_options) / len(recent_options)
+                
+                # Options liquidity score (0.0 - 0.4)
+                if total_oi > 10000:  # High liquidity
+                    score += 0.4
+                elif total_oi > 5000:  # Good liquidity
+                    score += 0.3
+                elif total_oi > 2000:  # Moderate liquidity
+                    score += 0.2
+                elif total_oi > 500:  # Minimum liquidity
+                    score += 0.1
+                
+                # Volume activity score (0.0 - 0.3)
+                if total_volume > 5000:
+                    score += 0.3
+                elif total_volume > 2000:
+                    score += 0.2
+                elif total_volume > 500:
+                    score += 0.1
+                
+                # Implied volatility score (0.0 - 0.3)
+                if 0.2 <= avg_iv <= 0.6:  # Sweet spot for premium selling
+                    score += 0.3
+                elif 0.1 <= avg_iv <= 0.8:  # Acceptable range
+                    score += 0.2
+                elif avg_iv > 0.8:  # High IV (good for premium, but higher risk)
+                    score += 0.1
+            else:
+                # No recent options data - estimate based on market cap and volume
+                if ticker.market_cap and ticker.market_cap > 10:  # > $10B
+                    score += 0.2  # Large caps typically have good options
+                if quote and quote.volume_avg_20d and quote.volume_avg_20d > 5000000:
+                    score += 0.1  # High volume suggests options activity
+            
+            return min(score, 1.0)
+            
+        except Exception as e:
+            logger.error(f"Error calculating options suitability for {ticker.symbol}: {e}")
+            return 0.0
+    
+    async def _calculate_technical_setup_score(self, ticker: InterestingTicker, quote: TickerQuote) -> float:
+        """Calculate technical setup score for wheel strategy."""
+        try:
+            score = 0.0
+            
+            if not quote or not quote.current_price:
+                return 0.0
+            
+            current_price = quote.current_price
+            
+            # Get historical price data for technical analysis
+            # For now, we'll use a simplified approach based on available data
+            # In production, you'd want to fetch historical prices from FMP or another source
+            
+            # Price stability score (0.0 - 0.3)
+            if quote.volatility_30d:
+                if 0.15 <= quote.volatility_30d <= 0.35:  # Sweet spot for wheel strategy
+                    score += 0.3
+                elif 0.1 <= quote.volatility_30d <= 0.5:  # Acceptable range
+                    score += 0.2
+                elif quote.volatility_30d < 0.1:  # Too stable (low premiums)
+                    score += 0.1
+                elif quote.volatility_30d > 0.5:  # Too volatile (high risk)
+                    score += 0.1
+            
+            # Support level proximity score (0.0 - 0.4)
+            # For wheel strategy, we want stocks near support for put selling
+            if ticker.market_cap:
+                # Estimate support levels based on market cap and current price
+                # Large caps: 10-15% below current price
+                # Mid caps: 15-20% below current price
+                if ticker.market_cap > 50:  # Large cap
+                    support_distance = 0.12  # 12% below current
+                elif ticker.market_cap > 10:  # Mid cap
+                    support_distance = 0.18  # 18% below current
+                else:  # Small cap
+                    support_distance = 0.25  # 25% below current
+                
+                # Higher score for stocks closer to support
+                score += 0.4 * (1.0 - support_distance)
+            
+            # Trend strength score (0.0 - 0.3)
+            # For wheel strategy, we prefer stocks in sideways or slightly bullish trends
+            if quote.volume_avg_20d and quote.volume_avg_20d > 1000000:
+                score += 0.3  # Good volume suggests healthy trading activity
+            
+            return min(score, 1.0)
+            
+        except Exception as e:
+            logger.error(f"Error calculating technical setup for {ticker.symbol}: {e}")
+            return 0.0
+    
+    async def _calculate_fundamental_quality_score(self, ticker: InterestingTicker) -> float:
+        """Calculate fundamental quality score for wheel strategy."""
+        try:
+            score = 0.0
+            
+            # Company size and stability (0.0 - 0.4)
+            if ticker.market_cap:
+                if ticker.market_cap > 100:  # > $100B - Very stable
+                    score += 0.4
+                elif ticker.market_cap > 50:  # > $50B - Stable
+                    score += 0.35
+                elif ticker.market_cap > 20:  # > $20B - Good
+                    score += 0.3
+                elif ticker.market_cap > 10:  # > $10B - Acceptable
+                    score += 0.25
+                elif ticker.market_cap > 5:  # > $5B - Minimum for wheel
+                    score += 0.2
+            
+            # Valuation quality (0.0 - 0.3)
+            if ticker.pe_ratio:
+                if 8 <= ticker.pe_ratio <= 30:  # Reasonable valuation
+                    score += 0.3
+                elif 5 <= ticker.pe_ratio <= 40:  # Acceptable range
+                    score += 0.2
+                elif ticker.pe_ratio < 5:  # Very cheap (potential value trap)
+                    score += 0.1
+                elif ticker.pe_ratio > 40:  # Expensive (higher risk)
+                    score += 0.1
+            
+            # Financial health (0.0 - 0.3)
+            if ticker.beta:
+                if 0.6 <= ticker.beta <= 1.4:  # Moderate volatility
+                    score += 0.3
+                elif 0.4 <= ticker.beta <= 1.6:  # Acceptable range
+                    score += 0.2
+                elif ticker.beta < 0.4:  # Too stable (low premiums)
+                    score += 0.1
+                elif ticker.beta > 1.6:  # Too volatile (high risk)
+                    score += 0.1
+            
+            # Dividend stability (0.0 - 0.1)
+            if ticker.dividend_yield and ticker.dividend_yield > 0:
+                score += 0.1  # Dividend-paying stocks are generally more stable
+            
+            return min(score, 1.0)
+            
+        except Exception as e:
+            logger.error(f"Error calculating fundamental quality for {ticker.symbol}: {e}")
+            return 0.0
+    
+    async def _calculate_risk_assessment_score(self, ticker: InterestingTicker, quote: TickerQuote) -> float:
+        """Calculate risk assessment score for wheel strategy."""
+        try:
+            score = 0.0
+            
+            # Earnings blackout risk (0.0 - 0.4)
+            if ticker.next_earnings_date:
+                days_to_earnings = (ticker.next_earnings_date - pacific_now()).days
+                if days_to_earnings > 30:  # Far from earnings (low risk)
+                    score += 0.4
+                elif days_to_earnings > 14:  # Moderate distance (medium risk)
+                    score += 0.3
+                elif days_to_earnings > 7:  # Close to earnings (higher risk)
+                    score += 0.2
+                elif days_to_earnings > 0:  # Very close to earnings (high risk)
+                    score += 0.1
+                else:  # Earnings today or passed (medium risk)
+                    score += 0.2
+            else:
+                # No earnings date - assume low risk
+                score += 0.3
+            
+            # Sector risk assessment (0.0 - 0.3)
+            if ticker.sector:
+                low_risk_sectors = ["Consumer Staples", "Utilities", "Healthcare", "Real Estate"]
+                medium_risk_sectors = ["Consumer Discretionary", "Industrials", "Materials", "Communication Services"]
+                high_risk_sectors = ["Technology", "Energy", "Financial Services"]
+                
+                if ticker.sector in low_risk_sectors:
+                    score += 0.3
+                elif ticker.sector in medium_risk_sectors:
+                    score += 0.2
+                elif ticker.sector in high_risk_sectors:
+                    score += 0.1
+                else:
+                    score += 0.2  # Unknown sector
+            
+            # Market cap stability (0.0 - 0.3)
+            if ticker.market_cap:
+                if ticker.market_cap > 100:  # Very stable
+                    score += 0.3
+                elif ticker.market_cap > 50:  # Stable
+                    score += 0.25
+                elif ticker.market_cap > 20:  # Good
+                    score += 0.2
+                elif ticker.market_cap > 10:  # Acceptable
+                    score += 0.15
+                elif ticker.market_cap > 5:  # Higher risk
+                    score += 0.1
+                else:  # High risk
+                    score += 0.05
+            
+            return min(score, 1.0)
+            
+        except Exception as e:
+            logger.error(f"Error calculating risk assessment for {ticker.symbol}: {e}")
+            return 0.0
+    
     async def _update_ticker_quote(self, symbol: str, tradier_data) -> None:
         """Update or create TickerQuote with frequently changing market data."""
         try:
@@ -297,6 +725,219 @@ class MarketDataService:
         logger.info(f"Refreshed market data for {len(updated_tickers)} tickers")
         
         return updated_tickers
+    
+    # =============================================================================
+    # 2. UNIVERSE SCORING (Daily) - WHEEL STRATEGY OPTIMIZED
+    # =============================================================================
+    
+    async def calculate_universe_scores(self) -> Dict[str, Any]:
+        """Calculate universe scores for all interesting_tickers daily."""
+        logger.info("🔄 Calculating wheel strategy universe scores for all tickers...")
+        
+        try:
+            # Get all active tickers
+            result = await self.db.execute(
+                select(InterestingTicker).where(InterestingTicker.active == True)
+            )
+            all_tickers = result.scalars().all()
+            
+            if not all_tickers:
+                logger.warning("No active tickers found for scoring")
+                return {"success": False, "message": "No active tickers found"}
+            
+            logger.info(f"Calculating wheel strategy scores for {len(all_tickers)} tickers")
+            
+            scored_tickers = 0
+            failed_scoring = 0
+            
+            for ticker in all_tickers:
+                try:
+                    # Calculate wheel strategy universe score
+                    score = await self._calculate_universe_score(ticker)
+                    ticker.universe_score = score
+                    ticker.last_analysis_date = pacific_now()
+                    scored_tickers += 1
+                    
+                    logger.debug(f"✅ Scored {ticker.symbol}: {score:.3f}")
+                    
+                except Exception as e:
+                    failed_scoring += 1
+                    logger.error(f"Error scoring {ticker.symbol}: {e}")
+                    continue
+            
+            # Commit score updates
+            await self.db.commit()
+            
+            result = {
+                "success": True,
+                "total_tickers": len(all_tickers),
+                "scored_tickers": scored_tickers,
+                "failed_scoring": failed_scoring,
+                "timestamp": pacific_now().isoformat()
+            }
+            
+            logger.info(f"Wheel strategy universe scoring completed: {scored_tickers}/{len(all_tickers)} tickers scored")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error calculating wheel strategy universe scores: {e}")
+            await self.db.rollback()
+            return {"success": False, "error": str(e)}
+    
+    # =============================================================================
+    # 3. RECOMMENDATIONS (Top 20 SP500 + Manual tickers)
+    # =============================================================================
+    
+    async def update_recommendation_tickers(self) -> Dict[str, Any]:
+        """Update ticker quotes and option chains for top 20 SP500 and manual tickers."""
+        logger.info("🔄 Updating recommendation tickers (top 20 SP500 + manual)...")
+        
+        try:
+            # Get top 20 SP500 tickers by universe score
+            result = await self.db.execute(
+                select(InterestingTicker)
+                .where(InterestingTicker.active == True, InterestingTicker.source == "sp500")
+                .order_by(InterestingTicker.universe_score.desc().nullslast())
+                .limit(20)
+            )
+            top_sp500_tickers = result.scalars().all()
+            
+            # Get all manual tickers
+            result = await self.db.execute(
+                select(InterestingTicker)
+                .where(InterestingTicker.active == True, InterestingTicker.source == "manual")
+            )
+            manual_tickers = result.scalars().all()
+            
+            # Combine tickers for processing
+            recommendation_tickers = top_sp500_tickers + manual_tickers
+            
+            if not recommendation_tickers:
+                logger.warning("No tickers found for recommendation updates")
+                return {"success": False, "message": "No tickers found"}
+            
+            logger.info(f"Updating {len(recommendation_tickers)} recommendation tickers "
+                       f"({len(top_sp500_tickers)} top SP500 + {len(manual_tickers)} manual)")
+            
+            updated_quotes = 0
+            updated_options = 0
+            failed_updates = 0
+            
+            for ticker in recommendation_tickers:
+                try:
+                    logger.info(f"Processing recommendation ticker: {ticker.symbol}")
+                    
+                    # Update ticker quote
+                    quote_updated = await self._update_ticker_quote_for_recommendations(ticker.symbol)
+                    if quote_updated:
+                        updated_quotes += 1
+                    
+                    # Update option chain
+                    options_updated = await self._update_option_chain(ticker.symbol)
+                    if options_updated:
+                        updated_options += 1
+                    
+                    # Rate limiting
+                    await asyncio.sleep(0.5)
+                    
+                except Exception as e:
+                    failed_updates += 1
+                    logger.error(f"Error updating recommendation data for {ticker.symbol}: {e}")
+                    continue
+            
+            # Commit all changes
+            await self.db.commit()
+            
+            result = {
+                "success": True,
+                "total_tickers": len(recommendation_tickers),
+                "updated_quotes": updated_quotes,
+                "updated_options": updated_options,
+                "failed_updates": failed_updates,
+                "timestamp": pacific_now().isoformat()
+            }
+            
+            logger.info(f"Recommendation updates completed: "
+                       f"{updated_quotes} quotes, {updated_options} option chains updated")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error updating recommendation tickers: {e}")
+            await self.db.rollback()
+            return {"success": False, "error": str(e)}
+    
+    async def _update_ticker_quote_for_recommendations(self, symbol: str) -> bool:
+        """Update ticker quote with fresh market data for recommendations."""
+        try:
+            # Try FMP API first for comprehensive quote data
+            fmp_quote = await self.fmp_api.get_company_quote(symbol)
+            
+            # Fallback to Tradier if FMP fails
+            tradier_data = None
+            if not fmp_quote:
+                logger.info(f"FMP quote failed for {symbol}, falling back to Tradier...")
+                tradier_data = await self.tradier_data.sync_ticker_data(symbol)
+            
+            if not fmp_quote and not tradier_data:
+                logger.warning(f"No quote data available for {symbol}")
+                return False
+            
+            # Update or create quote
+            result = await self.db.execute(
+                select(TickerQuote).where(TickerQuote.symbol == symbol)
+            )
+            quote = result.scalar_one_or_none()
+            
+            if not quote:
+                quote = TickerQuote(
+                    symbol=symbol,
+                    updated_at=pacific_now()
+                )
+                self.db.add(quote)
+            
+            # Update with FMP data (preferred) or Tradier fallback
+            if fmp_quote:
+                if fmp_quote.get("current_price") is not None:
+                    quote.current_price = fmp_quote["current_price"]
+                if fmp_quote.get("avg_volume") is not None:
+                    quote.volume_avg_20d = fmp_quote["avg_volume"]
+                # Note: FMP doesn't provide volatility, so we'll keep existing or use Tradier
+                
+                logger.info(f"✅ Updated quote from FMP for {symbol}: ${quote.current_price}")
+            else:
+                # Use Tradier data
+                if tradier_data.get("current_price") is not None:
+                    quote.current_price = tradier_data["current_price"]
+                if tradier_data.get("volume_avg_20d") is not None:
+                    quote.volume_avg_20d = tradier_data["volume_avg_20d"]
+                if tradier_data.get("volatility_30d") is not None:
+                    quote.volatility_30d = tradier_data["volatility_30d"]
+                
+                logger.info(f"✅ Updated quote from Tradier for {symbol}: ${quote.current_price}")
+            
+            quote.updated_at = pacific_now()
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating quote for {symbol}: {e}")
+            return False
+    
+    async def _update_option_chain(self, symbol: str) -> bool:
+        """Update option chain for a ticker."""
+        try:
+            # Use TradierDataManager to sync options
+            options_data = await self.tradier_data.sync_options_data(symbol)
+            
+            if options_data:
+                logger.info(f"✅ Updated option chain for {symbol}: {len(options_data)} options")
+                return True
+            else:
+                logger.warning(f"No options data for {symbol}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error updating options for {symbol}: {e}")
+            return False
     
     async def get_market_summary(self) -> Dict[str, Any]:
         """Get summary of current market data."""
@@ -395,7 +1036,7 @@ class MarketDataService:
                         quote = quote_result.scalar_one_or_none()
                         
                         # Log additional data if available
-                        data_log = f"✅ Successfully updated data for {symbol}"
+                        data_log = f"Successfully updated data for {symbol}"
                         if quote and quote.current_price:
                             data_log += f" (price: ${quote.current_price})"
                         if updated_ticker.sector:
@@ -410,7 +1051,7 @@ class MarketDataService:
                         logger.info(data_log)
                     else:
                         failed_tickers.append(symbol)
-                        logger.warning(f"❌ Failed to update data for {symbol}")
+                        logger.warning(f"Failed to update data for {symbol}")
                     
                     # Rate limiting: pause every 10 requests
                     if (i + 1) % 10 == 0:
@@ -436,7 +1077,7 @@ class MarketDataService:
                 "timestamp": datetime.utcnow().isoformat()
             }
             
-            logger.info(f"✅ Weekly SP500 population completed: {successful_updates}/{len(sp500_symbols)} successful updates")
+            logger.info(f"Weekly SP500 population completed: {successful_updates}/{len(sp500_symbols)} successful updates")
             logger.info(f"Successful tickers: {successful_tickers[:10]}{'...' if len(successful_tickers) > 10 else ''}")
             
             return result
