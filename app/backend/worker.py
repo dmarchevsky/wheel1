@@ -221,6 +221,19 @@ class Worker:
             timezone=market_calendar.timezone
         )
         
+        # Daily recommendation updates job - runs every day at 8 AM ET (market open)
+        self.scheduler.add_job(
+            self._run_daily_recommendation_updates_job,
+            trigger="cron",
+            hour=8,
+            minute=0,
+            id="daily_recommendation_updates_job",
+            name="Daily recommendation updates",
+            coalesce=True,
+            max_instances=1,
+            timezone=market_calendar.timezone
+        )
+        
         logger.info("Jobs scheduled successfully")
     
     async def _run_recommender_job(self):

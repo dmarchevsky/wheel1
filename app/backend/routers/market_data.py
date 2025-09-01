@@ -356,6 +356,7 @@ async def get_ticker_details(
                 "current_price": quote.current_price if quote else None,
                 "volume_avg_20d": quote.volume_avg_20d if quote else None,
                 "volatility_30d": quote.volatility_30d if quote else None,
+                "put_call_ratio": quote.put_call_ratio if quote else None,
                 "beta": ticker.beta,
                 "pe_ratio": ticker.pe_ratio,
                 "dividend_yield": ticker.dividend_yield,
@@ -762,6 +763,7 @@ async def get_interesting_tickers(
                 "current_price": quote.current_price if quote else None,
                 "volume_avg_20d": quote.volume_avg_20d if quote else None,
                 "volatility_30d": quote.volatility_30d if quote else None,
+                "put_call_ratio": quote.put_call_ratio if quote else None,
                 "quote_updated_at": quote.updated_at.isoformat() if quote and quote.updated_at else None
             }
             tickers.append(ticker_data)

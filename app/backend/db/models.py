@@ -47,7 +47,6 @@ class InterestingTicker(Base):
     beta = Column(Float, nullable=True)  # Beta vs S&P 500
     pe_ratio = Column(Float, nullable=True)  # P/E ratio
     dividend_yield = Column(Float, nullable=True)  # Dividend yield percentage
-    put_call_ratio = Column(Float, nullable=True)  # Put/Call ratio
     next_earnings_date = Column(DateTime(timezone=True), nullable=True)  # Next upcoming earnings date
     active = Column(Boolean, default=True)  # Whether ticker is active for analysis
     universe_score = Column(Float, nullable=True)  # Composite score for universe selection
@@ -72,6 +71,7 @@ class TickerQuote(Base):
     current_price = Column(Float, nullable=True)
     volume_avg_20d = Column(Float, nullable=True)  # 20-day average volume
     volatility_30d = Column(Float, nullable=True)  # 30-day historical volatility
+    put_call_ratio = Column(Float, nullable=True)  # Put/Call ratio
     updated_at = Column(DateTime(timezone=True), default=pacific_now, onupdate=pacific_now)
     
     # Relationships

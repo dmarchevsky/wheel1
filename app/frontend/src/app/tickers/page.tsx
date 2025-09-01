@@ -64,6 +64,7 @@ interface TickerData {
   current_price: number;
   volume_avg_20d: number;
   volatility_30d: number;
+  put_call_ratio: number;
   quote_updated_at: string;
 }
 
@@ -528,6 +529,17 @@ export default function TickersPage() {
                     </TableCell>
                     <TableCell 
                       sx={{ fontWeight: 'bold', cursor: 'pointer' }}
+                      onClick={() => handleSort('put_call_ratio')}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        Put/Call Ratio
+                        {sortField === 'put_call_ratio' && (
+                          sortDirection === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
+                        )}
+                      </Box>
+                    </TableCell>
+                    <TableCell 
+                      sx={{ fontWeight: 'bold', cursor: 'pointer' }}
                       onClick={() => handleSort('next_earnings_date')}
                     >
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -576,6 +588,9 @@ export default function TickersPage() {
                       <TableCell>{formatPrice(ticker.current_price)}</TableCell>
                       <TableCell>
                         {ticker.pe_ratio ? ticker.pe_ratio.toFixed(2) : 'N/A'}
+                      </TableCell>
+                      <TableCell>
+                        {ticker.put_call_ratio ? ticker.put_call_ratio.toFixed(3) : 'N/A'}
                       </TableCell>
                       <TableCell>{formatDate(ticker.next_earnings_date)}</TableCell>
                               <TableCell>

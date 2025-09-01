@@ -381,7 +381,7 @@ class MarketDataService:
             result = await self.db.execute(
                 select(TickerQuote).where(TickerQuote.symbol == ticker.symbol)
             )
-            quote = result.scalar_one_indexed()
+            quote = result.scalar_one_or_none()
             
             # =============================================================================
             # WHEEL STRATEGY OPTIMIZED SCORING
@@ -418,7 +418,7 @@ class MarketDataService:
             result = await self.db.execute(
                 select(Option).where(
                     and_(
-                        Option.symbol == ticker.symbol,
+                        Option.underlying_symbol == ticker.symbol,
                         Option.option_type == "put",
                         Option.updated_at >= pacific_now() - timedelta(hours=24)
                     )
@@ -660,6 +660,12 @@ class MarketDataService:
                 if tradier_data.get("volatility_30d") is not None:
                     quote.volatility_30d = tradier_data["volatility_30d"]
             
+            # Calculate and update put/call ratio
+            put_call_ratio = await self._calculate_put_call_ratio(symbol)
+            if put_call_ratio is not None:
+                quote.put_call_ratio = put_call_ratio
+                logger.debug(f"Updated put/call ratio for {symbol}: {put_call_ratio:.3f}")
+            
             logger.info(f"Updated quote for {symbol}: price=${quote.current_price}, "
                        f"volume_avg_20d={quote.volume_avg_20d}, volatility_30d={quote.volatility_30d}")
             
@@ -866,6 +872,41 @@ class MarketDataService:
             await self.db.rollback()
             return {"success": False, "error": str(e)}
     
+    async def _calculate_put_call_ratio(self, symbol: str) -> Optional[float]:
+        """Calculate put/call ratio from options data."""
+        try:
+            # Get recent options data (last 24 hours)
+            result = await self.db.execute(
+                select(Option).where(
+                    and_(
+                        Option.underlying_symbol == symbol,
+                        Option.updated_at >= pacific_now() - timedelta(hours=24)
+                    )
+                )
+            )
+            options = result.scalars().all()
+            
+            if not options:
+                logger.debug(f"No recent options data for {symbol} to calculate put/call ratio")
+                return None
+            
+            # Calculate put/call ratio
+            put_volume = sum(opt.volume or 0 for opt in options if opt.option_type == "put")
+            call_volume = sum(opt.volume or 0 for opt in options if opt.option_type == "call")
+            
+            if call_volume == 0:
+                if put_volume == 0:
+                    return None  # No volume data
+                return float('inf')  # All puts, no calls
+            
+            put_call_ratio = put_volume / call_volume
+            logger.debug(f"Calculated put/call ratio for {symbol}: {put_call_ratio:.3f} (put_vol: {put_volume}, call_vol: {call_volume})")
+            return put_call_ratio
+            
+        except Exception as e:
+            logger.error(f"Error calculating put/call ratio for {symbol}: {e}")
+            return None
+
     async def _update_ticker_quote_for_recommendations(self, symbol: str) -> bool:
         """Update ticker quote with fresh market data for recommendations."""
         try:
@@ -914,6 +955,12 @@ class MarketDataService:
                     quote.volatility_30d = tradier_data["volatility_30d"]
                 
                 logger.info(f"✅ Updated quote from Tradier for {symbol}: ${quote.current_price}")
+            
+            # Calculate and update put/call ratio
+            put_call_ratio = await self._calculate_put_call_ratio(symbol)
+            if put_call_ratio is not None:
+                quote.put_call_ratio = put_call_ratio
+                logger.info(f"✅ Updated put/call ratio for {symbol}: {put_call_ratio:.3f}")
             
             quote.updated_at = pacific_now()
             return True

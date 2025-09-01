@@ -184,7 +184,7 @@ async def build_recommendation_response(db: AsyncSession, recommendation: Recomm
         next_earnings_date=ticker.next_earnings_date.isoformat() if ticker and ticker.next_earnings_date else None,
         annualized_roi=annualized_roi,
         pe_ratio=ticker.pe_ratio if ticker else None,
-        put_call_ratio=ticker.put_call_ratio if ticker else None,
+        put_call_ratio=quote.put_call_ratio if quote else None,
         volume=recommendation.volume,
         score=recommendation.score,
         score_breakdown=score_breakdown,
