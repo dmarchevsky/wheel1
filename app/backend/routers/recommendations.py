@@ -23,26 +23,43 @@ class RecommendationResponse(BaseModel):
     """Recommendation response model."""
     id: int
     symbol: str
+    option_symbol: Optional[str] = None
+    option_type: str = "put"  # Side put or call
+    underlying_ticker: str  # Underlying ticker
+    current_price: Optional[float] = None
     strike: Optional[float] = None
     expiry: Optional[str] = None
+    dte: Optional[int] = None
+    contract_price: Optional[float] = None  # Calculated contract price
+    total_credit: Optional[float] = None
+    collateral: Optional[float] = None
+    industry: Optional[str] = None
+    sector: Optional[str] = None
+    next_earnings_date: Optional[str] = None
+    annualized_roi: Optional[float] = None  # Annualized ROI
+    pe_ratio: Optional[float] = None
+    put_call_ratio: Optional[float] = None
+    volume: Optional[int] = None
     score: float
+    # Score components in human readable format
+    score_breakdown: Optional[dict] = None
     rationale: dict
     status: str
     created_at: str
     
-    # Expanded rationale fields
+    # Expanded rationale fields (keeping for backward compatibility)
     annualized_yield: Optional[float] = None
     proximity_score: Optional[float] = None
     liquidity_score: Optional[float] = None
     risk_adjustment: Optional[float] = None
     qualitative_score: Optional[float] = None
-    dte: Optional[int] = None
     spread_pct: Optional[float] = None
     mid_price: Optional[float] = None
     delta: Optional[float] = None
     iv_rank: Optional[float] = None
     open_interest: Optional[int] = None
-    volume: Optional[int] = None
+    probability_of_profit_black_scholes: Optional[float] = None
+    probability_of_profit_monte_carlo: Optional[float] = None
     
     class Config:
         from_attributes = True
@@ -77,6 +94,10 @@ def build_rationale_dict(recommendation: Recommendation) -> dict:
         rationale["open_interest"] = recommendation.open_interest
     if recommendation.volume is not None:
         rationale["volume"] = recommendation.volume
+    if recommendation.probability_of_profit_black_scholes is not None:
+        rationale["probability_of_profit_black_scholes"] = recommendation.probability_of_profit_black_scholes
+    if recommendation.probability_of_profit_monte_carlo is not None:
+        rationale["probability_of_profit_monte_carlo"] = recommendation.probability_of_profit_monte_carlo
     
     return rationale
 
@@ -91,32 +112,98 @@ async def get_option_for_recommendation(db: AsyncSession, rec: Recommendation) -
     return option
 
 
-def build_recommendation_response(recommendation: Recommendation, option: Optional[Option] = None) -> RecommendationResponse:
+async def build_recommendation_response(db: AsyncSession, recommendation: Recommendation, option: Optional[Option] = None, ticker: Optional[InterestingTicker] = None, quote: Optional[object] = None) -> RecommendationResponse:
     """Build recommendation response with expanded fields."""
+    from core.scoring import ScoringEngine
+    from db.models import TickerQuote
+    
+    # Get option if not provided
+    if not option:
+        option = await get_option_for_recommendation(db, recommendation)
+    
+    # Get ticker information if not provided
+    if not ticker:
+        ticker_stmt = select(InterestingTicker).where(InterestingTicker.symbol == recommendation.symbol)
+        ticker_result = await db.execute(ticker_stmt)
+        ticker = ticker_result.scalar_one_or_none()
+    
+    # Get current quote if not provided
+    if not quote:
+        quote_stmt = select(TickerQuote).where(TickerQuote.symbol == recommendation.symbol)
+        quote_result = await db.execute(quote_stmt)
+        quote = quote_result.scalar_one_or_none()
+    
+    # Initialize ScoringEngine for calculations
+    scoring_engine = ScoringEngine(db)
+    
+    # Calculate financial metrics
+    contract_price = None
+    total_credit = None
+    collateral = None
+    annualized_roi = None
+    
+    if option:
+        contract_price = scoring_engine.calculate_contract_price(
+            option.bid or 0, option.ask or 0, option.last
+        )
+        total_credit = scoring_engine.calculate_total_credit(contract_price)
+        collateral = scoring_engine.calculate_collateral_required(option.strike)
+        annualized_roi = scoring_engine.calculate_annualized_roi(
+            total_credit, collateral, recommendation.dte or 0
+        )
+    
+    # Build score breakdown in human readable format
+    score_breakdown = {
+        "Annualized Yield": f"{recommendation.annualized_yield:.1f}%" if recommendation.annualized_yield else "N/A",
+        "Proximity Score": f"{recommendation.proximity_score:.2f}" if recommendation.proximity_score else "N/A",
+        "Liquidity Score": f"{recommendation.liquidity_score:.2f}" if recommendation.liquidity_score else "N/A", 
+        "Risk Adjustment": f"{recommendation.risk_adjustment:.2f}" if recommendation.risk_adjustment else "N/A",
+        "Qualitative Score": f"{recommendation.qualitative_score:.2f}" if recommendation.qualitative_score else "N/A",
+        "Probability of Profit (Black-Scholes)": f"{recommendation.probability_of_profit_black_scholes:.1%}" if recommendation.probability_of_profit_black_scholes else "N/A",
+        "Probability of Profit (Monte Carlo)": f"{recommendation.probability_of_profit_monte_carlo:.1%}" if recommendation.probability_of_profit_monte_carlo else "N/A",
+        "Overall Score": f"{recommendation.score:.2f}"
+    }
+    
     rationale = build_rationale_dict(recommendation)
     
     return RecommendationResponse(
         id=recommendation.id,
         symbol=recommendation.symbol,
+        option_symbol=option.symbol if option else None,
+        option_type=option.option_type if option else "put",
+        underlying_ticker=recommendation.symbol,
+        current_price=quote.current_price if quote else None,
         strike=option.strike if option else None,
         expiry=option.expiry.isoformat() if option else None,
+        dte=recommendation.dte,
+        contract_price=contract_price,
+        total_credit=total_credit,
+        collateral=collateral,
+        industry=ticker.industry if ticker else None,
+        sector=ticker.sector if ticker else None,
+        next_earnings_date=ticker.next_earnings_date.isoformat() if ticker and ticker.next_earnings_date else None,
+        annualized_roi=annualized_roi,
+        pe_ratio=ticker.pe_ratio if ticker else None,
+        put_call_ratio=ticker.put_call_ratio if ticker else None,
+        volume=recommendation.volume,
         score=recommendation.score,
+        score_breakdown=score_breakdown,
         rationale=rationale,
         status=recommendation.status,
         created_at=recommendation.created_at.isoformat(),
-        # Include expanded fields
+        # Include expanded fields (backward compatibility)
         annualized_yield=recommendation.annualized_yield,
         proximity_score=recommendation.proximity_score,
         liquidity_score=recommendation.liquidity_score,
         risk_adjustment=recommendation.risk_adjustment,
         qualitative_score=recommendation.qualitative_score,
-        dte=recommendation.dte,
         spread_pct=recommendation.spread_pct,
         mid_price=recommendation.mid_price,
         delta=recommendation.delta,
         iv_rank=recommendation.iv_rank,
         open_interest=recommendation.open_interest,
-        volume=recommendation.volume
+        probability_of_profit_black_scholes=recommendation.probability_of_profit_black_scholes,
+        probability_of_profit_monte_carlo=recommendation.probability_of_profit_monte_carlo
     )
 
 
@@ -156,11 +243,25 @@ async def get_current_recommendations(
     db: AsyncSession = Depends(get_async_db),
     limit: int = Query(default=10, le=50)
 ):
-    """Get current recommendations."""
+    """Get current recommendations - only latest recommendation per ticker."""
     try:
-        # Use async SQLAlchemy 2.0 style queries
-        stmt = select(Recommendation).where(
+        from sqlalchemy import func, and_
+        
+        # Create a subquery to get the latest recommendation ID per ticker
+        latest_per_ticker = select(
+            Recommendation.symbol,
+            func.max(Recommendation.id).label('latest_id')
+        ).where(
             Recommendation.status == "proposed"
+        ).group_by(Recommendation.symbol).subquery()
+        
+        # Main query to get the full recommendation data for latest per ticker
+        stmt = select(Recommendation).join(
+            latest_per_ticker,
+            and_(
+                Recommendation.symbol == latest_per_ticker.c.symbol,
+                Recommendation.id == latest_per_ticker.c.latest_id
+            )
         ).order_by(desc(Recommendation.score)).limit(limit)
         
         result = await db.execute(stmt)
@@ -169,7 +270,8 @@ async def get_current_recommendations(
         response_list = []
         for rec in recommendations:
             option = await get_option_for_recommendation(db, rec)
-            response_list.append(build_recommendation_response(rec, option))
+            response = await build_recommendation_response(db, rec, option)
+            response_list.append(response)
         
         return response_list
     except Exception as e:
@@ -204,7 +306,8 @@ async def get_recommendation_history(
         response_list = []
         for rec in recommendations:
             option = await get_option_for_recommendation(db, rec)
-            response_list.append(build_recommendation_response(rec, option))
+            response = await build_recommendation_response(db, rec, option)
+            response_list.append(response)
         
         return response_list
     except Exception as e:
@@ -229,7 +332,7 @@ async def get_recommendation(
         
         option = await get_option_for_recommendation(db, recommendation)
         
-        return build_recommendation_response(recommendation, option)
+        return await build_recommendation_response(db, recommendation, option)
     except Exception as e:
         # Handle case where tables don't exist yet
         logger.warning(f"Database tables not ready: {e}")
@@ -281,7 +384,8 @@ async def get_recommendations_by_symbol(
         response_list = []
         for rec in recommendations:
             option = await get_option_for_recommendation(db, rec)
-            response_list.append(build_recommendation_response(rec, option))
+            response = await build_recommendation_response(db, rec, option)
+            response_list.append(response)
         
         return response_list
     except Exception as e:

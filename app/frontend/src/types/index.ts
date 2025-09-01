@@ -31,25 +31,42 @@ export interface OptionPosition {
 export interface Recommendation {
   id: number
   symbol: string
+  option_symbol?: string
+  option_type: string  // Side put or call
+  underlying_ticker: string  // Underlying ticker
+  current_price?: number
   strike?: number
   expiry?: string
+  dte?: number
+  contract_price?: number  // Calculated contract price
+  total_credit?: number
+  collateral?: number
+  industry?: string
+  sector?: string
+  next_earnings_date?: string
+  annualized_roi?: number  // Annualized ROI
+  pe_ratio?: number
+  put_call_ratio?: number
+  volume?: number
   score: number
+  score_breakdown?: Record<string, string>  // Score components in human readable format
   rationale: Record<string, any>
   status: string
   created_at: string
-  // Expanded rationale fields
+  
+  // Expanded rationale fields (keeping for backward compatibility)
   annualized_yield?: number
   proximity_score?: number
   liquidity_score?: number
   risk_adjustment?: number
   qualitative_score?: number
-  dte?: number
   spread_pct?: number
   mid_price?: number
   delta?: number
   iv_rank?: number
   open_interest?: number
-  volume?: number
+  probability_of_profit_black_scholes?: number
+  probability_of_profit_monte_carlo?: number
 }
 
 export interface AccountBalance {

@@ -30,6 +30,33 @@ class ScoringEngine:
         annualized_yield = (premium / (strike * 100)) / (dte / 365) * 100
         return annualized_yield
     
+    def calculate_contract_price(self, bid: float, ask: float, last: float = None) -> float:
+        """Calculate contract price (premium received for selling put)."""
+        if bid and ask:
+            # Use mid price for cash-secured puts
+            return (bid + ask) / 2
+        elif last:
+            return last
+        elif bid:
+            return bid
+        elif ask:
+            return ask
+        return 0.0
+    
+    def calculate_total_credit(self, contract_price: float, quantity: int = 1) -> float:
+        """Calculate total credit received (contract price * 100 * quantity)."""
+        return contract_price * 100 * quantity
+    
+    def calculate_collateral_required(self, strike: float, quantity: int = 1) -> float:
+        """Calculate collateral required for cash-secured put (strike * 100 * quantity)."""
+        return strike * 100 * quantity
+    
+    def calculate_annualized_roi(self, total_credit: float, collateral_required: float, dte: int) -> float:
+        """Calculate annualized ROI as percentage."""
+        if dte <= 0 or collateral_required <= 0:
+            return 0.0
+        return (total_credit / collateral_required) / (dte / 365) * 100
+    
     def calculate_bid_ask_spread_pct(self, bid: float, ask: float) -> float:
         """Calculate bid-ask spread as percentage of mid price."""
         if bid <= 0 or ask <= 0 or bid >= ask:
@@ -122,22 +149,155 @@ class ScoringEngine:
     
     def calculate_composite_score(self, annualized_yield: float, proximity_score: float,
                                 liquidity_score: float, risk_adjustment: float,
-                                qualitative_score: float) -> float:
+                                qualitative_score: float, probability_of_profit: float = 0.5) -> float:
         """Calculate composite score using weighted components."""
         # Normalize annualized yield (assume 20%+ is excellent)
         normalized_yield = min(1.0, annualized_yield / 20.0)
         
-        # Weighted composite score
+        # Weighted composite score (adjusted weights to include probability of profit)
         composite_score = (
-            0.35 * normalized_yield +
+            0.30 * normalized_yield +
             0.20 * proximity_score +
             0.15 * liquidity_score +
             0.15 * risk_adjustment +
-            0.15 * qualitative_score
+            0.10 * qualitative_score +
+            0.10 * probability_of_profit  # New component
         )
         
         return composite_score
     
+    def calculate_probability_of_profit_delta(self, delta: float) -> float:
+        """Calculate probability of profit using delta approximation."""
+        if delta is None:
+            return 0.5  # Default 50% if no delta available
+        
+        # For puts, delta is negative, so we use absolute value
+        # Probability ≈ 1 - |delta|
+        return 1.0 - abs(delta)
+    
+    def calculate_probability_of_profit_black_scholes(
+        self,
+        current_price: float,
+        strike: float, 
+        time_to_expiry: float,
+        risk_free_rate: float = 0.02,
+        implied_volatility: float = None
+    ) -> float:
+        """Calculate probability of profit using Black-Scholes model."""
+        if implied_volatility is None or implied_volatility <= 0:
+            return 0.5  # Default if no IV available
+        
+        try:
+            # For cash-secured puts, profit occurs when S_T > strike
+            # Calculate d2 from Black-Scholes
+            d2 = (math.log(current_price / strike) + 
+                  (risk_free_rate - 0.5 * implied_volatility**2) * time_to_expiry) / \
+                 (implied_volatility * math.sqrt(time_to_expiry))
+            
+            # Probability S_T > strike = N(d2)
+            # Using normal distribution approximation
+            probability = 0.5 * (1 + math.erf(d2 / math.sqrt(2)))
+            
+            return max(0.0, min(1.0, probability))  # Ensure 0-1 range
+            
+        except (ValueError, ZeroDivisionError):
+            return 0.5  # Default on calculation errors
+    
+    def calculate_probability_of_profit_monte_carlo(
+        self,
+        current_price: float,
+        strike: float,
+        time_to_expiry: float,
+        implied_volatility: float,
+        risk_free_rate: float = 0.02,
+        num_simulations: int = 10000
+    ) -> float:
+        """Calculate probability of profit using Monte Carlo simulation."""
+        if implied_volatility is None or implied_volatility <= 0:
+            return 0.5  # Default if no IV available
+        
+        try:
+            # Generate random price paths using geometric Brownian motion
+            dt = time_to_expiry / 252  # Daily time steps
+            drift = (risk_free_rate - 0.5 * implied_volatility**2) * dt
+            diffusion = implied_volatility * np.sqrt(dt)
+            
+            # Simulate price paths
+            price_paths = np.zeros((num_simulations, 252))
+            price_paths[:, 0] = current_price
+            
+            for i in range(1, 252):
+                random_shocks = np.random.normal(0, 1, num_simulations)
+                price_paths[:, i] = price_paths[:, i-1] * np.exp(drift + diffusion * random_shocks)
+            
+            # Calculate final prices
+            final_prices = price_paths[:, -1]
+            
+            # For cash-secured puts, profit if final price > strike
+            profitable_paths = np.sum(final_prices > strike)
+            probability = profitable_paths / num_simulations
+            
+            return max(0.0, min(1.0, probability))  # Ensure 0-1 range
+            
+        except (ValueError, ZeroDivisionError):
+            return 0.5  # Default on calculation errors
+    
+    def calculate_probability_of_profit(
+        self, 
+        option: Option, 
+        current_price: float,
+        method: str = "delta"
+    ) -> float:
+        """Calculate probability of profit using specified method."""
+        if method == "delta" and option.delta is not None:
+            return self.calculate_probability_of_profit_delta(option.delta)
+        
+        elif method == "black_scholes" and option.implied_volatility:
+            dte = (option.expiry - pacific_now()).days
+            time_to_expiry = dte / 365.0  # Convert to years
+            
+            return self.calculate_probability_of_profit_black_scholes(
+                current_price=current_price,
+                strike=option.strike,
+                time_to_expiry=time_to_expiry,
+                implied_volatility=option.implied_volatility
+            )
+        
+        else:
+            # Fallback to delta method or default
+            if option.delta is not None:
+                return self.calculate_probability_of_profit_delta(option.delta)
+            return 0.5  # Default 50%
+    
+    def calculate_probability_of_profit_both_methods(
+        self,
+        option: Option,
+        current_price: float
+    ) -> Dict[str, float]:
+        """Calculate probability of profit using both Black-Scholes and Monte Carlo methods."""
+        dte = (option.expiry - pacific_now()).days
+        time_to_expiry = dte / 365.0  # Convert to years
+        
+        # Calculate using both methods
+        black_scholes_prob = self.calculate_probability_of_profit_black_scholes(
+            current_price=current_price,
+            strike=option.strike,
+            time_to_expiry=time_to_expiry,
+            implied_volatility=option.implied_volatility
+        )
+        
+        monte_carlo_prob = self.calculate_probability_of_profit_monte_carlo(
+            current_price=current_price,
+            strike=option.strike,
+            time_to_expiry=time_to_expiry,
+            implied_volatility=option.implied_volatility
+        )
+        
+        return {
+            "black_scholes": black_scholes_prob,
+            "monte_carlo": monte_carlo_prob
+        }
+
     async def score_option(self, option: Option, current_price: float, 
                     gpt_analysis: Dict = None) -> Dict[str, float]:
         """Score a single option contract."""
@@ -185,10 +345,18 @@ class ScoringEngine:
         if gpt_analysis and 'qualitative_score' in gpt_analysis:
             qualitative_score = self.calculate_qualitative_score(gpt_analysis['qualitative_score'])
         
+        # Calculate probability of profit using both methods
+        probability_data = self.calculate_probability_of_profit_both_methods(option, current_price)
+        black_scholes_prob = probability_data["black_scholes"]
+        monte_carlo_prob = probability_data["monte_carlo"]
+        
+        # Use Black-Scholes for scoring (more stable)
+        probability_of_profit = black_scholes_prob
+        
         # Composite score
         composite_score = self.calculate_composite_score(
             annualized_yield, proximity_score, liquidity_score, 
-            risk_adjustment, qualitative_score
+            risk_adjustment, qualitative_score, probability_of_profit
         )
         
         # Build rationale
@@ -198,7 +366,8 @@ class ScoringEngine:
             "liquidity_score": liquidity_score,
             "risk_adjustment": risk_adjustment,
             "qualitative_score": qualitative_score,
-            "dte": dte,
+            "probability_of_profit_black_scholes": black_scholes_prob,
+            "probability_of_profit_monte_carlo": monte_carlo_prob,
             "spread_pct": spread_pct,
             "mid_price": mid_price
         }

@@ -47,6 +47,7 @@ class InterestingTicker(Base):
     beta = Column(Float, nullable=True)  # Beta vs S&P 500
     pe_ratio = Column(Float, nullable=True)  # P/E ratio
     dividend_yield = Column(Float, nullable=True)  # Dividend yield percentage
+    put_call_ratio = Column(Float, nullable=True)  # Put/Call ratio
     next_earnings_date = Column(DateTime(timezone=True), nullable=True)  # Next upcoming earnings date
     active = Column(Boolean, default=True)  # Whether ticker is active for analysis
     universe_score = Column(Float, nullable=True)  # Composite score for universe selection
@@ -148,6 +149,8 @@ class Recommendation(Base):
     iv_rank = Column(Float, nullable=True)
     open_interest = Column(Integer, nullable=True)
     volume = Column(Integer, nullable=True)
+    probability_of_profit_black_scholes = Column(Float, nullable=True)
+    probability_of_profit_monte_carlo = Column(Float, nullable=True)
     
     # Relationships
     ticker = relationship("InterestingTicker", back_populates="recommendations")

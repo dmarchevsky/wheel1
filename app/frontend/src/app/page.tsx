@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import {
   Box,
   Container,
@@ -10,10 +10,13 @@ import {
   Typography,
   IconButton,
   Collapse,
+  Tooltip,
 } from '@mui/material'
 import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
+  Refresh as RefreshIcon,
+  AutoAwesome as AutoAwesomeIcon,
 } from '@mui/icons-material'
 import RecommendationsPanel from '@/components/RecommendationsPanel'
 
@@ -21,6 +24,8 @@ export default function Dashboard() {
   const [recommendationsExpanded, setRecommendationsExpanded] = useState(true)
   const [portfolioExpanded, setPortfolioExpanded] = useState(true)
   const [activityExpanded, setActivityExpanded] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const refreshRef = useRef<(() => Promise<void>) | null>(null)
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -30,6 +35,17 @@ export default function Dashboard() {
       hour: '2-digit',
       minute: '2-digit',
     })
+  }
+
+  const handleRefresh = async () => {
+    if (refreshRef.current) {
+      setRefreshing(true)
+      try {
+        await refreshRef.current()
+      } finally {
+        setRefreshing(false)
+      }
+    }
   }
 
   return (
@@ -51,17 +67,44 @@ export default function Dashboard() {
             <CardHeader
               title="Latest Recommendations"
               action={
-                <IconButton
-                  onClick={() => setRecommendationsExpanded(!recommendationsExpanded)}
-                  sx={{ borderRadius: 0 }}
-                >
-                  {recommendationsExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                </IconButton>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Tooltip title="Generate new recommendations (may take up to 30 seconds)">
+                    <IconButton
+                      onClick={handleRefresh}
+                      disabled={refreshing}
+                      size="small"
+                      sx={{ 
+                        color: 'success.main',
+                        '&:hover': {
+                          backgroundColor: 'success.main',
+                          color: 'success.contrastText',
+                        }
+                      }}
+                    >
+                      <AutoAwesomeIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Refresh recommendations">
+                    <IconButton
+                      onClick={handleRefresh}
+                      disabled={refreshing}
+                      size="small"
+                    >
+                      <RefreshIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <IconButton
+                    onClick={() => setRecommendationsExpanded(!recommendationsExpanded)}
+                    sx={{ borderRadius: 0 }}
+                  >
+                    {recommendationsExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                  </IconButton>
+                </Box>
               }
             />
             <Collapse in={recommendationsExpanded}>
               <CardContent sx={{ pt: 0 }}>
-                <RecommendationsPanel maxRecommendations={5} />
+                <RecommendationsPanel maxRecommendations={5} refreshRef={refreshRef} />
               </CardContent>
             </Collapse>
           </Card>

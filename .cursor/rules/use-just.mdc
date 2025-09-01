@@ -1,7 +1,26 @@
 ---
 alwaysApply: true
 ---
-// Always use `just` for task automation and `docker` for containerization in your workflows.
+// Do not manually restart the frontend or backend when making changes.
+// Both services are configured for automatic reload on code changes.
+// Simply save your changes and the appropriate service will reload itself.
+//
+// If you need to start or stop the frontend or backend, always use the appropriate `just` recipes:
+// - To start all services: `just dev`
+// - To stop all services: `just dev-stop`
+
+//
+// Never start or stop services directly—always use the provided `just` recipes for consistency.
+
+
+
+// Use `just` to run all database migration commands. For example:
+// - To apply migrations: `just db-migrate`
+// - To create a new migration: `just db-migrate-new name="add_new_table"`
+// - To show migration status: `just db-migrate-status`
+//
+// All migration operations should be performed via `just` recipes, which internally use `docker` to ensure a consistent environment.
+// Do not run Alembic or database migration commands directly on your host machine—always use the provided `just` tasks.
 
 
 

@@ -372,12 +372,13 @@ class RecommenderService:
             logger.info(f"📝 Step 3: Creating rationale for {ticker.symbol}...")
             rationale = score_data["rationale"]
             rationale.update({
-                "dte": option.dte,
                 "delta": option.delta,
                 "iv_rank": option.iv_rank,
                 "open_interest": option.open_interest,
                 "volume": option.volume,
-                "qualitative_score": analysis.qualitative_score if analysis else 0.5
+                "qualitative_score": analysis.qualitative_score if analysis else 0.5,
+                "probability_of_profit_black_scholes": rationale.get("probability_of_profit_black_scholes"),
+                "probability_of_profit_monte_carlo": rationale.get("probability_of_profit_monte_carlo")
             })
             
             logger.info(f"📊 Final rationale for {ticker.symbol}: {rationale}")
@@ -402,6 +403,8 @@ class RecommenderService:
                 iv_rank=rationale.get("iv_rank"),
                 open_interest=rationale.get("open_interest"),
                 volume=rationale.get("volume"),
+                probability_of_profit_black_scholes=rationale.get("probability_of_profit_black_scholes"),
+                probability_of_profit_monte_carlo=rationale.get("probability_of_profit_monte_carlo"),
                 status="proposed",
                 created_at=pacific_now()
             )
