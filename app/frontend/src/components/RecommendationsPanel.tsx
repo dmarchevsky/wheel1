@@ -70,6 +70,10 @@ interface RecommendationsPanelProps {
   filtersVisible?: boolean;
   clearTrigger?: number;
   onMetadataUpdate?: (metadata: any) => void;
+  pollingEnabled?: boolean;
+  pollingInterval?: number;
+  onPollingEnabledChange?: (enabled: boolean) => void;
+  onPollingIntervalChange?: (interval: number) => void;
 }
 
 export default function RecommendationsPanel({ 
@@ -80,7 +84,11 @@ export default function RecommendationsPanel({
   generationStatus: externalGenerationStatus,
   filtersVisible = false,
   clearTrigger = 0,
-  onMetadataUpdate
+  onMetadataUpdate,
+  pollingEnabled = false,
+  pollingInterval = 5,
+  onPollingEnabledChange,
+  onPollingIntervalChange
 }: RecommendationsPanelProps) {
   const [recommendations, setRecommendations] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -109,9 +117,7 @@ export default function RecommendationsPanel({
     max_collateral: 100000,
   })
   
-  // Polling state
-  const [pollingEnabled, setPollingEnabled] = useState(false)
-  const [pollingInterval, setPollingInterval] = useState(5) // minutes
+  // Polling state - managed by parent
   const [lastPollTime, setLastPollTime] = useState<Date | null>(null)
   
   // Use external generation status only (no internal state)
@@ -336,6 +342,7 @@ export default function RecommendationsPanel({
     if (pollingEnabled && pollingInterval > 0) {
       intervalId = setInterval(() => {
         fetchRecommendations()
+        setLastPollTime(new Date())
       }, pollingInterval * 60 * 1000)
     }
     
@@ -426,12 +433,12 @@ export default function RecommendationsPanel({
 
       {/* Filters and Controls */}
       {filtersVisible && (
-        <Paper sx={{ mb: 2, p: 2, borderRadius: 0 }} elevation={1}>
+        <Paper sx={{ mb: 2, p: 1.5, borderRadius: 0 }} elevation={1}>
           {/* Compact filter layout */}
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             
             {/* Row 1: Basic Filters + Controls */}
-            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'flex-end' }}>
               <TextField
                 label="Symbol"
                 size="small"
@@ -452,42 +459,13 @@ export default function RecommendationsPanel({
                   <MenuItem value="call">Call</MenuItem>
                 </Select>
               </FormControl>
-              
-              {/* Auto-refresh controls inline */}
-              <FormControlLabel
-                control={
-                  <Switch
-                    size="small"
-                    checked={pollingEnabled}
-                    onChange={(e) => setPollingEnabled(e.target.checked)}
-                  />
-                }
-                label="Auto-refresh"
-                sx={{ ml: 1 }}
-              />
-              {pollingEnabled && (
-                <FormControl size="small" sx={{ minWidth: 80 }}>
-                  <InputLabel>Interval</InputLabel>
-                  <Select
-                    value={pollingInterval}
-                    label="Interval"
-                    onChange={(e) => setPollingInterval(e.target.value as number)}
-                  >
-                    <MenuItem value={1}>1m</MenuItem>
-                    <MenuItem value={2}>2m</MenuItem>
-                    <MenuItem value={5}>5m</MenuItem>
-                    <MenuItem value={10}>10m</MenuItem>
-                    <MenuItem value={15}>15m</MenuItem>
-                    <MenuItem value={30}>30m</MenuItem>
-                  </Select>
-                </FormControl>
-              )}
+
             </Box>
 
             {/* Row 2: Range Filters - Compact horizontal sliders */}
-            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
               <Box sx={{ minWidth: 180, flex: 1 }}>
-                <Typography variant="caption" sx={{ display: 'block', mb: 0.5, fontSize: '0.7rem' }}>
+                <Typography variant="caption" sx={{ display: 'block', mb: 0.25, fontSize: '0.7rem' }}>
                   Score: {filters.score_range[0].toFixed(2)} - {filters.score_range[1].toFixed(2)}
                 </Typography>
                 <Slider
@@ -505,7 +483,7 @@ export default function RecommendationsPanel({
               </Box>
               
               <Box sx={{ minWidth: 180, flex: 1 }}>
-                <Typography variant="caption" sx={{ display: 'block', mb: 0.5, fontSize: '0.7rem' }}>
+                <Typography variant="caption" sx={{ display: 'block', mb: 0.25, fontSize: '0.7rem' }}>
                   ROI: {filters.roi_range[0].toFixed(1)}% - {filters.roi_range[1].toFixed(1)}%
                 </Typography>
                 <Slider
@@ -523,7 +501,7 @@ export default function RecommendationsPanel({
               </Box>
               
               <Box sx={{ minWidth: 180, flex: 1 }}>
-                <Typography variant="caption" sx={{ display: 'block', mb: 0.5, fontSize: '0.7rem' }}>
+                <Typography variant="caption" sx={{ display: 'block', mb: 0.25, fontSize: '0.7rem' }}>
                   Max Collateral: ${filters.max_collateral.toLocaleString()}
                 </Typography>
                 <Slider
@@ -539,12 +517,7 @@ export default function RecommendationsPanel({
                 />
               </Box>
               
-              {/* Status info - compact */}
-              {lastPollTime && (
-                <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem', ml: 'auto' }}>
-                  Updated: {lastPollTime.toLocaleTimeString()}
-                </Typography>
-              )}
+
             </Box>
           </Box>
         </Paper>

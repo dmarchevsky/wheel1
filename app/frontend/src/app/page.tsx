@@ -14,6 +14,12 @@ import {
   CircularProgress,
   Alert,
   Snackbar,
+  Switch,
+  FormControlLabel,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material'
 import {
   ExpandMore as ExpandMoreIcon,
@@ -36,6 +42,8 @@ export default function Dashboard() {
   const [generationProgress, setGenerationProgress] = useState<any>(null)
   const [clearTrigger, setClearTrigger] = useState(0)
   const [metadata, setMetadata] = useState<any>(null)
+  const [pollingEnabled, setPollingEnabled] = useState(false)
+  const [pollingInterval, setPollingInterval] = useState(5)
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -215,6 +223,34 @@ export default function Dashboard() {
                   >
                     Refresh
                   </Button>
+                  {/* Auto-refresh controls */}
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        size="small"
+                        checked={pollingEnabled}
+                        onChange={(e) => setPollingEnabled(e.target.checked)}
+                      />
+                    }
+                    label="Auto"
+                    sx={{ ml: 1 }}
+                  />
+                  {pollingEnabled && (
+                    <FormControl size="small" sx={{ minWidth: 60 }}>
+                      <Select
+                        value={pollingInterval}
+                        onChange={(e) => setPollingInterval(e.target.value as number)}
+                        sx={{ '.MuiOutlinedInput-notchedOutline': { border: 'none' } }}
+                      >
+                        <MenuItem value={1}>1m</MenuItem>
+                        <MenuItem value={2}>2m</MenuItem>
+                        <MenuItem value={5}>5m</MenuItem>
+                        <MenuItem value={10}>10m</MenuItem>
+                        <MenuItem value={15}>15m</MenuItem>
+                        <MenuItem value={30}>30m</MenuItem>
+                      </Select>
+                    </FormControl>
+                  )}
                   <IconButton
                     onClick={() => setRecommendationsExpanded(!recommendationsExpanded)}
                     sx={{ borderRadius: 0 }}
@@ -309,6 +345,10 @@ export default function Dashboard() {
                   filtersVisible={filtersVisible}
                   clearTrigger={clearTrigger}
                   onMetadataUpdate={handleMetadataUpdate}
+                  pollingEnabled={pollingEnabled}
+                  pollingInterval={pollingInterval}
+                  onPollingEnabledChange={setPollingEnabled}
+                  onPollingIntervalChange={setPollingInterval}
                 />
               </CardContent>
             </Collapse>
