@@ -14,6 +14,8 @@ import {
   Snackbar,
   CircularProgress,
   Divider,
+  useTheme,
+  useMediaQuery,
 } from '@mui/material';
 import {
   Save as SaveIcon,
@@ -38,6 +40,10 @@ interface SettingsData {
 }
 
 export default function SettingsPage() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const isTablet = useMediaQuery(theme.breakpoints.down('md'));
+  
   const [settingsData, setSettingsData] = useState<SettingsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -149,13 +155,15 @@ export default function SettingsPage() {
     };
 
     return (
-      <Box>
+      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         <Typography 
-          variant="subtitle2" 
+          variant="body2" 
           sx={{ 
-            mb: 1, 
+            mb: 0.5, 
             fontWeight: 600,
-            color: 'text.primary'
+            color: 'text.primary',
+            fontSize: '0.875rem',
+            lineHeight: 1.3
           }}
         >
           {schema.description}
@@ -169,8 +177,9 @@ export default function SettingsPage() {
           size="small"
           sx={{
             '& .MuiOutlinedInput-root': {
-              height: 40,
-              borderRadius: 0,
+              height: 36,
+              borderRadius: 1,
+              fontSize: '0.875rem',
               '&:hover fieldset': {
                 borderColor: 'primary.main',
               },
@@ -178,6 +187,11 @@ export default function SettingsPage() {
             '& .MuiInputLabel-root': {
               display: 'none',
             },
+            '& .MuiFormHelperText-root': {
+              fontSize: '0.75rem',
+              margin: '4px 0 0 0',
+              lineHeight: 1.2
+            }
           }}
         />
       </Box>
@@ -238,85 +252,134 @@ export default function SettingsPage() {
   const groupedSettings = groupSettingsByCategory();
 
   return (
-    <Box sx={{ maxWidth: 800, mx: 'auto' }}>
-      {/* Header with Action Buttons */}
+    <Box sx={{ 
+      maxWidth: isMobile ? '100%' : isTablet ? 1000 : 1400, 
+      mx: 'auto',
+      px: isMobile ? 1 : 0
+    }}>
+      {/* Compact Header with Action Buttons */}
       <Box sx={{ 
         display: 'flex', 
         alignItems: 'center', 
         justifyContent: 'space-between',
-        mb: 4,
-        p: 3,
-        pb: 0
+        mb: isMobile ? 1 : 2,
+        p: isMobile ? 1 : 2,
+        pb: isMobile ? 0.5 : 1,
+        position: 'sticky',
+        top: 0,
+        bgcolor: 'background.default',
+        zIndex: 10,
+        borderBottom: 1,
+        borderColor: 'divider',
+        flexDirection: isMobile ? 'column' : 'row',
+        gap: isMobile ? 1 : 0
       }}>
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <SettingsIcon sx={{ mr: 2, fontSize: 32, color: 'primary.main' }} />
-          <Typography variant="h4" component="h1" sx={{ fontWeight: 600 }}>
-            Application Settings
+          <SettingsIcon sx={{ mr: 1.5, fontSize: isMobile ? 20 : 24, color: 'primary.main' }} />
+          <Typography variant={isMobile ? "h6" : "h5"} component="h1" sx={{ fontWeight: 600 }}>
+            Settings
           </Typography>
         </Box>
         
         {/* Action Buttons */}
-        <Box sx={{ display: 'flex', gap: 2 }}>
+        <Box sx={{ display: 'flex', gap: 1.5, width: isMobile ? '100%' : 'auto' }}>
           <Button
             variant="outlined"
             onClick={fetchSettings}
-            startIcon={<RefreshIcon />}
+            startIcon={!isMobile ? <RefreshIcon /> : undefined}
             disabled={saving}
-            sx={{ minWidth: 120, borderRadius: 0 }}
+            size="small"
+            sx={{ 
+              minWidth: isMobile ? 'auto' : 100, 
+              borderRadius: 1,
+              flex: isMobile ? 1 : 'none'
+            }}
           >
             Refresh
           </Button>
           <Button
             variant="contained"
             onClick={handleSave}
-            startIcon={saving ? <CircularProgress size={20} /> : <SaveIcon />}
+            startIcon={saving ? <CircularProgress size={16} /> : (!isMobile ? <SaveIcon /> : undefined)}
             disabled={saving}
-            sx={{ minWidth: 160, borderRadius: 0 }}
+            size="small"
+            sx={{ 
+              minWidth: isMobile ? 'auto' : 120, 
+              borderRadius: 1,
+              flex: isMobile ? 2 : 'none'
+            }}
           >
-            {saving ? 'Saving...' : 'Save All Settings'}
+            {saving ? 'Saving...' : isMobile ? 'Save' : 'Save Changes'}
           </Button>
         </Box>
       </Box>
 
       {/* Settings Categories */}
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, px: 3 }}>
-        {Object.entries(groupedSettings).map(([category, settings]) => (
-                      <Card key={category} sx={{ 
+      <Box sx={{ 
+        display: 'flex', 
+        flexDirection: 'column', 
+        gap: isMobile ? 1.5 : 2, 
+        px: isMobile ? 1 : 2 
+      }}>
+        {Object.entries(groupedSettings).map(([category, settings]) => {
+          // Dynamic grid sizing based on number of settings and screen size
+          const getGridSize = (settingsCount: number) => {
+            if (isMobile) return 12;
+            if (isTablet) {
+              return settingsCount === 1 ? 12 : 6;
+            }
+            // Desktop: optimize for screen space
+            if (settingsCount === 1) return 12;
+            if (settingsCount === 2) return 6;
+            if (settingsCount <= 3) return 4;
+            return 3; // 4 columns for 4+ settings
+          };
+
+          return (
+            <Card key={category} sx={{ 
               border: '1px solid',
               borderColor: 'divider',
-              borderRadius: 0,
+              borderRadius: 1,
               '&:hover': {
                 borderColor: 'primary.main',
-                boxShadow: 2,
+                boxShadow: 1,
               },
               transition: 'all 0.2s ease-in-out'
             }}>
-            <CardHeader
-              title={category}
-              titleTypographyProps={{ 
-                variant: 'h6', 
-                fontWeight: 600,
-                color: 'primary.main'
-              }}
-              sx={{ 
-                pb: 1,
-                '& .MuiCardHeader-content': {
-                  minWidth: 0,
-                }
-              }}
-            />
-            <Divider />
-            <CardContent sx={{ pt: 2 }}>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {settings.map(({ schema, value }) => (
-                  <Box key={schema.key}>
-                    {renderInputField(schema.key, schema, value)}
-                  </Box>
-                ))}
-              </Box>
-            </CardContent>
-          </Card>
-        ))}
+              <CardHeader
+                title={category}
+                titleTypographyProps={{ 
+                  variant: isMobile ? 'body1' : 'subtitle1', 
+                  fontWeight: 600,
+                  color: 'primary.main'
+                }}
+                sx={{ 
+                  py: isMobile ? 1 : 1.5,
+                  px: isMobile ? 1.5 : 2,
+                  '& .MuiCardHeader-content': {
+                    minWidth: 0,
+                  }
+                }}
+              />
+              <Divider />
+              <CardContent sx={{ p: isMobile ? 1.5 : 2 }}>
+                <Grid container spacing={isMobile ? 1.5 : 2}>
+                  {settings.map(({ schema, value }) => (
+                    <Grid 
+                      item 
+                      xs={12} 
+                      sm={6} 
+                      md={getGridSize(settings.length)}
+                      key={schema.key}
+                    >
+                      {renderInputField(schema.key, schema, value)}
+                    </Grid>
+                  ))}
+                </Grid>
+              </CardContent>
+            </Card>
+          );
+        })}
       </Box>
 
       {/* Notifications */}
