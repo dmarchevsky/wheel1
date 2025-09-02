@@ -580,11 +580,15 @@ class TradierDataManager:
                 logger.warning(f"No options data received for {symbol} with expiration {expiration}")
                 return []
             
-            # Filter for put options only to reduce data size
+            # Filter for put options only (wheel strategy focuses on puts)
             put_options_data = [opt for opt in options_data if opt.get("option_type", "").lower() == "put"]
-            logger.info(f"Filtered to {len(put_options_data)} put options")
+            call_options_data = [opt for opt in options_data if opt.get("option_type", "").lower() == "call"]
+            logger.info(f"Found {len(put_options_data)} put options and {len(call_options_data)} call options")
             
-            # Parse and filter options based on criteria
+            # Calculate put/call ratio directly from raw data (don't store calls)
+            put_call_ratio = self._calculate_put_call_ratio_from_raw_data(put_options_data, call_options_data)
+            
+            # Parse and filter PUT options only (for recommendations)
             filtered_options = []
             for opt_data in put_options_data:
                 option = self._parse_option_data(symbol, expiration, opt_data)
@@ -624,12 +628,107 @@ class TradierDataManager:
                     options.append(option)
             
             await self.db.commit()
+            
+            # Update put/call ratio in ticker quotes using calculated ratio
+            await self._update_put_call_ratio_for_ticker(symbol, put_call_ratio)
+            
             return options
             
         except Exception as e:
             await self.db.rollback()
             raise e
     
+    def _calculate_put_call_ratio_from_raw_data(self, put_options_data: List[Dict], call_options_data: List[Dict]) -> Optional[float]:
+        """Calculate put/call ratio directly from raw API data without storing calls."""
+        try:
+            # Calculate put/call ratio based on volume from raw data
+            put_volume = sum(opt.get('volume', 0) or 0 for opt in put_options_data)
+            call_volume = sum(opt.get('volume', 0) or 0 for opt in call_options_data)
+            
+            if call_volume == 0:
+                if put_volume == 0:
+                    return None  # No volume data
+                return 999.0  # All puts, no calls (JSON-safe large value)
+            
+            put_call_ratio = put_volume / call_volume
+            logger.debug(f"Calculated P/C ratio from raw data: {put_call_ratio:.3f} (put_vol: {put_volume}, call_vol: {call_volume})")
+            return put_call_ratio
+            
+        except Exception as e:
+            logger.error(f"Error calculating put/call ratio from raw data: {e}")
+            return None
+
+    async def _update_put_call_ratio_for_ticker(self, symbol: str, put_call_ratio: Optional[float] = None) -> None:
+        """Update put/call ratio in ticker quotes."""
+        try:
+            from db.models import TickerQuote
+            
+            # Use provided ratio or calculate from stored data
+            if put_call_ratio is None:
+                put_call_ratio = await self._calculate_put_call_ratio(symbol)
+            
+            if put_call_ratio is not None:
+                # Update or create ticker quote with put/call ratio
+                quote_result = await self.db.execute(
+                    select(TickerQuote).where(TickerQuote.symbol == symbol)
+                )
+                quote = quote_result.scalar_one_or_none()
+                
+                if quote:
+                    quote.put_call_ratio = put_call_ratio
+                    quote.updated_at = pacific_now()
+                else:
+                    # Create new quote if doesn't exist
+                    quote = TickerQuote(
+                        symbol=symbol,
+                        put_call_ratio=put_call_ratio,
+                        updated_at=pacific_now()
+                    )
+                    self.db.add(quote)
+                
+                await self.db.commit()
+                logger.info(f"✅ Updated put/call ratio for {symbol}: {put_call_ratio:.3f}")
+            else:
+                logger.debug(f"No put/call ratio calculated for {symbol}")
+                
+        except Exception as e:
+            logger.error(f"Error updating put/call ratio for {symbol}: {e}")
+    
+    async def _calculate_put_call_ratio(self, symbol: str) -> Optional[float]:
+        """Calculate put/call ratio from options data."""
+        try:
+            # Get recent options data (last 24 hours)
+            result = await self.db.execute(
+                select(Option).where(
+                    and_(
+                        Option.underlying_symbol == symbol,
+                        Option.updated_at >= pacific_now() - timedelta(hours=24)
+                    )
+                )
+            )
+            options = result.scalars().all()
+            
+            if not options:
+                logger.debug(f"No recent options data for {symbol} to calculate put/call ratio")
+                return None
+            
+            # Calculate put/call ratio based on volume
+            put_volume = sum(opt.volume or 0 for opt in options if opt.option_type == "put")
+            call_volume = sum(opt.volume or 0 for opt in options if opt.option_type == "call")
+            
+            if call_volume == 0:
+                if put_volume == 0:
+                    return None  # No volume data
+                return 999.0  # All puts, no calls (JSON-safe large value)
+            
+            put_call_ratio = put_volume / call_volume
+            logger.debug(f"Calculated put/call ratio for {symbol}: {put_call_ratio:.3f} (put_vol: {put_volume}, call_vol: {call_volume})")
+            return put_call_ratio
+            
+        except Exception as e:
+            logger.error(f"Error calculating put/call ratio for {symbol}: {e}")
+            return None
+
     def _parse_option_data(self, symbol: str, expiration: str, opt_data: Dict[str, Any]) -> Optional[Option]:
         """Parse option data from Tradier API response."""
         try:

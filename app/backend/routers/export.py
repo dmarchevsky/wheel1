@@ -106,6 +106,7 @@ async def export_recommendations(
                 "IV Rank": rec.iv_rank,
                 "Open Interest": rec.open_interest,
                 "Volume": rec.volume,
+                "Option Side": rec.option_side,
                 "Created At": rec.created_at.isoformat() if rec.created_at else None
             })
         

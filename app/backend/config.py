@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     annualized_min_pct: float = Field(default=20, env="ANNUALIZED_MIN_PCT")
     max_recommendations: int = Field(default=3, env="MAX_RECOMMENDATIONS")
     min_score_threshold: float = Field(default=0.5, env="MIN_SCORE_THRESHOLD")
+    top_universe_score: int = Field(default=50, env="TOP_UNIVERSE_SCORE")
     earnings_blackout_days: int = Field(default=7, env="EARNINGS_BLACKOUT_DAYS")
     
     # Trading Configuration

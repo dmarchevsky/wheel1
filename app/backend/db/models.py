@@ -151,6 +151,7 @@ class Recommendation(Base):
     volume = Column(Integer, nullable=True)
     probability_of_profit_black_scholes = Column(Float, nullable=True)
     probability_of_profit_monte_carlo = Column(Float, nullable=True)
+    option_side = Column(String, nullable=True)  # 'put' or 'call' - derived from option.option_type
     
     # Relationships
     ticker = relationship("InterestingTicker", back_populates="recommendations")

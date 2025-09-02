@@ -1,0 +1,12 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+// Use MCP (Modern Cloud Postgres) tools for all database read operations.
+// This means: 
+// - Prefer using MCP's async query interfaces and helpers for SELECTs and data retrieval.
+// - Avoid direct raw SQL or ORM queries unless MCP tools do not support the required operation.
+// - If you must use a fallback, document why MCP tools were not used.
+// - Organize read logic into clear, reusable functions or methods for maintainability.
+// - Ensure all code is clean, explicit, and well-documented per project clean-code standards.

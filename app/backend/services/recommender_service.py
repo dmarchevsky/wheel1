@@ -184,10 +184,14 @@ class RecommenderService:
 
 
     async def _get_universe(self, db: AsyncSession, fast_mode: bool = False) -> List[InterestingTicker]:
-        """Get universe of tickers to analyze using sophisticated filtering."""
+        """Get universe of tickers to analyze using top universe score filtering."""
         logger.info("🔍 Getting universe of tickers...")
         
         try:
+            # Get the top universe score setting
+            top_universe_score = await get_setting(db, "top_universe_score", 50)
+            logger.info(f"📊 Using top {top_universe_score} tickers by universe score")
+            
             # First, let's check how many active tickers we have
             result = await db.execute(
                 select(InterestingTicker).where(InterestingTicker.active == True)
@@ -195,26 +199,56 @@ class RecommenderService:
             all_active_tickers = result.scalars().all()
             logger.info(f"📊 Total active tickers in database: {len(all_active_tickers)}")
             
-            universe_service = UniverseService(db)
-            logger.info("📊 Using UniverseService for sophisticated filtering...")
+            # Get top tickers by universe score
+            result = await db.execute(
+                select(InterestingTicker).where(
+                    and_(
+                        InterestingTicker.active == True,
+                        InterestingTicker.universe_score.isnot(None)
+                    )
+                ).order_by(InterestingTicker.universe_score.desc())
+                .limit(top_universe_score)
+            )
+            top_scored_tickers = result.scalars().all()
+            logger.info(f"📊 Found {len(top_scored_tickers)} tickers with universe scores")
             
-            tickers = await universe_service.get_filtered_universe()
-            logger.info(f"📊 UniverseService returned {len(tickers)} tickers")
+            if len(top_scored_tickers) >= 10:  # If we have enough scored tickers
+                tickers = top_scored_tickers
+                logger.info(f"✅ Using top {len(tickers)} tickers by universe score")
+                
+                # Log score distribution
+                if tickers:
+                    scores = [t.universe_score for t in tickers if t.universe_score is not None]
+                    if scores:
+                        max_score = max(scores)
+                        min_score = min(scores)
+                        avg_score = sum(scores) / len(scores)
+                        logger.info(f"📊 Score range: {min_score:.3f} - {max_score:.3f}, avg: {avg_score:.3f}")
+            else:
+                logger.warning(f"⚠️  Only {len(top_scored_tickers)} tickers have universe scores! Falling back to UniverseService...")
+                # Fallback to UniverseService for sophisticated filtering
+                universe_service = UniverseService(db)
+                tickers = await universe_service.get_filtered_universe()
+                logger.info(f"📊 UniverseService returned {len(tickers)} tickers")
+                
+                if len(tickers) == 0:
+                    logger.warning("⚠️  UniverseService returned 0 tickers! Falling back to basic selection...")
+                    # Final fallback to basic selection
+                    result = await db.execute(
+                        select(InterestingTicker).where(InterestingTicker.active == True)
+                        .order_by(InterestingTicker.symbol)
+                        .limit(top_universe_score)
+                    )
+                    tickers = result.scalars().all()
+                    logger.info(f"📊 Fallback selection returned {len(tickers)} tickers")
             
-            if len(tickers) == 0:
-                logger.warning("⚠️  UniverseService returned 0 tickers! Falling back to basic selection...")
-                # Fallback to basic selection
-                result = await db.execute(
-                    select(InterestingTicker).where(InterestingTicker.active == True)
-                    .order_by(InterestingTicker.symbol)
-                )
-                fallback_tickers = result.scalars().all()
-                logger.info(f"📊 Fallback selection returned {len(fallback_tickers)} tickers")
-                return fallback_tickers
-            
-            # Log sector distribution
-            sector_dist = universe_service.get_sector_diversification(tickers)
-            logger.info(f"📊 Final universe sector distribution: {sector_dist}")
+            # Log sector distribution for final universe
+            if tickers:
+                sector_counts = {}
+                for ticker in tickers:
+                    sector = ticker.sector or "Unknown"
+                    sector_counts[sector] = sector_counts.get(sector, 0) + 1
+                logger.info(f"📊 Final universe sector distribution: {sector_counts}")
             
             return tickers
             
@@ -222,14 +256,22 @@ class RecommenderService:
             logger.error(f"❌ Error in universe selection: {e}")
             logger.info("🔄 Falling back to basic selection...")
             
-            # Fallback to basic selection
-            result = await db.execute(
-                select(InterestingTicker).where(InterestingTicker.active == True)
-                .order_by(InterestingTicker.symbol)
-            )
-            fallback_tickers = result.scalars().all()
-            logger.info(f"📊 Fallback selection returned {len(fallback_tickers)} tickers")
-            return fallback_tickers
+            try:
+                # Get the top universe score setting for fallback
+                top_universe_score = await get_setting(db, "top_universe_score", 50)
+                
+                # Fallback to basic selection with score limit
+                result = await db.execute(
+                    select(InterestingTicker).where(InterestingTicker.active == True)
+                    .order_by(InterestingTicker.symbol)
+                    .limit(top_universe_score)
+                )
+                fallback_tickers = result.scalars().all()
+                logger.info(f"📊 Fallback selection returned {len(fallback_tickers)} tickers")
+                return fallback_tickers
+            except Exception as fallback_error:
+                logger.error(f"❌ Error in fallback selection: {fallback_error}")
+                return []
     
     async def _get_current_positions(self, db: AsyncSession) -> List[str]:
         """Get symbols of current positions."""
@@ -396,15 +438,16 @@ class RecommenderService:
                 liquidity_score=rationale.get("liquidity_score"),
                 risk_adjustment=rationale.get("risk_adjustment"),
                 qualitative_score=rationale.get("qualitative_score"),
-                dte=rationale.get("dte"),
+                dte=(option.expiry - pacific_now()).days,  # Calculate DTE directly
                 spread_pct=rationale.get("spread_pct"),
                 mid_price=rationale.get("mid_price"),
-                delta=rationale.get("delta"),
-                iv_rank=rationale.get("iv_rank"),
-                open_interest=rationale.get("open_interest"),
-                volume=rationale.get("volume"),
+                delta=option.delta,  # Use option delta directly
+                iv_rank=option.iv_rank,  # Use option iv_rank directly
+                open_interest=option.open_interest,  # Use option data directly
+                volume=option.volume,  # Use option volume directly
                 probability_of_profit_black_scholes=rationale.get("probability_of_profit_black_scholes"),
                 probability_of_profit_monte_carlo=rationale.get("probability_of_profit_monte_carlo"),
+                option_side=option.option_type,  # Set option_side from the option's type
                 status="proposed",
                 created_at=pacific_now()
             )

@@ -95,7 +95,7 @@ export default function Dashboard() {
             />
             <Collapse in={recommendationsExpanded}>
               <CardContent sx={{ pt: 0 }}>
-                <RecommendationsPanel maxRecommendations={5} refreshRef={refreshRef} />
+                <RecommendationsPanel refreshRef={refreshRef} />
               </CardContent>
             </Collapse>
           </Card>

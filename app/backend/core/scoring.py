@@ -60,11 +60,17 @@ class ScoringEngine:
     def calculate_bid_ask_spread_pct(self, bid: float, ask: float) -> float:
         """Calculate bid-ask spread as percentage of mid price."""
         if bid <= 0 or ask <= 0 or bid >= ask:
-            return float('inf')
+            return 999.0  # Return large but JSON-safe value instead of inf
         
         mid_price = (bid + ask) / 2
+        if mid_price <= 0:
+            return 999.0
+            
         spread_pct = ((ask - bid) / mid_price) * 100
-        return spread_pct
+        # Ensure result is JSON-safe
+        if spread_pct == float('inf') or spread_pct != spread_pct:  # NaN check
+            return 999.0
+        return min(spread_pct, 999.0)  # Cap at reasonable maximum
     
     def calculate_iv_rank(self, current_iv: float, historical_ivs: List[float]) -> float:
         """Calculate IV Rank (percentile of current IV vs historical)."""
@@ -312,7 +318,7 @@ class ScoringEngine:
             spread_pct = self.calculate_bid_ask_spread_pct(option.bid, option.ask)
         else:
             mid_price = option.last or 0
-            spread_pct = float('inf')
+            spread_pct = 999.0  # Large but JSON-safe value
         
         # Calculate components
         annualized_yield = self.calculate_annualized_yield(mid_price, option.strike, dte)
@@ -359,9 +365,15 @@ class ScoringEngine:
             risk_adjustment, qualitative_score, probability_of_profit
         )
         
+        # Calculate additional financial metrics
+        total_credit = self.calculate_total_credit(mid_price)
+        collateral_required = self.calculate_collateral_required(option.strike)
+        annualized_roi = self.calculate_annualized_roi(total_credit, collateral_required, dte)
+        
         # Build rationale
         rationale = {
             "annualized_yield": annualized_yield,
+            "annualized_roi": annualized_roi,  # Add ROI calculation
             "proximity_score": proximity_score,
             "liquidity_score": liquidity_score,
             "risk_adjustment": risk_adjustment,
@@ -369,14 +381,50 @@ class ScoringEngine:
             "probability_of_profit_black_scholes": black_scholes_prob,
             "probability_of_profit_monte_carlo": monte_carlo_prob,
             "spread_pct": spread_pct,
-            "mid_price": mid_price
+            "mid_price": mid_price,
+            "dte": dte,  # Add DTE
+            "total_credit": total_credit,  # Add financial metrics
+            "collateral_required": collateral_required,
+            "contract_price": mid_price
         }
         
+        # Sanitize all float values to ensure JSON compliance
+        sanitized_rationale = self._sanitize_float_values(rationale)
+        sanitized_score = self._sanitize_float_value(composite_score)
+        
         return {
-            "score": composite_score,
-            "rationale": rationale
+            "score": sanitized_score,
+            "rationale": sanitized_rationale
         }
     
+    def _sanitize_float_value(self, value: float) -> float:
+        """Sanitize a single float value to ensure JSON compliance."""
+        if value is None:
+            return 0.0
+        if value == float('inf'):
+            return 999999.0
+        if value == float('-inf'):
+            return -999999.0
+        if value != value:  # NaN check
+            return 0.0
+        if abs(value) > 1e10:  # Very large numbers
+            return 999999.0 if value > 0 else -999999.0
+        return float(value)
+    
+    def _sanitize_float_values(self, data: dict) -> dict:
+        """Recursively sanitize all float values in a dictionary."""
+        sanitized = {}
+        for key, value in data.items():
+            if isinstance(value, float):
+                sanitized[key] = self._sanitize_float_value(value)
+            elif isinstance(value, dict):
+                sanitized[key] = self._sanitize_float_values(value)
+            elif isinstance(value, list):
+                sanitized[key] = [self._sanitize_float_value(v) if isinstance(v, float) else v for v in value]
+            else:
+                sanitized[key] = value
+        return sanitized
+
     async def filter_options(self, options: List[Option], current_prices: Dict[str, float]) -> List[Tuple[Option, Dict]]:
         """Filter and score options based on criteria."""
         scored_options = []

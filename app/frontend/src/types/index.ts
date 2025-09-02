@@ -31,6 +31,7 @@ export interface OptionPosition {
 export interface Recommendation {
   id: number
   symbol: string
+  name?: string  // Company name
   option_symbol?: string
   option_type: string  // Side put or call
   underlying_ticker: string  // Underlying ticker
@@ -67,6 +68,7 @@ export interface Recommendation {
   open_interest?: number
   probability_of_profit_black_scholes?: number
   probability_of_profit_monte_carlo?: number
+  option_side?: string  // 'put' or 'call'
 }
 
 export interface AccountBalance {

@@ -897,7 +897,7 @@ class MarketDataService:
             if call_volume == 0:
                 if put_volume == 0:
                     return None  # No volume data
-                return float('inf')  # All puts, no calls
+                return 999.0  # All puts, no calls (JSON-safe large value)
             
             put_call_ratio = put_volume / call_volume
             logger.debug(f"Calculated put/call ratio for {symbol}: {put_call_ratio:.3f} (put_vol: {put_volume}, call_vol: {call_volume})")

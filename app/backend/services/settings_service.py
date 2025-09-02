@@ -239,6 +239,14 @@ class SettingsService:
                 "description": "Maximum number of recommendations",
                 "category": "Risk/Scoring Thresholds"
             },
+            "top_universe_score": {
+                "type": "int",
+                "default": 50,
+                "min": 10,
+                "max": 500,
+                "description": "Number of top-scored tickers to consider for recommendations",
+                "category": "Universe Selection"
+            },
             "min_score_threshold": {
                 "type": "float",
                 "default": 0.5,

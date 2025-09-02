@@ -23,6 +23,7 @@ class RecommendationResponse(BaseModel):
     """Recommendation response model."""
     id: int
     symbol: str
+    name: Optional[str] = None  # Company name
     option_symbol: Optional[str] = None
     option_type: str = "put"  # Side put or call
     underlying_ticker: str  # Underlying ticker
@@ -60,9 +61,25 @@ class RecommendationResponse(BaseModel):
     open_interest: Optional[int] = None
     probability_of_profit_black_scholes: Optional[float] = None
     probability_of_profit_monte_carlo: Optional[float] = None
+    option_side: Optional[str] = None  # 'put' or 'call'
     
     class Config:
         from_attributes = True
+
+
+def _sanitize_float_value(value: float) -> float:
+    """Sanitize a single float value to ensure JSON compliance."""
+    if value is None:
+        return 0.0
+    if value == float('inf'):
+        return 999999.0
+    if value == float('-inf'):
+        return -999999.0
+    if value != value:  # NaN check
+        return 0.0
+    if abs(value) > 1e10:  # Very large numbers
+        return 999999.0 if value > 0 else -999999.0
+    return float(value)
 
 
 def build_rationale_dict(recommendation: Recommendation) -> dict:
@@ -98,6 +115,8 @@ def build_rationale_dict(recommendation: Recommendation) -> dict:
         rationale["probability_of_profit_black_scholes"] = recommendation.probability_of_profit_black_scholes
     if recommendation.probability_of_profit_monte_carlo is not None:
         rationale["probability_of_profit_monte_carlo"] = recommendation.probability_of_profit_monte_carlo
+    if recommendation.option_side is not None:
+        rationale["option_side"] = recommendation.option_side
     
     return rationale
 
@@ -169,41 +188,43 @@ async def build_recommendation_response(db: AsyncSession, recommendation: Recomm
     return RecommendationResponse(
         id=recommendation.id,
         symbol=recommendation.symbol,
+        name=ticker.name if ticker else None,
         option_symbol=option.symbol if option else None,
         option_type=option.option_type if option else "put",
         underlying_ticker=recommendation.symbol,
-        current_price=quote.current_price if quote else None,
-        strike=option.strike if option else None,
+        current_price=_sanitize_float_value(quote.current_price) if quote and quote.current_price else None,
+        strike=_sanitize_float_value(option.strike) if option and option.strike else None,
         expiry=option.expiry.isoformat() if option else None,
         dte=recommendation.dte,
-        contract_price=contract_price,
-        total_credit=total_credit,
-        collateral=collateral,
+        contract_price=_sanitize_float_value(contract_price) if contract_price else None,
+        total_credit=_sanitize_float_value(total_credit) if total_credit else None,
+        collateral=_sanitize_float_value(collateral) if collateral else None,
         industry=ticker.industry if ticker else None,
         sector=ticker.sector if ticker else None,
         next_earnings_date=ticker.next_earnings_date.isoformat() if ticker and ticker.next_earnings_date else None,
-        annualized_roi=annualized_roi,
-        pe_ratio=ticker.pe_ratio if ticker else None,
-        put_call_ratio=quote.put_call_ratio if quote else None,
+        annualized_roi=_sanitize_float_value(annualized_roi) if annualized_roi else None,
+        pe_ratio=_sanitize_float_value(ticker.pe_ratio) if ticker and ticker.pe_ratio else None,
+        put_call_ratio=_sanitize_float_value(quote.put_call_ratio) if quote and quote.put_call_ratio else None,
         volume=recommendation.volume,
-        score=recommendation.score,
+        score=_sanitize_float_value(recommendation.score),
         score_breakdown=score_breakdown,
         rationale=rationale,
         status=recommendation.status,
         created_at=recommendation.created_at.isoformat(),
-        # Include expanded fields (backward compatibility)
-        annualized_yield=recommendation.annualized_yield,
-        proximity_score=recommendation.proximity_score,
-        liquidity_score=recommendation.liquidity_score,
-        risk_adjustment=recommendation.risk_adjustment,
-        qualitative_score=recommendation.qualitative_score,
-        spread_pct=recommendation.spread_pct,
-        mid_price=recommendation.mid_price,
-        delta=recommendation.delta,
-        iv_rank=recommendation.iv_rank,
+        # Include expanded fields (backward compatibility) - sanitize all float values
+        annualized_yield=_sanitize_float_value(recommendation.annualized_yield) if recommendation.annualized_yield else None,
+        proximity_score=_sanitize_float_value(recommendation.proximity_score) if recommendation.proximity_score else None,
+        liquidity_score=_sanitize_float_value(recommendation.liquidity_score) if recommendation.liquidity_score else None,
+        risk_adjustment=_sanitize_float_value(recommendation.risk_adjustment) if recommendation.risk_adjustment else None,
+        qualitative_score=_sanitize_float_value(recommendation.qualitative_score) if recommendation.qualitative_score else None,
+        spread_pct=_sanitize_float_value(recommendation.spread_pct) if recommendation.spread_pct else None,
+        mid_price=_sanitize_float_value(recommendation.mid_price) if recommendation.mid_price else None,
+        delta=_sanitize_float_value(recommendation.delta) if recommendation.delta else None,
+        iv_rank=_sanitize_float_value(recommendation.iv_rank) if recommendation.iv_rank else None,
         open_interest=recommendation.open_interest,
-        probability_of_profit_black_scholes=recommendation.probability_of_profit_black_scholes,
-        probability_of_profit_monte_carlo=recommendation.probability_of_profit_monte_carlo
+        probability_of_profit_black_scholes=_sanitize_float_value(recommendation.probability_of_profit_black_scholes) if recommendation.probability_of_profit_black_scholes else None,
+        probability_of_profit_monte_carlo=_sanitize_float_value(recommendation.probability_of_profit_monte_carlo) if recommendation.probability_of_profit_monte_carlo else None,
+        option_side=recommendation.option_side
     )
 
 
@@ -241,32 +262,54 @@ async def generate_recommendations(
 @router.get("/current", response_model=List[RecommendationResponse])
 async def get_current_recommendations(
     db: AsyncSession = Depends(get_async_db),
-    limit: int = Query(default=10, le=50)
+    limit: int = Query(default=50, le=100)
 ):
-    """Get current recommendations - only latest recommendation per ticker."""
+    """Get current recommendations - all recommendations from today."""
     try:
         from sqlalchemy import func, and_, distinct
+        from utils.timezone import pacific_now
+        from datetime import timedelta
         
-        # Get all proposed recommendations ordered by symbol and creation date
+        # Get today's date in Pacific timezone
+        today_start = pacific_now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = today_start + timedelta(days=1)
+        
+        logger.info(f"🔍 Fetching recommendations from {today_start} to {today_end}")
+        
+        # Get all proposed recommendations from today, ordered by score
         stmt = select(Recommendation).where(
-            Recommendation.status == "proposed"
-        ).order_by(Recommendation.symbol, desc(Recommendation.created_at))
+            and_(
+                Recommendation.status == "proposed",
+                Recommendation.created_at >= today_start,
+                Recommendation.created_at < today_end
+            )
+        ).order_by(desc(Recommendation.score))
         
         result = await db.execute(stmt)
-        all_recommendations = result.scalars().all()
+        recommendations = result.scalars().all()
         
-        # Filter to get only the latest per ticker in Python
-        seen_tickers = set()
-        recommendations = []
+        logger.info(f"📊 Found {len(recommendations)} recommendations for today")
         
-        for rec in all_recommendations:
-            if rec.symbol not in seen_tickers:
-                recommendations.append(rec)
-                seen_tickers.add(rec.symbol)
+        # If no recommendations today, check if there are any recommendations at all
+        if not recommendations:
+            logger.info("🔍 No recommendations found for today, checking all recommendations...")
+            all_stmt = select(func.count(Recommendation.id)).where(Recommendation.status == "proposed")
+            all_result = await db.execute(all_stmt)
+            total_count = all_result.scalar()
+            logger.info(f"📊 Total proposed recommendations in database: {total_count}")
+            
+            # Check most recent recommendation
+            recent_stmt = select(Recommendation).where(Recommendation.status == "proposed").order_by(desc(Recommendation.created_at)).limit(1)
+            recent_result = await db.execute(recent_stmt)
+            most_recent = recent_result.scalar_one_or_none()
+            if most_recent:
+                logger.info(f"📊 Most recent recommendation: {most_recent.symbol} created at {most_recent.created_at}")
+            else:
+                logger.warning("❌ No recommendations found in database at all")
         
-        # Sort by score and limit
-        recommendations.sort(key=lambda x: x.score, reverse=True)
-        recommendations = recommendations[:limit]
+        # Apply limit only if there are too many results
+        if len(recommendations) > limit:
+            recommendations = recommendations[:limit]
         
         response_list = []
         for rec in recommendations:
@@ -279,6 +322,102 @@ async def get_current_recommendations(
         # Handle case where tables don't exist yet
         logger.warning(f"Database tables not ready: {e}")
         return []
+
+
+@router.get("/debug")
+async def debug_recommendations(
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Debug endpoint to check recommendation system status."""
+    try:
+        from sqlalchemy import func, and_
+        from utils.timezone import pacific_now
+        from datetime import timedelta
+        from db.models import InterestingTicker, TickerQuote, Option, Position
+        
+        debug_info = {}
+        
+        # Check tickers
+        ticker_count = await db.execute(select(func.count(InterestingTicker.id)))
+        debug_info["total_tickers"] = ticker_count.scalar()
+        
+        active_ticker_count = await db.execute(
+            select(func.count(InterestingTicker.id)).where(InterestingTicker.active == True)
+        )
+        debug_info["active_tickers"] = active_ticker_count.scalar()
+        
+        # Check quotes
+        quote_count = await db.execute(select(func.count(TickerQuote.id)))
+        debug_info["total_quotes"] = quote_count.scalar()
+        
+        # Check options
+        option_count = await db.execute(select(func.count(Option.id)))
+        debug_info["total_options"] = option_count.scalar()
+        
+        # Check recent options (last 24 hours)
+        recent_options = await db.execute(
+            select(func.count(Option.id)).where(
+                Option.updated_at >= pacific_now() - timedelta(hours=24)
+            )
+        )
+        debug_info["recent_options"] = recent_options.scalar()
+        
+        # Check positions
+        position_count = await db.execute(select(func.count(Position.id)))
+        debug_info["total_positions"] = position_count.scalar()
+        
+        # Check recommendations
+        rec_count = await db.execute(select(func.count(Recommendation.id)))
+        debug_info["total_recommendations"] = rec_count.scalar()
+        
+        proposed_rec_count = await db.execute(
+            select(func.count(Recommendation.id)).where(Recommendation.status == "proposed")
+        )
+        debug_info["proposed_recommendations"] = proposed_rec_count.scalar()
+        
+        # Check today's recommendations
+        today_start = pacific_now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = today_start + timedelta(days=1)
+        
+        today_rec_count = await db.execute(
+            select(func.count(Recommendation.id)).where(
+                and_(
+                    Recommendation.status == "proposed",
+                    Recommendation.created_at >= today_start,
+                    Recommendation.created_at < today_end
+                )
+            )
+        )
+        debug_info["todays_recommendations"] = today_rec_count.scalar()
+        
+        # Get most recent recommendation
+        recent_rec = await db.execute(
+            select(Recommendation).order_by(desc(Recommendation.created_at)).limit(1)
+        )
+        most_recent = recent_rec.scalar_one_or_none()
+        if most_recent:
+            debug_info["most_recent_recommendation"] = {
+                "symbol": most_recent.symbol,
+                "created_at": most_recent.created_at.isoformat(),
+                "status": most_recent.status,
+                "score": most_recent.score
+            }
+        
+        # Check market data service status
+        from services.market_data_service import MarketDataService
+        market_service = MarketDataService(db)
+        summary = await market_service.get_market_summary()
+        debug_info["market_summary"] = summary
+        
+        debug_info["timestamp"] = pacific_now().isoformat()
+        debug_info["today_start"] = today_start.isoformat()
+        debug_info["today_end"] = today_end.isoformat()
+        
+        return debug_info
+        
+    except Exception as e:
+        logger.error(f"Error in debug endpoint: {e}")
+        return {"error": str(e)}
 
 
 @router.get("/history", response_model=List[RecommendationResponse])

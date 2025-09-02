@@ -37,10 +37,10 @@ import { recommendationsApi } from '@/lib/api'
 import { Recommendation } from '@/types'
 
 interface RecommendationsPanelProps {
-  maxRecommendations?: number
+  refreshRef?: React.MutableRefObject<(() => Promise<void>) | null>
 }
 
-export default function RecommendationsPanel({ maxRecommendations = 5 }: RecommendationsPanelProps) {
+export default function RecommendationsPanel({ refreshRef }: RecommendationsPanelProps) {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
   const [loading, setLoading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -52,7 +52,7 @@ export default function RecommendationsPanel({ maxRecommendations = 5 }: Recomme
       setLoading(true)
       setError(null)
       const response = await recommendationsApi.getCurrent()
-      setRecommendations(response.data.slice(0, maxRecommendations))
+      setRecommendations(response.data)
     } catch (err: any) {
       console.error('Error fetching recommendations:', err)
       if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
@@ -105,7 +105,12 @@ export default function RecommendationsPanel({ maxRecommendations = 5 }: Recomme
 
   useEffect(() => {
     fetchRecommendations()
-  }, [maxRecommendations])
+    
+    // Set up refresh ref for parent component
+    if (refreshRef) {
+      refreshRef.current = handleRefresh
+    }
+  }, [])
 
   const formatScore = (score: number) => {
     return (score * 100).toFixed(1)
@@ -292,7 +297,7 @@ export default function RecommendationsPanel({ maxRecommendations = 5 }: Recomme
                             {recommendation.underlying_ticker || recommendation.symbol}
                           </Typography>
                           <Typography variant="caption" color="textSecondary">
-                            {recommendation.sector || 'N/A'}
+                            {recommendation.name || 'N/A'}
                           </Typography>
                         </Box>
                       </TableCell>
@@ -430,6 +435,12 @@ export default function RecommendationsPanel({ maxRecommendations = 5 }: Recomme
                                     Company Details
                                   </Typography>
                                   <Grid container spacing={1}>
+                                    <Grid item xs={6}>
+                                      <Typography variant="caption" color="textSecondary">Sector</Typography>
+                                      <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.8rem' }}>
+                                        {recommendation.sector || 'N/A'}
+                                      </Typography>
+                                    </Grid>
                                     <Grid item xs={6}>
                                       <Typography variant="caption" color="textSecondary">Industry</Typography>
                                       <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.8rem' }}>
