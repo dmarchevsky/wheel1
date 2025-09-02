@@ -578,9 +578,37 @@ export default function RecommendationsPanel({
                     cursor: 'pointer',
                     '&:hover': { backgroundColor: 'action.hover' }
                   }}
+                  onClick={() => handleSortChange('current_price')}
+                >
+                  Current {getSortIcon('current_price')}
+                </TableCell>
+                <TableCell 
+                  sx={{ 
+                    fontWeight: 600, 
+                    fontSize: '0.875rem',
+                    color: 'text.primary',
+                    borderBottom: 'none',
+                    py: 1.5,
+                    cursor: 'pointer',
+                    '&:hover': { backgroundColor: 'action.hover' }
+                  }}
                   onClick={() => handleSortChange('strike')}
                 >
                   Strike {getSortIcon('strike')}
+                </TableCell>
+                <TableCell 
+                  sx={{ 
+                    fontWeight: 600, 
+                    fontSize: '0.875rem',
+                    color: 'text.primary',
+                    borderBottom: 'none',
+                    py: 1.5,
+                    cursor: 'pointer',
+                    '&:hover': { backgroundColor: 'action.hover' }
+                  }}
+                  onClick={() => handleSortChange('collateral')}
+                >
+                  Collateral {getSortIcon('collateral')}
                 </TableCell>
                 <TableCell sx={{ 
                   fontWeight: 600, 
@@ -599,9 +627,9 @@ export default function RecommendationsPanel({
                     cursor: 'pointer',
                     '&:hover': { backgroundColor: 'action.hover' }
                   }}
-                  onClick={() => handleSortChange('current_price')}
+                  onClick={() => handleSortChange('contract_price')}
                 >
-                  Current {getSortIcon('current_price')}
+                  Premium {getSortIcon('contract_price')}
                 </TableCell>
                 <TableCell 
                   sx={{ 
@@ -630,6 +658,35 @@ export default function RecommendationsPanel({
                   onClick={() => handleSortChange('annualized_roi')}
                 >
                   ROI {getSortIcon('annualized_roi')}
+                </TableCell>
+
+                <TableCell 
+                  sx={{ 
+                    fontWeight: 600, 
+                    fontSize: '0.875rem',
+                    color: 'text.primary',
+                    borderBottom: 'none',
+                    py: 1.5,
+                    cursor: 'pointer',
+                    '&:hover': { backgroundColor: 'action.hover' }
+                  }}
+                  onClick={() => handleSortChange('put_call_ratio')}
+                >
+                  P/C Ratio {getSortIcon('put_call_ratio')}
+                </TableCell>
+                <TableCell 
+                  sx={{ 
+                    fontWeight: 600, 
+                    fontSize: '0.875rem',
+                    color: 'text.primary',
+                    borderBottom: 'none',
+                    py: 1.5,
+                    cursor: 'pointer',
+                    '&:hover': { backgroundColor: 'action.hover' }
+                  }}
+                  onClick={() => handleSortChange('volume')}
+                >
+                  Volume {getSortIcon('volume')}
                 </TableCell>
                 <TableCell 
                   sx={{ 
@@ -706,10 +763,24 @@ export default function RecommendationsPanel({
                       />
                     </TableCell>
 
+                    {/* Current Price */}
+                    <TableCell>
+                      <Typography variant="body2">
+                        {recommendation.current_price ? `$${recommendation.current_price.toFixed(2)}` : 'N/A'}
+                      </Typography>
+                    </TableCell>
+
                     {/* Strike */}
                     <TableCell>
                       <Typography variant="body2">
                         {recommendation.strike ? `$${recommendation.strike.toFixed(2)}` : 'N/A'}
+                      </Typography>
+                    </TableCell>
+
+                    {/* Collateral */}
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                        {recommendation.collateral ? `$${recommendation.collateral.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : 'N/A'}
                       </Typography>
                     </TableCell>
 
@@ -720,17 +791,17 @@ export default function RecommendationsPanel({
                       </Typography>
                     </TableCell>
 
-                    {/* Current Price */}
+                    {/* Premium */}
                     <TableCell>
-                      <Typography variant="body2">
-                        {recommendation.current_price ? `$${recommendation.current_price.toFixed(2)}` : 'N/A'}
+                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                        {recommendation.contract_price ? `$${recommendation.contract_price.toFixed(2)}` : 'N/A'}
                       </Typography>
                     </TableCell>
 
                     {/* Credit */}
                     <TableCell>
                       <Typography variant="body2" sx={{ color: 'success.main', fontWeight: 500 }}>
-                        {recommendation.total_credit ? `$${recommendation.total_credit.toFixed(0)}` : 'N/A'}
+                        {recommendation.total_credit ? `$${recommendation.total_credit.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : 'N/A'}
                       </Typography>
                     </TableCell>
 
@@ -738,6 +809,20 @@ export default function RecommendationsPanel({
                     <TableCell>
                       <Typography variant="body2" sx={{ color: 'success.main', fontWeight: 500 }}>
                         {recommendation.annualized_roi ? `${recommendation.annualized_roi.toFixed(1)}%` : 'N/A'}
+                      </Typography>
+                    </TableCell>
+
+                    {/* P/C Ratio */}
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                        {recommendation.put_call_ratio ? recommendation.put_call_ratio.toFixed(2) : 'N/A'}
+                      </Typography>
+                    </TableCell>
+
+                    {/* Volume */}
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                        {recommendation.volume ? recommendation.volume.toLocaleString() : 'N/A'}
                       </Typography>
                     </TableCell>
 
@@ -786,90 +871,60 @@ export default function RecommendationsPanel({
                   {/* Expanded Card View */}
                   {expandedRows[recommendation.id] && (
                     <TableRow>
-                      <TableCell colSpan={10} sx={{ p: 0, border: 0 }}>
-                        <Card variant="outlined" sx={{ m: 1, borderRadius: 0 }}>
-                          <CardContent sx={{ p: 2 }}>
-                            <Grid container spacing={2}>
-                              {/* Key Financial Metrics */}
-                              <Grid item xs={12} md={6}>
-                                <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>
-                                  Financial Metrics
-                                </Typography>
-                                <Grid container spacing={1}>
-                                  <Grid item xs={6}>
-                                    <Typography variant="caption" color="textSecondary">Premium</Typography>
-                                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                                      {recommendation.contract_price ? `$${recommendation.contract_price.toFixed(2)}` : 'N/A'}
-                                    </Typography>
-                                  </Grid>
-                                  <Grid item xs={6}>
-                                    <Typography variant="caption" color="textSecondary">Collateral</Typography>
-                                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                                      {recommendation.collateral ? `$${recommendation.collateral.toFixed(0)}` : 'N/A'}
-                                    </Typography>
-                                  </Grid>
-                                  <Grid item xs={6}>
-                                    <Typography variant="caption" color="textSecondary">Volume</Typography>
-                                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                                      {recommendation.volume ? recommendation.volume.toLocaleString() : 'N/A'}
-                                    </Typography>
-                                  </Grid>
-                                  <Grid item xs={6}>
-                                    <Typography variant="caption" color="textSecondary">Created</Typography>
-                                    <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.8rem' }}>
-                                      {formatDate(recommendation.created_at)}
-                                    </Typography>
-                                  </Grid>
-                                </Grid>
-                              </Grid>
-
-                              {/* Company Information */}
-                              <Grid item xs={12} md={6}>
-                                <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>
+                      <TableCell colSpan={14} sx={{ p: 0, border: 0 }}>
+                        <Card variant="outlined" sx={{ m: 0.5, borderRadius: 0 }}>
+                          <CardContent sx={{ p: 1.5 }}>
+                            <Grid container spacing={1.5}>
+                              {/* Company Details */}
+                              <Grid item xs={12} md={4}>
+                                <Typography variant="subtitle2" sx={{ mb: 0.5, color: 'text.secondary', fontSize: '0.9rem' }}>
                                   Company Details
                                 </Typography>
-                                <Grid container spacing={1}>
-                                  <Grid item xs={6}>
-                                    <Typography variant="caption" color="textSecondary">Sector</Typography>
-                                    <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.8rem' }}>
+                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                                  <Box>
+                                    <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>Sector</Typography>
+                                    <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.75rem' }}>
                                       {recommendation.sector || 'N/A'}
                                     </Typography>
-                                  </Grid>
-                                  <Grid item xs={6}>
-                                    <Typography variant="caption" color="textSecondary">Industry</Typography>
-                                    <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.8rem' }}>
+                                  </Box>
+                                  <Box>
+                                    <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>Industry</Typography>
+                                    <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.75rem' }}>
                                       {recommendation.industry || 'N/A'}
                                     </Typography>
-                                  </Grid>
-                                  <Grid item xs={6}>
-                                    <Typography variant="caption" color="textSecondary">P/E Ratio</Typography>
-                                    <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.8rem' }}>
-                                      {recommendation.pe_ratio ? recommendation.pe_ratio.toFixed(1) : 'N/A'}
-                                    </Typography>
-                                  </Grid>
-                                  <Grid item xs={6}>
-                                    <Typography variant="caption" color="textSecondary">P/C Ratio</Typography>
-                                    <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.8rem' }}>
-                                      {recommendation.put_call_ratio ? recommendation.put_call_ratio.toFixed(2) : 'N/A'}
-                                    </Typography>
-                                  </Grid>
-                                  <Grid item xs={6}>
-                                    <Typography variant="caption" color="textSecondary">Earnings</Typography>
-                                    <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.8rem' }}>
+                                  </Box>
+                                  <Box>
+                                    <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>Earnings</Typography>
+                                    <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.75rem' }}>
                                       {recommendation.next_earnings_date ? 
                                         new Date(recommendation.next_earnings_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'N/A'}
                                     </Typography>
-                                  </Grid>
-                                </Grid>
+                                  </Box>
+                                </Box>
+                              </Grid>
+
+                              {/* Fundamentals */}
+                              <Grid item xs={12} md={4}>
+                                <Typography variant="subtitle2" sx={{ mb: 0.5, color: 'text.secondary', fontSize: '0.9rem' }}>
+                                  Fundamentals
+                                </Typography>
+                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                                  <Box>
+                                    <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>P/E Ratio</Typography>
+                                    <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.75rem' }}>
+                                      {recommendation.pe_ratio ? recommendation.pe_ratio.toFixed(1) : 'N/A'}
+                                    </Typography>
+                                  </Box>
+                                </Box>
                               </Grid>
 
                               {/* Score Breakdown */}
                               {recommendation.score_breakdown && (
-                                <Grid item xs={12}>
-                                  <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>
+                                <Grid item xs={12} md={4}>
+                                  <Typography variant="subtitle2" sx={{ mb: 0.5, color: 'text.secondary', fontSize: '0.9rem' }}>
                                     Score Breakdown
                                   </Typography>
-                                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
                                     {Object.entries(recommendation.score_breakdown)
                                       .filter(([key]) => !key.toLowerCase().includes('overall'))
                                       .map(([key, value]) => {
@@ -885,15 +940,15 @@ export default function RecommendationsPanel({
                                         }
                                         
                                         return (
-                                          <Box key={key} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                            <Typography variant="caption" color="textSecondary">
-                                              {key}:
+                                          <Box key={key} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>
+                                              {key.replace(/_/g, ' ')}:
                                             </Typography>
                                             <Typography 
                                               variant="body2" 
                                               sx={{ 
                                                 fontWeight: 500, 
-                                                fontSize: '0.8rem',
+                                                fontSize: '0.75rem',
                                                 color: color
                                               }}
                                             >
@@ -905,6 +960,15 @@ export default function RecommendationsPanel({
                                   </Box>
                                 </Grid>
                               )}
+
+                              {/* Timestamp at bottom */}
+                              <Grid item xs={12}>
+                                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+                                  <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>
+                                    Generated: {formatDate(recommendation.created_at)}
+                                  </Typography>
+                                </Box>
+                              </Grid>
                             </Grid>
                           </CardContent>
                         </Card>
