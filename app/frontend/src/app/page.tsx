@@ -30,6 +30,7 @@ import {
 } from '@mui/icons-material'
 import RecommendationsPanel from '@/components/RecommendationsPanel'
 import PositionsSummary from '@/components/PositionsSummary'
+import RecentActivity from '@/components/RecentActivity'
 import { recommendationsApi } from '@/lib/api'
 
 export default function Dashboard() {
@@ -399,9 +400,7 @@ export default function Dashboard() {
             />
             <Collapse in={activityExpanded}>
               <CardContent sx={{ pt: 0 }}>
-                <Typography color="textSecondary" align="center" sx={{ py: 8 }}>
-                  Recent trades and position changes will be displayed here.
-                </Typography>
+                <RecentActivity />
               </CardContent>
             </Collapse>
           </Card>

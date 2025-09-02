@@ -106,6 +106,17 @@ export interface TradeHistory {
   recommendation_id?: number
 }
 
+export interface ActivityEvent {
+  date: string
+  type: string
+  symbol?: string
+  description: string
+  quantity?: number
+  price?: number
+  amount: number
+  balance?: number
+}
+
 export interface ApiResponse<T> {
   data: T
   message?: string

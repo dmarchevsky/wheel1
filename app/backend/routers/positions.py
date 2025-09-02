@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import desc, select
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from db.session import get_async_db
 from db.models import Position, OptionPosition, InterestingTicker
@@ -85,6 +85,18 @@ class AccountInfoResponse(BaseModel):
     day_trade_buying_power: float
     equity: float
     last_updated: str
+
+
+class ActivityEvent(BaseModel):
+    """Account activity event model."""
+    date: str
+    type: str
+    symbol: Optional[str] = None
+    description: str
+    quantity: Optional[float] = None
+    price: Optional[float] = None
+    amount: float
+    balance: Optional[float] = None
 
 
 @router.get("/", response_model=List[PositionResponse])
@@ -374,3 +386,116 @@ async def get_account_info():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch account information: {str(e)}")
+
+
+@router.get("/activity", response_model=List[ActivityEvent])
+async def get_recent_activity(
+    days: int = Query(7, ge=1, le=30, description="Number of days to look back for activity")
+):
+    """Get recent account activity from Tradier API."""
+    try:
+        async with TradierClient() as tradier_client:
+            # Calculate date range
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days)
+            
+            # Format dates for Tradier API (YYYY-MM-DD)
+            start_date_str = start_date.strftime("%Y-%m-%d")
+            end_date_str = end_date.strftime("%Y-%m-%d")
+            
+            logger.info(f"Fetching account activity from {start_date_str} to {end_date_str}")
+            
+            # Fetch account history from Tradier
+            history_events = await tradier_client.get_account_history(start_date_str, end_date_str)
+            
+            # Process and format the events - filter for trades only
+            activity_events = []
+            for event in history_events:
+                try:
+                    # Parse event data from Tradier response
+                    event_date = event.get("date", "")
+                    event_type = event.get("type", "unknown").lower()
+                    description = event.get("description", "").lower()
+                    amount = float(event.get("amount", 0))
+                    
+                    # Filter for stock and option trades only
+                    is_trade = (
+                        event_type in ["trade", "buy", "sell", "buy_to_open", "sell_to_close", "buy_to_close", "sell_to_open"] or
+                        "bought" in description or 
+                        "sold" in description or
+                        "buy to open" in description or
+                        "sell to close" in description or
+                        "buy to close" in description or
+                        "sell to open" in description or
+                        any(keyword in description for keyword in ["stock", "option", "call", "put", "contract"])
+                    )
+                    
+                    # Skip non-trade activities
+                    if not is_trade:
+                        continue
+                    
+                    # Extract symbol if present in description
+                    symbol = None
+                    original_description = event.get("description", "")
+                    
+                    if "symbol" in event:
+                        symbol = event["symbol"]
+                    else:
+                        # Try to extract symbol from description (improved heuristic for trades)
+                        words = original_description.split()
+                        for i, word in enumerate(words):
+                            # Look for stock symbols (1-6 uppercase letters)
+                            if word.isupper() and 1 <= len(word) <= 6 and word.isalpha():
+                                symbol = word
+                                break
+                            # Look for option symbols (longer alphanumeric strings)
+                            elif len(word) > 6 and any(c.isdigit() for c in word) and any(c.isalpha() for c in word):
+                                symbol = word
+                                break
+                    
+                    # Extract quantity and price if available
+                    quantity = event.get("quantity")
+                    if quantity is not None:
+                        quantity = float(quantity)
+                    
+                    price = event.get("price")
+                    if price is not None:
+                        price = float(price)
+                    
+                    balance = event.get("balance")
+                    if balance is not None:
+                        balance = float(balance)
+                    
+                    # Determine trade action for better display
+                    trade_type = "trade"
+                    if "bought" in description or "buy" in event_type:
+                        trade_type = "buy"
+                    elif "sold" in description or "sell" in event_type:
+                        trade_type = "sell"
+                    
+                    activity_event = ActivityEvent(
+                        date=event_date,
+                        type=trade_type,
+                        symbol=symbol,
+                        description=original_description,  # Keep original case for display
+                        quantity=quantity,
+                        price=price,
+                        amount=amount,
+                        balance=balance
+                    )
+                    
+                    activity_events.append(activity_event)
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to parse activity event: {event}. Error: {e}")
+                    continue
+            
+            # Sort by date descending (most recent first)
+            activity_events.sort(key=lambda x: x.date, reverse=True)
+            
+            # Limit to 50 most recent events for performance
+            return activity_events[:50]
+            
+    except Exception as e:
+        logger.error(f"Error fetching account activity: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch account activity: {str(e)}")
