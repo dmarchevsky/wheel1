@@ -36,11 +36,9 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   Refresh as RefreshIcon,
-  AutoAwesome as AutoAwesomeIcon,
   Schedule as ScheduleIcon,
   ShoppingCart as TradeIcon,
   Delete as DeleteIcon,
-  Close as CloseIcon,
 } from '@mui/icons-material'
 import { recommendationsApi } from '@/lib/api'
 
@@ -71,6 +69,7 @@ interface RecommendationsPanelProps {
   generationStatus?: string;
   filtersVisible?: boolean;
   clearTrigger?: number;
+  onMetadataUpdate?: (metadata: any) => void;
 }
 
 export default function RecommendationsPanel({ 
@@ -80,7 +79,8 @@ export default function RecommendationsPanel({
   refreshing: externalRefreshing,
   generationStatus: externalGenerationStatus,
   filtersVisible = false,
-  clearTrigger = 0
+  clearTrigger = 0,
+  onMetadataUpdate
 }: RecommendationsPanelProps) {
   const [recommendations, setRecommendations] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -114,12 +114,8 @@ export default function RecommendationsPanel({
   const [pollingInterval, setPollingInterval] = useState(5) // minutes
   const [lastPollTime, setLastPollTime] = useState<Date | null>(null)
   
-  // Generation job state
-  const [generationJobId, setGenerationJobId] = useState<string | null>(null)
-  const [generationStatus, setGenerationStatus] = useState<string>('idle') // idle, pending, running, completed, failed
-  const actualGenerationStatus = externalGenerationStatus !== undefined ? externalGenerationStatus : generationStatus
-  const [generationProgress, setGenerationProgress] = useState<number>(0)
-  const [generationMessage, setGenerationMessage] = useState<string>('')
+  // Use external generation status only (no internal state)
+  const actualGenerationStatus = externalGenerationStatus || 'idle'
 
   const fetchRecommendations = useCallback(async () => {
     try {
@@ -131,16 +127,25 @@ export default function RecommendationsPanel({
         limit: 100,
       }
       
-      const response = await recommendationsApi.getCurrent(params)
-      setRecommendations(response.data)
+      const [recommendationsResponse, metadataResponse] = await Promise.all([
+        recommendationsApi.getCurrent(params),
+        recommendationsApi.getMetadata()
+      ])
+      
+      setRecommendations(recommendationsResponse.data)
       setLastPollTime(new Date())
+      
+      // Pass metadata to parent
+      if (onMetadataUpdate) {
+        onMetadataUpdate(metadataResponse.data)
+      }
     } catch (err: any) {
       console.error('Error fetching recommendations:', err)
       setError(err.response?.data?.detail || err.message || 'Failed to fetch recommendations')
     } finally {
       setLoading(false)
     }
-  }, []) // Add filterOptions dependency
+  }, [onMetadataUpdate]) // Add filterOptions dependency
 
   // Frontend filtering logic
   const filteredRecommendations = useMemo(() => {
@@ -264,53 +269,9 @@ export default function RecommendationsPanel({
   }, [recommendations])
 
   const handleGenerateRecommendations = async () => {
+    // Always delegate to parent component
     if (onGenerateRecommendations) {
       onGenerateRecommendations()
-      return
-    }
-    
-    try {
-      setGenerationStatus('pending')
-      setGenerationMessage('Starting recommendation generation...')
-      
-      const response = await recommendationsApi.generate()
-      const jobId = response.data.job_id
-      setGenerationJobId(jobId)
-      
-      // Start polling for job status
-      pollGenerationStatus(jobId)
-      
-    } catch (err: any) {
-      console.error('Error starting recommendation generation:', err)
-      setGenerationStatus('failed')
-      setGenerationMessage('Failed to start recommendation generation')
-    }
-  }
-
-  const pollGenerationStatus = async (jobId: string) => {
-    try {
-      const response = await recommendationsApi.getGenerationStatus(jobId)
-      const job = response.data
-      
-      setGenerationStatus(job.status)
-      setGenerationMessage(job.message)
-      setGenerationProgress(job.progress || 0)
-      
-      if (job.status === 'completed') {
-        setGenerationJobId(null)
-        // Refresh recommendations after completion
-        setTimeout(() => fetchRecommendations(), 1000)
-      } else if (job.status === 'failed') {
-        setGenerationJobId(null)
-      } else if (job.status === 'running') {
-        // Continue polling
-        setTimeout(() => pollGenerationStatus(jobId), 2000)
-      }
-      
-    } catch (err) {
-      console.error('Error polling generation status:', err)
-      setGenerationStatus('failed')
-      setGenerationMessage('Failed to check generation status')
     }
   }
 
@@ -454,31 +415,7 @@ export default function RecommendationsPanel({
 
       {actualRefreshing && <LinearProgress sx={{ mb: 2 }} />}
       
-      {/* Generation Status */}
-      {actualGenerationStatus !== 'idle' && (
-        <Alert 
-          severity={actualGenerationStatus === 'completed' ? 'success' : 
-                   actualGenerationStatus === 'failed' ? 'error' : 'info'}
-          sx={{ mb: 2 }}
-        >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {actualGenerationStatus === 'pending' && <CircularProgress size={16} />}
-            {actualGenerationStatus === 'running' && <CircularProgress size={16} />}
-            {actualGenerationStatus === 'completed' && <AutoAwesomeIcon />}
-            {actualGenerationStatus === 'failed' && <CloseIcon />}
-            <Typography variant="body2">
-              {generationMessage}
-            </Typography>
-          </Box>
-          {actualGenerationStatus === 'running' && (
-            <LinearProgress 
-              variant="determinate" 
-              value={generationProgress} 
-              sx={{ mt: 1 }}
-            />
-          )}
-        </Alert>
-      )}
+      {/* Generation Status is now handled by parent component */}
       
       {/* Error Display */}
       {error && (

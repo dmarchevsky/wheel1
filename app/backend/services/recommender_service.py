@@ -27,7 +27,7 @@ class RecommenderService:
         # Services will be initialized with db when needed
         pass
     
-    async def generate_recommendations(self, db: AsyncSession) -> List[Recommendation]:
+    async def generate_recommendations(self, db: AsyncSession, progress_callback=None) -> List[Recommendation]:
         """Generate new recommendations with optimized processing."""
         start_time = pacific_now()
         logger.info("🚀 Starting recommendation generation...")
@@ -37,6 +37,15 @@ class RecommenderService:
         try:
             # Step 1: Get universe of tickers
             logger.info("🔍 Step 1: Getting universe of tickers...")
+            if progress_callback:
+                progress_callback({
+                    "message": "Getting list of tickers to process...",
+                    "current_ticker": None,
+                    "total_tickers": 0,
+                    "processed_tickers": 0,
+                    "recommendations_generated": 0
+                })
+            
             tickers = await self._get_universe(db)
             if not tickers:
                 logger.warning("❌ No tickers found in universe")
@@ -60,12 +69,29 @@ class RecommenderService:
             
             # Step 4: Pre-filter tickers (remove those with existing positions)
             logger.info("🔍 Step 4: Pre-filtering tickers...")
+            if progress_callback:
+                progress_callback({
+                    "message": "Filtering tickers...",
+                    "total_tickers": len(tickers),
+                    "processed_tickers": 0,
+                    "recommendations_generated": 0
+                })
+            
             filtered_tickers = [ticker for ticker in tickers if ticker.symbol not in current_positions]
             logger.info(f"📊 Filtered to {len(filtered_tickers)} tickers (removed {len(tickers) - len(filtered_tickers)} with existing positions)")
             
             if not filtered_tickers:
                 logger.info("❌ No tickers available after filtering")
                 return []
+            
+            # Update progress with final ticker count
+            if progress_callback:
+                progress_callback({
+                    "message": f"Processing {len(filtered_tickers)} tickers...",
+                    "total_tickers": len(filtered_tickers),
+                    "processed_tickers": 0,
+                    "recommendations_generated": 0
+                })
             
             # Step 5: Process tickers with optimized approach
             logger.info("🔍 Step 5: Processing tickers...")
@@ -80,6 +106,16 @@ class RecommenderService:
             for i, ticker in enumerate(filtered_tickers[:max_tickers_to_process]):
                 processed_count += 1
                 logger.info(f"📈 Processing ticker {processed_count}/{min(len(filtered_tickers), max_tickers_to_process)}: {ticker.symbol}")
+                
+                # Update progress for current ticker
+                if progress_callback:
+                    progress_callback({
+                        "message": f"Processing {ticker.symbol} ({processed_count}/{len(filtered_tickers)})",
+                        "current_ticker": ticker.symbol,
+                        "total_tickers": len(filtered_tickers),
+                        "processed_tickers": processed_count,
+                        "recommendations_generated": len(recommendations)
+                    })
                 
                 try:
                     # Get options data (optimized with caching)
@@ -142,6 +178,16 @@ class RecommenderService:
                         if recommendation:
                             recommendations.append(recommendation)
                             logger.info(f"✅ Created recommendation for {ticker.symbol} with score {recommendation.score:.3f}")
+                            
+                            # Update progress when recommendation is created
+                            if progress_callback:
+                                progress_callback({
+                                    "message": f"Created recommendation for {ticker.symbol} ({processed_count}/{len(filtered_tickers)})",
+                                    "current_ticker": ticker.symbol,
+                                    "total_tickers": len(filtered_tickers),
+                                    "processed_tickers": processed_count,
+                                    "recommendations_generated": len(recommendations)
+                                })
                             
                             # Continue processing all tickers
                             pass

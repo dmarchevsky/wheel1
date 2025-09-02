@@ -3,7 +3,7 @@ from utils.timezone import pacific_now
 
 import logging
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import and_, func
@@ -729,18 +729,24 @@ async def get_market_data_status(
 
 @router.get("/interesting-tickers")
 async def get_interesting_tickers(
+    source: Optional[str] = None,
     db: AsyncSession = Depends(get_async_db)
 ):
-    """Get all interesting tickers with their data."""
+    """Get all interesting tickers with their data, optionally filtered by source."""
     try:
         from sqlalchemy import select
         
         # Get interesting tickers with their quotes
-        result = await db.execute(
-            select(InterestingTicker, TickerQuote)
-            .outerjoin(TickerQuote, InterestingTicker.symbol == TickerQuote.symbol)
-            .order_by(InterestingTicker.symbol)
+        query = select(InterestingTicker, TickerQuote).outerjoin(
+            TickerQuote, InterestingTicker.symbol == TickerQuote.symbol
         )
+        
+        # Add source filter if provided
+        if source:
+            query = query.where(InterestingTicker.source == source)
+        
+        query = query.order_by(InterestingTicker.symbol)
+        result = await db.execute(query)
         rows = result.all()
         
         tickers = []

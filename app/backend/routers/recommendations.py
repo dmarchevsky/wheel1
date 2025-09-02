@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Simple in-memory job store (in production, use Redis or database)
+job_store = {}
+
 
 class RecommendationResponse(BaseModel):
     """Recommendation response model."""
@@ -232,39 +235,177 @@ async def build_recommendation_response(db: AsyncSession, recommendation: Recomm
 async def generate_recommendations(
     db: AsyncSession = Depends(get_async_db)
 ):
-    """Generate new recommendations."""
+    """Start async recommendation generation and return job ID."""
     try:
         logger.info("🚀 Manual recommendation generation requested")
         
-        recommender_service = RecommenderService()
-        recommendations = await recommender_service.generate_recommendations(db)
+        # Generate a unique job ID
+        import uuid
+        job_id = str(uuid.uuid4())
+        
+        # Store job in memory
+        job_store[job_id] = {
+            "id": job_id,
+            "status": "pending",
+            "message": "Starting recommendation generation...",
+            "created_at": pacific_now().isoformat(),
+            "total_tickers": 0,
+            "processed_tickers": 0,
+            "recommendations_generated": 0,
+            "current_ticker": None
+        }
+        
+        # Start background generation (simplified - in production you'd use Celery/RQ)
+        import asyncio
+        asyncio.create_task(generate_recommendations_background(job_id, db))
         
         return {
-            "message": "Recommendation generation completed",
-            "status": "success",
-            "recommendations_created": len(recommendations),
-            "timestamp": pacific_now().isoformat(),
-            "recommendations": [
-                {
-                    "id": rec.id,
-                    "symbol": rec.symbol,
-                    "score": rec.score,
-                    "status": rec.status,
-                    "created_at": rec.created_at.isoformat()
-                } for rec in recommendations
-            ]
+            "message": "Recommendation generation started",
+            "status": "pending",
+            "job_id": job_id,
+            "timestamp": pacific_now().isoformat()
         }
         
     except Exception as e:
-        logger.error(f"❌ Failed to generate recommendations: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to generate recommendations: {str(e)}")
+        logger.error(f"❌ Failed to start recommendation generation: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start recommendation generation: {str(e)}")
+
+async def generate_recommendations_background(job_id: str, db: AsyncSession):
+    """Background task for generating recommendations."""
+    try:
+        logger.info(f"🔄 Starting background generation for job {job_id}")
+        
+        # Update job status
+        if job_id in job_store:
+            job_store[job_id].update({
+                "status": "running",
+                "message": "Initializing recommendation generation...",
+                "total_tickers": 0,
+                "processed_tickers": 0,
+                "recommendations_generated": 0
+            })
+        
+        # Create a new database session for background task
+        from db.session import get_async_db
+        async for fresh_db in get_async_db():
+            try:
+                # Use the real RecommenderService with progress tracking
+                from services.recommender_service import RecommenderService
+                
+                def progress_callback(status_update):
+                    """Callback function to update job progress"""
+                    if job_id in job_store:
+                        job_store[job_id].update(status_update)
+                
+                recommender_service = RecommenderService()
+                recommendations = await recommender_service.generate_recommendations(fresh_db, progress_callback=progress_callback)
+                
+                # Update job completion
+                if job_id in job_store:
+                    job_store[job_id].update({
+                        "status": "completed",
+                        "message": f"Successfully generated {len(recommendations)} recommendations",
+                        "recommendations_generated": len(recommendations),
+                        "completed_at": pacific_now().isoformat()
+                    })
+                
+                logger.info(f"✅ Background generation completed for job {job_id}: {len(recommendations)} recommendations created")
+                break
+                
+            except Exception as e:
+                logger.error(f"❌ Background generation failed for job {job_id}: {e}")
+                
+                # Update job failure
+                if job_id in job_store:
+                    job_store[job_id].update({
+                        "status": "failed",
+                        "message": f"Generation failed: {str(e)}",
+                        "failed_at": pacific_now().isoformat()
+                    })
+                break
+        
+    except Exception as e:
+        logger.error(f"❌ Critical error in background generation for job {job_id}: {e}")
+        
+        # Update job failure
+        if job_id in job_store:
+            job_store[job_id].update({
+                "status": "failed",
+                "message": f"Critical error: {str(e)}",
+                "failed_at": pacific_now().isoformat()
+            })
+
+@router.get("/generate/status/{job_id}")
+async def get_generation_status(job_id: str):
+    """Get the status of a generation job."""
+    if job_id not in job_store:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    return job_store[job_id]
+
+@router.get("/generate/jobs")
+async def list_generation_jobs():
+    """List all generation jobs."""
+    return {"jobs": list(job_store.values())}
+
+@router.get("/metadata")
+async def get_recommendations_metadata(
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get recommendations metadata including latest update timestamp."""
+    try:
+        from sqlalchemy import func, and_
+        from utils.timezone import pacific_now
+        from datetime import timedelta
+        
+        # Get today's date in Pacific timezone
+        today_start = pacific_now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = today_start + timedelta(days=1)
+        
+        # Get latest recommendation timestamp
+        latest_stmt = select(func.max(Recommendation.created_at)).where(
+            and_(
+                Recommendation.status == "proposed",
+                Recommendation.created_at >= today_start,
+                Recommendation.created_at < today_end
+            )
+        )
+        latest_result = await db.execute(latest_stmt)
+        latest_timestamp = latest_result.scalar()
+        
+        # Count unique tickers with recommendations for today (to match the deduplication logic)
+        count_stmt = select(func.count(func.distinct(Recommendation.symbol))).where(
+            and_(
+                Recommendation.status == "proposed",
+                Recommendation.created_at >= today_start,
+                Recommendation.created_at < today_end
+            )
+        )
+        count_result = await db.execute(count_stmt)
+        total_count = count_result.scalar()
+        
+        return {
+            "latest_update": latest_timestamp.isoformat() if latest_timestamp else None,
+            "total_recommendations_today": total_count or 0,  # Count of unique tickers with recommendations
+            "today_start": today_start.isoformat(),
+            "current_time": pacific_now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.warning(f"Error getting recommendations metadata: {e}")
+        return {
+            "latest_update": None,
+            "total_recommendations_today": 0,
+            "today_start": pacific_now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),
+            "current_time": pacific_now().isoformat()
+        }
 
 @router.get("/current", response_model=List[RecommendationResponse])
 async def get_current_recommendations(
     db: AsyncSession = Depends(get_async_db),
     limit: int = Query(default=50, le=100)
 ):
-    """Get current recommendations - all recommendations from today."""
+    """Get current recommendations - latest recommendation per ticker from today."""
     try:
         from sqlalchemy import func, and_, distinct
         from utils.timezone import pacific_now
@@ -276,19 +417,36 @@ async def get_current_recommendations(
         
         logger.info(f"🔍 Fetching recommendations from {today_start} to {today_end}")
         
-        # Get all proposed recommendations from today, ordered by score
-        stmt = select(Recommendation).where(
+        # Get only the latest recommendation per ticker from today
+        # Use a window function to rank recommendations by created_at DESC for each symbol
+        from sqlalchemy import func, desc, text
+        
+        # Subquery to get the latest recommendation ID for each symbol
+        latest_rec_subquery = select(
+            Recommendation.symbol,
+            func.max(Recommendation.created_at).label('latest_created_at')
+        ).where(
             and_(
                 Recommendation.status == "proposed",
                 Recommendation.created_at >= today_start,
                 Recommendation.created_at < today_end
+            )
+        ).group_by(Recommendation.symbol).subquery()
+        
+        # Main query to get the full recommendation data for latest recommendations only
+        stmt = select(Recommendation).join(
+            latest_rec_subquery,
+            and_(
+                Recommendation.symbol == latest_rec_subquery.c.symbol,
+                Recommendation.created_at == latest_rec_subquery.c.latest_created_at,
+                Recommendation.status == "proposed"
             )
         ).order_by(desc(Recommendation.score))
         
         result = await db.execute(stmt)
         recommendations = result.scalars().all()
         
-        logger.info(f"📊 Found {len(recommendations)} recommendations for today")
+        logger.info(f"📊 Found {len(recommendations)} unique recommendations for today (latest per ticker)")
         
         # If no recommendations today, check if there are any recommendations at all
         if not recommendations:
