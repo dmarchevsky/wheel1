@@ -345,6 +345,10 @@ class RecommenderService:
         
         # Step 1: Check if we have recent options data in the database first
         logger.info(f"🔍 Step 1: Checking database for existing options...")
+        # Get volume and OI thresholds
+        min_volume = await get_setting(db, "min_volume", 200)
+        min_oi = await get_setting(db, "min_oi", 500)
+        
         result = await db.execute(
             select(Option).where(
                 and_(
@@ -356,12 +360,17 @@ class RecommenderService:
                     Option.dte <= await get_setting(db, "dte_max", 35),
                     # Delta filter: use database settings (absolute value for puts)
                     Option.delta >= -await get_setting(db, "put_delta_max", 0.35),  # Negative for puts
-                    Option.delta <= -await get_setting(db, "put_delta_min", 0.25)   # Negative for puts
+                    Option.delta <= -await get_setting(db, "put_delta_min", 0.25),   # Negative for puts
+                    # Volume and OI filters - apply at database level for efficiency
+                    Option.volume.isnot(None),
+                    Option.volume >= min_volume,
+                    Option.open_interest.isnot(None),
+                    Option.open_interest >= min_oi
                 )
             )
         )
         options = result.scalars().all()
-        logger.info(f"📊 Found {len(options)} recent options in database for {ticker.symbol} (filtered by DTE and delta)")
+        logger.info(f"📊 Found {len(options)} recent options in database for {ticker.symbol} (filtered by DTE, delta, volume≥{min_volume}, OI≥{min_oi})")
         
         # Step 2: If no recent options, sync market data and fetch from API
         if not options:

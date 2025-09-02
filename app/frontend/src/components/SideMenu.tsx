@@ -23,6 +23,7 @@ import {
   Close as CloseIcon,
   ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
+  AccountBalance as PortfolioIcon,
 } from '@mui/icons-material';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -41,6 +42,11 @@ const menuItems = [
     text: 'Dashboard',
     icon: <DashboardIcon />,
     href: '/',
+  },
+  {
+    text: 'Portfolio',
+    icon: <PortfolioIcon />,
+    href: '/portfolio',
   },
   {
     text: 'Tickers',

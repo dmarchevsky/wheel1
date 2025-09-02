@@ -29,6 +29,7 @@ import {
   AutoAwesome as AutoAwesomeIcon,
 } from '@mui/icons-material'
 import RecommendationsPanel from '@/components/RecommendationsPanel'
+import PositionsSummary from '@/components/PositionsSummary'
 import { recommendationsApi } from '@/lib/api'
 
 export default function Dashboard() {
@@ -44,13 +45,18 @@ export default function Dashboard() {
   const [metadata, setMetadata] = useState<any>(null)
   const [pollingEnabled, setPollingEnabled] = useState(false)
   const [pollingInterval, setPollingInterval] = useState(5)
+  const recommendationsPanelRef = useRef<any>(null)
 
   const handleRefresh = async () => {
     setRefreshing(true)
     try {
-      // The actual refresh logic is handled by the RecommendationsPanel
-      // We just manage the loading state here
-      await new Promise(resolve => setTimeout(resolve, 100)) // Small delay to show loading state
+      // Call the RecommendationsPanel's refresh method directly
+      if (recommendationsPanelRef.current?.refreshRecommendations) {
+        await recommendationsPanelRef.current.refreshRecommendations()
+      } else {
+        // Fallback - small delay if ref isn't ready
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
     } finally {
       setRefreshing(false)
     }
@@ -117,12 +123,15 @@ export default function Dashboard() {
             setTimeout(pollStatus, 2000) // Poll every 2 seconds
           } else if (job.status === 'completed') {
             setGenerationMessage(`✅ ${job.message || 'Generation completed successfully!'}`)
-            // Refresh recommendations when generation is complete
+            // Refresh recommendations table when generation is complete
+            if (recommendationsPanelRef.current?.refreshRecommendations) {
+              setTimeout(() => {
+                recommendationsPanelRef.current.refreshRecommendations()
+              }, 1000) // Small delay to ensure backend is ready
+            }
             setTimeout(() => {
               setGenerationStatus('idle')
               setGenerationMessage('')
-              // Trigger a refresh of recommendations
-              window.location.reload() // Simple refresh for now
             }, 3000) // Show success for 3 seconds
           } else if (job.status === 'failed') {
             setGenerationMessage(`❌ ${job.message || 'Generation failed'}`)
@@ -337,6 +346,7 @@ export default function Dashboard() {
                 )}
                 
                 <RecommendationsPanel 
+                  ref={recommendationsPanelRef}
                   onRefresh={handleRefresh}
                   onClearFilters={handleClearFilters}
                   onGenerateRecommendations={handleGenerateRecommendations}
@@ -369,9 +379,7 @@ export default function Dashboard() {
             />
             <Collapse in={portfolioExpanded}>
               <CardContent sx={{ pt: 0 }}>
-                <Typography color="textSecondary" align="center" sx={{ py: 8 }}>
-                  Portfolio performance and analytics will be displayed here.
-                </Typography>
+                <PositionsSummary />
               </CardContent>
             </Collapse>
           </Card>

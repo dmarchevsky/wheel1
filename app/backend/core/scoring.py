@@ -72,14 +72,85 @@ class ScoringEngine:
             return 999.0
         return min(spread_pct, 999.0)  # Cap at reasonable maximum
     
-    def calculate_iv_rank(self, current_iv: float, historical_ivs: List[float]) -> float:
+    def calculate_iv_rank(self, current_iv: float, historical_ivs: List[float] = None) -> float:
         """Calculate IV Rank (percentile of current IV vs historical)."""
-        if not historical_ivs or current_iv <= 0:
+        if historical_ivs and len(historical_ivs) > 0 and current_iv > 0:
+            # Use actual historical data if available
+            rank = (sum(1 for iv in historical_ivs if iv < current_iv) / len(historical_ivs)) * 100
+            return rank
+        elif current_iv > 0:
+            # Simplified IV rank without historical data
+            # Based on typical IV ranges for equity options
+            return self.calculate_simplified_iv_rank(current_iv)
+        else:
             return 50.0  # Default to middle rank
+    
+    def calculate_simplified_iv_rank(self, current_iv: float, historical_volatility: float = None) -> float:
+        """Calculate simplified IV rank based on IV vs historical volatility or typical ranges."""
+        if current_iv <= 0:
+            return 0.0
         
-        # Calculate percentile
-        rank = (sum(1 for iv in historical_ivs if iv < current_iv) / len(historical_ivs)) * 100
-        return rank
+        # Convert IV to percentage for easier comparison
+        iv_pct = current_iv * 100
+        
+        # If we have historical volatility, use IV/HV ratio for better ranking
+        if historical_volatility and historical_volatility > 0:
+            # Convert HV to percentage to match IV
+            hv_pct = historical_volatility
+            if hv_pct < 1:  # If it's in decimal form, convert to percentage
+                hv_pct = historical_volatility * 100
+            
+            # Calculate IV/HV ratio
+            iv_hv_ratio = iv_pct / hv_pct
+            
+            # Convert ratio to percentile rank:
+            # Ratio < 0.8: IV is low relative to HV -> Rank 0-30
+            # Ratio 0.8-1.2: IV near HV (normal) -> Rank 30-70
+            # Ratio > 1.2: IV is high relative to HV -> Rank 70-100
+            
+            if iv_hv_ratio <= 0.6:
+                # Very low IV vs HV -> Rank 0-15
+                return min(15, (iv_hv_ratio / 0.6) * 15)
+            elif iv_hv_ratio <= 0.8:
+                # Low IV vs HV -> Rank 15-30
+                return 15 + ((iv_hv_ratio - 0.6) / 0.2) * 15
+            elif iv_hv_ratio <= 1.0:
+                # Normal IV vs HV -> Rank 30-50
+                return 30 + ((iv_hv_ratio - 0.8) / 0.2) * 20
+            elif iv_hv_ratio <= 1.2:
+                # Elevated IV vs HV -> Rank 50-70
+                return 50 + ((iv_hv_ratio - 1.0) / 0.2) * 20
+            elif iv_hv_ratio <= 1.5:
+                # High IV vs HV -> Rank 70-85
+                return 70 + ((iv_hv_ratio - 1.2) / 0.3) * 15
+            else:
+                # Very high IV vs HV -> Rank 85-95 (capped)
+                return min(95, 85 + ((iv_hv_ratio - 1.5) / 0.5) * 10)
+        
+        else:
+            # Fallback to absolute IV ranges when no historical volatility
+            # Typical IV ranges for equity options:
+            # Very Low: 0-15%  -> Rank 0-20
+            # Low: 15-25%      -> Rank 20-40  
+            # Medium: 25-35%   -> Rank 40-60
+            # High: 35-50%     -> Rank 60-80
+            # Very High: 50%+  -> Rank 80-100
+            
+            if iv_pct <= 15:
+                # Linear scale from 0-20 for 0-15% IV
+                return (iv_pct / 15) * 20
+            elif iv_pct <= 25:
+                # Linear scale from 20-40 for 15-25% IV
+                return 20 + ((iv_pct - 15) / 10) * 20
+            elif iv_pct <= 35:
+                # Linear scale from 40-60 for 25-35% IV
+                return 40 + ((iv_pct - 25) / 10) * 20
+            elif iv_pct <= 50:
+                # Linear scale from 60-80 for 35-50% IV
+                return 60 + ((iv_pct - 35) / 15) * 20
+            else:
+                # Linear scale from 80-100 for 50%+ IV, capped at 95
+                return min(95, 80 + ((iv_pct - 50) / 25) * 20)
     
     def calculate_proximity_to_support(self, current_price: float, strike: float, 
                                      ma_50: float = None, ma_200: float = None) -> float:
@@ -129,8 +200,7 @@ class ScoringEngine:
         liquidity_score = (0.4 * oi_score + 0.4 * volume_score + 0.2 * spread_score)
         return liquidity_score
     
-    async def calculate_risk_adjustment(self, symbol: str, earnings_date: Optional[datetime] = None,
-                                sector: str = None) -> float:
+    async def calculate_risk_adjustment(self, symbol: str, earnings_date: Optional[datetime] = None) -> float:
         """Calculate risk adjustment factor."""
         risk_score = 1.0
         
@@ -140,11 +210,6 @@ class ScoringEngine:
             earnings_blackout_days = await get_setting(self.db, "earnings_blackout_days", 7)
             if 0 <= days_to_earnings <= earnings_blackout_days:
                 risk_score *= 0.3  # Significant penalty during earnings blackout
-        
-        # Sector risk adjustments (simplified)
-        high_risk_sectors = ['biotech', 'energy', 'financials']
-        if sector and sector.lower() in high_risk_sectors:
-            risk_score *= 0.8
         
         return risk_score
     
@@ -342,8 +407,7 @@ class ScoringEngine:
         
         risk_adjustment = await self.calculate_risk_adjustment(
             option.symbol,
-            earnings.earnings_date if earnings else None,
-            ticker.sector if ticker else None
+            earnings.earnings_date if earnings else None
         )
         
         # Qualitative score from GPT
@@ -467,16 +531,14 @@ class ScoringEngine:
             if not (0.1 <= option.implied_volatility <= 2.0):
                 return False
         
-        # OI and Volume filters
-        if option.open_interest:
-            min_oi = await get_setting(self.db, "min_oi", 500)
-            if option.open_interest < min_oi:
-                return False
+        # OI and Volume filters - require minimum thresholds
+        min_oi = await get_setting(self.db, "min_oi", 500)
+        if not option.open_interest or option.open_interest < min_oi:
+            return False
         
-        if option.volume:
-            min_volume = await get_setting(self.db, "min_volume", 200)
-            if option.volume < min_volume:
-                return False
+        min_volume = await get_setting(self.db, "min_volume", 200)
+        if not option.volume or option.volume < min_volume:
+            return False
         
         # Bid-ask spread filter
         if option.bid and option.ask:
@@ -485,11 +547,19 @@ class ScoringEngine:
             if spread_pct > max_bid_ask_pct:
                 return False
         
-        # Annualized yield filter
+        # Annualized yield filter - require minimum yield
         dte = (option.expiry - pacific_now()).days
-        if dte > 0 and option.bid and option.ask:
-            mid_price = (option.bid + option.ask) / 2
-            annualized_yield = self.calculate_annualized_yield(mid_price, option.strike, dte)
+        if dte > 0:
+            # Get contract price (mid price preferred, fallback to last)
+            if option.bid and option.ask:
+                contract_price = (option.bid + option.ask) / 2
+            elif option.last:
+                contract_price = option.last
+            else:
+                # No pricing data available - reject
+                return False
+            
+            annualized_yield = self.calculate_annualized_yield(contract_price, option.strike, dte)
             annualized_min_pct = await get_setting(self.db, "annualized_min_pct", 20.0)
             if annualized_yield < annualized_min_pct:
                 return False
@@ -498,29 +568,9 @@ class ScoringEngine:
     
     async def get_top_recommendations(self, scored_options: List[Tuple[Option, Dict]], 
                               max_recommendations: int = None) -> List[Tuple[Option, Dict]]:
-        """Get top recommendations with sector diversification."""
+        """Get top recommendations based purely on score ranking."""
         if max_recommendations is None:
             max_recommendations = await get_setting(self.db, "max_recommendations", 3)
         
-        if len(scored_options) <= max_recommendations:
-            return scored_options[:max_recommendations]
-        
-        # Simple sector diversification
-        selected = []
-        sectors_seen = set()
-        
-        for option, score_result in scored_options:
-            # Note: This query would need to be async, but for now we'll use a default sector
-                    # ticker = await self.db.execute(select(InterestingTicker).where(InterestingTicker.symbol == option.symbol)).scalar_one_or_none()
-        # sector = ticker.sector if ticker else "unknown"
-            sector = "unknown"  # Default for now
-            
-            # Prefer different sectors
-            if sector not in sectors_seen or len(selected) < max_recommendations // 2:
-                selected.append((option, score_result))
-                sectors_seen.add(sector)
-            
-            if len(selected) >= max_recommendations:
-                break
-        
-        return selected
+        # Simply return the top N recommendations by score
+        return scored_options[:max_recommendations]

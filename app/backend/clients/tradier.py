@@ -629,6 +629,9 @@ class TradierDataManager:
             
             await self.db.commit()
             
+            # Update IV ranks with historical volatility after storing options
+            await self._update_iv_ranks_with_historical_volatility(symbol, options)
+            
             # Update put/call ratio in ticker quotes using calculated ratio
             await self._update_put_call_ratio_for_ticker(symbol, put_call_ratio)
             
@@ -798,7 +801,7 @@ class TradierDataManager:
                 open_interest=int(opt_data.get("open_interest", 0)) if opt_data.get("open_interest") else None,
                 volume=int(opt_data.get("volume", 0)) if opt_data.get("volume") else None,
                 dte=dte,
-                iv_rank=0.5  # Default IV rank
+                iv_rank=self._calculate_iv_rank(implied_volatility, symbol) if implied_volatility else 50.0
             )
             
             logger.debug(f"Created option: {option.symbol} {option.strike} {option.option_type} - Delta: {option.delta}")
@@ -810,6 +813,66 @@ class TradierDataManager:
         except Exception as e:
             logger.error(f"Unexpected error parsing option data for {symbol}: {e}")
             return None
+    
+    def _calculate_iv_rank(self, implied_volatility: float, symbol: str = None) -> float:
+        """Calculate simplified IV rank based on current IV value and historical volatility."""
+        from core.scoring import ScoringEngine
+        
+        # Create a temporary scoring engine instance for IV rank calculation
+        # Note: We don't have database access here, so pass None for db
+        scoring_engine = ScoringEngine(None)
+        
+        # Try to get historical volatility from database if symbol provided
+        historical_volatility = None
+        if symbol and self.db:
+            try:
+                from db.models import TickerQuote
+                from sqlalchemy import select
+                
+                # Get the ticker's historical volatility asynchronously would require async context
+                # For now, we'll use the simplified calculation without historical volatility
+                # TODO: Consider refactoring to make this async or pass HV as parameter
+                pass
+            except Exception:
+                pass
+        
+        return scoring_engine.calculate_simplified_iv_rank(implied_volatility, historical_volatility)
+    
+    async def _update_iv_ranks_with_historical_volatility(self, symbol: str, options: List[Option]) -> None:
+        """Update IV ranks for options using the ticker's historical volatility."""
+        try:
+            from db.models import TickerQuote
+            from core.scoring import ScoringEngine
+            
+            # Get the ticker's historical volatility
+            result = await self.db.execute(
+                select(TickerQuote).where(TickerQuote.symbol == symbol)
+            )
+            quote = result.scalar_one_or_none()
+            
+            if quote and quote.volatility_30d:
+                scoring_engine = ScoringEngine(None)
+                
+                # Update IV rank for each option using historical volatility
+                for option in options:
+                    if option.implied_volatility:
+                        # Calculate better IV rank using historical volatility
+                        new_iv_rank = scoring_engine.calculate_simplified_iv_rank(
+                            option.implied_volatility, 
+                            quote.volatility_30d
+                        )
+                        option.iv_rank = new_iv_rank
+                        logger.debug(f"Updated IV rank for {option.symbol}: {new_iv_rank:.1f} "
+                                   f"(IV: {option.implied_volatility*100:.1f}%, HV: {quote.volatility_30d:.1f}%)")
+                
+                # Commit the IV rank updates
+                await self.db.commit()
+                logger.info(f"Updated IV ranks for {len(options)} options using HV={quote.volatility_30d:.1f}%")
+            else:
+                logger.debug(f"No historical volatility available for {symbol}, keeping simplified IV ranks")
+                
+        except Exception as e:
+            logger.warning(f"Failed to update IV ranks with historical volatility for {symbol}: {e}")
     
     async def _passes_storage_criteria(self, option: Option) -> bool:
         """Check if option meets storage criteria (delta and DTE)."""
@@ -830,12 +893,24 @@ class TradierDataManager:
                 logger.debug(f"Option {option.symbol} {option.strike} failed delta filter: {option.delta} (need {put_delta_min}-{put_delta_max})")
                 return False
             
-            # Basic liquidity filter: require some open interest
-            if option.open_interest is not None and option.open_interest < 10:  # Very low threshold for storage
-                logger.debug(f"Option {option.symbol} {option.strike} failed OI filter: {option.open_interest}")
+            # Basic liquidity filters: require minimum volume and open interest for storage
+            min_volume_storage = await get_setting(self.db, "min_volume", 200)
+            min_oi_storage = await get_setting(self.db, "min_oi", 500)
+            
+            # Use lower thresholds for storage than for recommendation scoring
+            # This allows us to store more options while still filtering most junk
+            storage_volume_threshold = max(50, min_volume_storage // 4)  # 25% of recommendation threshold, min 50
+            storage_oi_threshold = max(100, min_oi_storage // 5)  # 20% of recommendation threshold, min 100
+            
+            if not option.volume or option.volume < storage_volume_threshold:
+                logger.debug(f"Option {option.symbol} {option.strike} failed volume filter: {option.volume} (need ≥{storage_volume_threshold})")
+                return False
+                
+            if not option.open_interest or option.open_interest < storage_oi_threshold:
+                logger.debug(f"Option {option.symbol} {option.strike} failed OI filter: {option.open_interest} (need ≥{storage_oi_threshold})")
                 return False
             
-            logger.debug(f"Option {option.symbol} {option.strike} passed storage criteria: DTE={option.dte}, Delta={option.delta}")
+            logger.debug(f"Option {option.symbol} {option.strike} passed storage criteria: DTE={option.dte}, Delta={option.delta}, Volume={option.volume}, OI={option.open_interest}")
             return True
             
         except Exception as e:

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react'
 import {
   Card,
   CardContent,
@@ -76,7 +76,7 @@ interface RecommendationsPanelProps {
   onPollingIntervalChange?: (interval: number) => void;
 }
 
-export default function RecommendationsPanel({ 
+const RecommendationsPanel = forwardRef<any, RecommendationsPanelProps>(({ 
   onRefresh, 
   onClearFilters,
   onGenerateRecommendations,
@@ -89,7 +89,7 @@ export default function RecommendationsPanel({
   pollingInterval = 5,
   onPollingEnabledChange,
   onPollingIntervalChange
-}: RecommendationsPanelProps) {
+}, ref) => {
   const [recommendations, setRecommendations] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -152,6 +152,11 @@ export default function RecommendationsPanel({
       setLoading(false)
     }
   }, [onMetadataUpdate]) // Add filterOptions dependency
+
+  // Expose methods to parent component via ref
+  useImperativeHandle(ref, () => ({
+    refreshRecommendations: fetchRecommendations
+  }))
 
   // Frontend filtering logic
   const filteredRecommendations = useMemo(() => {
@@ -218,6 +223,22 @@ export default function RecommendationsPanel({
           aValue = a.annualized_roi || 0
           bValue = b.annualized_roi || 0
           break
+        case 'collateral':
+          aValue = a.collateral || 0
+          bValue = b.collateral || 0
+          break
+        case 'contract_price':
+          aValue = a.contract_price || 0
+          bValue = b.contract_price || 0
+          break
+        case 'put_call_ratio':
+          aValue = a.put_call_ratio || 0
+          bValue = b.put_call_ratio || 0
+          break
+        case 'volume':
+          aValue = a.volume || 0
+          bValue = b.volume || 0
+          break
         case 'score':
           aValue = a.score || 0
           bValue = b.score || 0
@@ -282,11 +303,7 @@ export default function RecommendationsPanel({
   }
 
   const handleRefresh = async () => {
-    if (onRefresh) {
-      onRefresh()
-      return
-    }
-    
+    // Always use our own refresh logic since parent calls via ref
     try {
       setRefreshing(true)
       setError(null)
@@ -296,6 +313,11 @@ export default function RecommendationsPanel({
       setError(err.response?.data?.detail || err.message || 'Failed to refresh recommendations')
     } finally {
       setRefreshing(false)
+    }
+    
+    // Also call parent's onRefresh if provided (for additional side effects)
+    if (onRefresh) {
+      onRefresh()
     }
   }
 
@@ -983,4 +1005,8 @@ export default function RecommendationsPanel({
       )}
     </Box>
   )
-}
+})
+
+RecommendationsPanel.displayName = 'RecommendationsPanel'
+
+export default RecommendationsPanel
