@@ -83,6 +83,7 @@ export default function TickersPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [filterSymbol, setFilterSymbol] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterSource, setFilterSource] = useState<string>('all');
   const [sortField, setSortField] = useState<string>('symbol');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
@@ -90,7 +91,14 @@ export default function TickersPage() {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch('/api/v1/market-data/interesting-tickers');
+      
+      // Build URL with source filter if specified
+      let url = '/api/v1/market-data/interesting-tickers';
+      if (filterSource && filterSource !== 'all') {
+        url += `?source=${encodeURIComponent(filterSource)}`;
+      }
+      
+      const response = await fetch(url);
       if (!response.ok) {
         throw new Error('Failed to fetch tickers');
       }
@@ -164,6 +172,11 @@ export default function TickersPage() {
     setFilterStatus(value);
   };
 
+  // Filter tickers based on source
+  const handleSourceFilterChange = (value: string) => {
+    setFilterSource(value);
+  };
+
   // Handle sorting
   const handleSort = (field: string) => {
     if (sortField === field) {
@@ -176,7 +189,7 @@ export default function TickersPage() {
 
   useEffect(() => {
     fetchTickers();
-  }, []);
+  }, [filterSource]);
 
   useEffect(() => {
     applyFiltersAndSort();
@@ -209,6 +222,7 @@ export default function TickersPage() {
       setNewTickerSymbol('');
       setFilterSymbol(''); // Clear filter
       setFilterStatus('all'); // Clear status filter
+      setFilterSource('all'); // Clear source filter
       fetchTickers(); // Refresh the list
     } catch (error) {
       console.error('Error adding ticker:', error);
@@ -233,8 +247,6 @@ export default function TickersPage() {
 
       const data = await response.json();
       setSuccess(data.message);
-      setFilterSymbol(''); // Clear filter
-      setFilterStatus('all'); // Clear status filter
       fetchTickers(); // Refresh the list
     } catch (error) {
       console.error('Error toggling ticker:', error);
@@ -259,8 +271,6 @@ export default function TickersPage() {
 
       const data = await response.json();
       setSuccess(data.message);
-      setFilterSymbol(''); // Clear filter
-      setFilterStatus('all'); // Clear status filter
       fetchTickers(); // Refresh the list
     } catch (error) {
       console.error('Error refreshing ticker:', error);
@@ -287,8 +297,6 @@ export default function TickersPage() {
       setSuccess(data.message);
       setDeleteDialogOpen(false);
       setTickerToDelete(null);
-      setFilterSymbol(''); // Clear filter
-      setFilterStatus('all'); // Clear status filter
       fetchTickers(); // Refresh the list
     } catch (error) {
       console.error('Error removing ticker:', error);
@@ -439,6 +447,23 @@ export default function TickersPage() {
                   <MenuItem value="all">All</MenuItem>
                   <MenuItem value="active">Active</MenuItem>
                   <MenuItem value="inactive">Inactive</MenuItem>
+                </Select>
+              </FormControl>
+              <FormControl size="small" sx={{ minWidth: 120 }}>
+                <InputLabel>Source</InputLabel>
+                <Select
+                  value={filterSource}
+                  onChange={(e) => handleSourceFilterChange(e.target.value)}
+                  label="Source"
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: 0,
+                    },
+                  }}
+                >
+                  <MenuItem value="all">All Sources</MenuItem>
+                  <MenuItem value="sp500">S&P 500</MenuItem>
+                  <MenuItem value="manual">Manual</MenuItem>
                 </Select>
               </FormControl>
             </Box>
@@ -593,14 +618,14 @@ export default function TickersPage() {
                         {ticker.put_call_ratio ? ticker.put_call_ratio.toFixed(3) : 'N/A'}
                       </TableCell>
                       <TableCell>{formatDate(ticker.next_earnings_date)}</TableCell>
-                              <TableCell>
-          <Chip
-            label={ticker.source}
-            color={ticker.source === 'sp500' ? 'primary' : 'default'}
-            size="small"
-            sx={{ borderRadius: 0 }}
-          />
-        </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={ticker.source}
+                          color={ticker.source === 'sp500' ? 'primary' : 'default'}
+                          size="small"
+                          sx={{ borderRadius: 0 }}
+                        />
+                      </TableCell>
                       <TableCell>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <Switch
