@@ -1,21 +1,23 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import React, { useState, useRef } from 'react'
 import {
   Box,
   Container,
   Card,
-  CardContent,
   CardHeader,
+  CardContent,
   Typography,
   IconButton,
   Collapse,
-  Tooltip,
+  Button,
   CircularProgress,
 } from '@mui/material'
 import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
+  Refresh as RefreshIcon,
+  FilterList as FilterIcon,
   AutoAwesome as AutoAwesomeIcon,
 } from '@mui/icons-material'
 import RecommendationsPanel from '@/components/RecommendationsPanel'
@@ -24,26 +26,34 @@ export default function Dashboard() {
   const [recommendationsExpanded, setRecommendationsExpanded] = useState(true)
   const [portfolioExpanded, setPortfolioExpanded] = useState(true)
   const [activityExpanded, setActivityExpanded] = useState(true)
+  const [filtersVisible, setFiltersVisible] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
-  const refreshRef = useRef<(() => Promise<void>) | null>(null)
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  }
+  const [generationStatus, setGenerationStatus] = useState('idle')
+  const [clearTrigger, setClearTrigger] = useState(0)
+  const generateRef = useRef<(() => Promise<void>) | null>(null)
 
   const handleRefresh = async () => {
-    if (refreshRef.current) {
-      setRefreshing(true)
+    setRefreshing(true)
+    try {
+      // The actual refresh logic is handled by the RecommendationsPanel
+      // We just manage the loading state here
+      await new Promise(resolve => setTimeout(resolve, 100)) // Small delay to show loading state
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  const handleClearFilters = () => {
+    setClearTrigger(prev => prev + 1)
+  }
+
+  const handleGenerateRecommendations = async () => {
+    if (generateRef.current) {
+      setGenerationStatus('pending')
       try {
-        await refreshRef.current()
-      } finally {
-        setRefreshing(false)
+        await generateRef.current()
+      } catch (error) {
+        setGenerationStatus('failed')
       }
     }
   }
@@ -67,23 +77,43 @@ export default function Dashboard() {
             <CardHeader
               title="Latest Recommendations"
               action={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Tooltip title="Generate new recommendations (may take up to 30 seconds)">
-                    <IconButton
-                      onClick={handleRefresh}
-                      disabled={refreshing}
-                      size="small"
-                      sx={{ 
-                        color: 'success.main',
-                        '&:hover': {
-                          backgroundColor: 'success.main',
-                          color: 'success.contrastText',
-                        }
-                      }}
-                    >
-                      {refreshing ? <CircularProgress size={20} /> : <AutoAwesomeIcon />}
-                    </IconButton>
-                  </Tooltip>
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                  <Button
+                    variant={filtersVisible ? "contained" : "outlined"}
+                    onClick={() => setFiltersVisible(!filtersVisible)}
+                    size="small"
+                    startIcon={<FilterIcon />}
+                  >
+                    Filters
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    onClick={handleClearFilters}
+                    size="small"
+                    disabled={!filtersVisible}
+                  >
+                    Clear
+                  </Button>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    onClick={handleGenerateRecommendations}
+                    disabled={generationStatus === 'pending' || generationStatus === 'running'}
+                    startIcon={generationStatus === 'pending' || generationStatus === 'running' ? 
+                      <CircularProgress size={16} /> : <AutoAwesomeIcon />}
+                    size="small"
+                  >
+                    Generate
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    onClick={handleRefresh}
+                    disabled={refreshing}
+                    startIcon={refreshing ? <CircularProgress size={16} /> : <RefreshIcon />}
+                    size="small"
+                  >
+                    Refresh
+                  </Button>
                   <IconButton
                     onClick={() => setRecommendationsExpanded(!recommendationsExpanded)}
                     sx={{ borderRadius: 0 }}
@@ -95,7 +125,15 @@ export default function Dashboard() {
             />
             <Collapse in={recommendationsExpanded}>
               <CardContent sx={{ pt: 0 }}>
-                <RecommendationsPanel refreshRef={refreshRef} />
+                <RecommendationsPanel 
+                  onRefresh={handleRefresh}
+                  onClearFilters={handleClearFilters}
+                  onGenerateRecommendations={handleGenerateRecommendations}
+                  refreshing={refreshing}
+                  generationStatus={generationStatus}
+                  filtersVisible={filtersVisible}
+                  clearTrigger={clearTrigger}
+                />
               </CardContent>
             </Collapse>
           </Card>
