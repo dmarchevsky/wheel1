@@ -214,7 +214,16 @@ export default function TickersPage() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to add ticker');
+        const errorMessage = errorData.detail || 'Failed to add ticker';
+        
+        // Provide user-friendly error messages for common cases
+        if (errorMessage.includes('already exists')) {
+          setError(`The ticker symbol "${newTickerSymbol.trim().toUpperCase()}" is already in your watchlist.`);
+          return;
+        }
+        
+        setError(errorMessage);
+        return;
       }
 
       const data = await response.json();
@@ -222,7 +231,7 @@ export default function TickersPage() {
       setNewTickerSymbol('');
       setFilterSymbol(''); // Clear filter
       setFilterStatus('all'); // Clear status filter
-      setFilterSource('all'); // Clear source filter
+      // Note: Source filter is preserved to maintain user's current view
       fetchTickers(); // Refresh the list
     } catch (error) {
       console.error('Error adding ticker:', error);

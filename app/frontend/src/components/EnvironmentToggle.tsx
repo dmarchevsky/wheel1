@@ -14,7 +14,7 @@ import {
 } from '@mui/material';
 import {
   Science as SandboxIcon,
-  BusinessCenter as ProductionIcon,
+  BusinessCenter as LiveModeIcon,
 } from '@mui/icons-material';
 import { tradingEnvironmentApi } from '@/lib/api';
 import { TradingEnvironment, EnvironmentStatus } from '@/types';
@@ -72,7 +72,8 @@ export default function EnvironmentToggle({ onEnvironmentChange, collapsed }: En
         if (response.data.warning) {
           setSuccess(`⚠️ ${response.data.message}`);
         } else {
-          setSuccess(`Successfully switched to ${newEnvironment} environment`);
+          const modeName = newEnvironment === 'sandbox' ? 'Sandbox Mode' : 'Live Mode';
+          setSuccess(`Successfully switched to ${modeName}`);
         }
         
         // Notify parent component
@@ -129,17 +130,17 @@ export default function EnvironmentToggle({ onEnvironmentChange, collapsed }: En
         {!collapsed && (
           <>
             {isSandbox ? <SandboxIcon sx={{ fontSize: 16, color: 'warning.main' }} /> : 
-             <ProductionIcon sx={{ fontSize: 16, color: 'success.main' }} />}
+             <LiveModeIcon sx={{ fontSize: 16, color: 'success.main' }} />}
             
             <Typography variant="caption" sx={{ fontWeight: 600, minWidth: 'fit-content' }}>
-              {isSandbox ? 'SANDBOX' : 'PROD'}
+              {isSandbox ? 'SANDBOX MODE' : 'LIVE MODE'}
             </Typography>
           </>
         )}
         
         {collapsed ? (
           <Chip
-            icon={isSandbox ? <SandboxIcon /> : <ProductionIcon />}
+            icon={isSandbox ? <SandboxIcon /> : <LiveModeIcon />}
             label=""
             size="small"
             color={isSandbox ? 'warning' : 'success'}
@@ -164,7 +165,7 @@ export default function EnvironmentToggle({ onEnvironmentChange, collapsed }: En
             }
             label={
               <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                {loading ? 'Switching...' : 'Sandbox'}
+                {loading ? 'Switching...' : 'Sandbox Mode'}
               </Typography>
             }
             sx={{ margin: 0 }}

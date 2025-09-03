@@ -213,11 +213,41 @@ class TradierAccountClient:
         }
         data = await self._make_request("GET", f"/accounts/{self.account_id}/history", params)
         
-        history = data.get("history", {}).get("event", [])
-        if not isinstance(history, list):
-            history = [history]
+        # Debug: Log the raw response from Tradier
+        logger.info(f"DEBUG: Raw Tradier history response: {data}")
         
-        return history
+        # Handle empty or null responses
+        if not data or "history" not in data:
+            logger.info("DEBUG: No data or no history key in response, returning empty list")
+            return []
+        
+        history_data = data.get("history", {})
+        if not history_data:
+            return []
+        
+        # Handle case where history is a string "null" instead of a dict
+        if isinstance(history_data, str):
+            logger.info(f"DEBUG: History data is a string: {history_data}")
+            return []
+        
+        # Handle the event structure - it can be null, a string, a dict, or a list
+        events = history_data.get("event", [])
+        
+        # If events is None or empty string, return empty list
+        if not events:
+            return []
+        
+        # If events is a string, it's likely an error message or null value, return empty list
+        if isinstance(events, str):
+            logger.warning(f"Unexpected string response for account history: {events}")
+            return []
+        
+        # If events is a single dict, wrap it in a list
+        if isinstance(events, dict):
+            events = [events]
+        
+        # Ensure we return a list of dicts only
+        return [event for event in events if isinstance(event, dict)]
     
     async def test_connection(self) -> Dict[str, Any]:
         """Test Tradier API connection with a simple request."""

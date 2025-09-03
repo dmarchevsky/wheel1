@@ -396,7 +396,11 @@ async def get_recent_activity(
 ):
     """Get recent account activity from Tradier API."""
     try:
-        async with TradierClient() as tradier_client:
+        # Get current trading environment
+        current_env = trading_env.current_environment
+        logger.info(f"Getting account activity for environment: {current_env}")
+        
+        async with TradierClient(environment=current_env) as tradier_client:
             # Calculate date range
             end_date = datetime.now()
             start_date = end_date - timedelta(days=days)
@@ -408,12 +412,36 @@ async def get_recent_activity(
             logger.info(f"Fetching account activity from {start_date_str} to {end_date_str}")
             
             # Fetch account history from Tradier
-            history_events = await tradier_client.get_account_history(start_date_str, end_date_str)
+            try:
+                history_events = await tradier_client.get_account_history(start_date_str, end_date_str)
+            except Exception as api_error:
+                logger.error(f"Failed to fetch account history from Tradier API: {api_error}")
+                # For sandbox environment or when API is unavailable, return empty list with warning
+                if current_env == "sandbox":
+                    logger.warning("⚠️ Using empty activity data: Tradier sandbox API not available or not configured")
+                    return []
+                else:
+                    # For production, re-raise the error
+                    raise api_error
+            
+            # Debug: Log the type and content of history_events
+            logger.info(f"DEBUG: history_events type: {type(history_events)}")
+            logger.info(f"DEBUG: history_events content: {history_events}")
+            
+            # Ensure history_events is a list and contains only dictionaries
+            if not isinstance(history_events, list):
+                logger.warning(f"Expected list from get_account_history, got {type(history_events)}")
+                return []
             
             # Process and format the events - filter for trades only
             activity_events = []
             for event in history_events:
+                # Skip any events that are not dictionaries
+                if not isinstance(event, dict):
+                    logger.warning(f"Skipping non-dict event: {event} (type: {type(event)})")
+                    continue
                 try:
+                    
                     # Parse event data from Tradier response
                     event_date = event.get("date", "")
                     event_type = event.get("type", "unknown").lower()

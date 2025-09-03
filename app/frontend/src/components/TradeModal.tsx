@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Dialog,
   DialogTitle,
@@ -28,8 +28,6 @@ import {
   Divider,
   IconButton,
   Tooltip,
-  Switch,
-  FormControlLabel,
   Card,
   CardContent,
 } from '@mui/material'
@@ -41,6 +39,7 @@ import {
   Info as InfoIcon,
   Warning as WarningIcon,
 } from '@mui/icons-material'
+import { useThemeContext } from '@/contexts/ThemeContext'
 import { marketDataApi } from '@/lib/api'
 
 interface TradeModalProps {
@@ -85,6 +84,7 @@ interface UnderlyingQuote {
 }
 
 const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }) => {
+  const { environment } = useThemeContext()
   const [underlyingQuote, setUnderlyingQuote] = useState<UnderlyingQuote | null>(null)
   const [optionQuotes, setOptionQuotes] = useState<OptionQuote[]>([])
   const [selectedOption, setSelectedOption] = useState<OptionQuote | null>(null)
@@ -96,7 +96,6 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
   const [orderType, setOrderType] = useState('limit')
   const [limitPrice, setLimitPrice] = useState('')
   const [duration, setDuration] = useState('day')
-  const [previewMode, setPreviewMode] = useState(true)
   
   // Calculated values
   const [totalCredit, setTotalCredit] = useState(0)
@@ -104,6 +103,9 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
   const [maxProfit, setMaxProfit] = useState(0)
   const [maxLoss, setMaxLoss] = useState(0)
   const [breakeven, setBreakeven] = useState(0)
+  
+  // Ref for scrolling to recommended option
+  const recommendedOptionRef = useRef<HTMLDivElement>(null)
 
   const fetchMarketData = useCallback(async () => {
     if (!recommendation || !open) return
@@ -122,10 +124,10 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
         recommendation.expiry
       )
       
-      // Filter for put options around the recommended strike
+      // Filter for put options and sort by strike price for better usability
       const putOptions = optionsResponse.data.options
         .filter((opt: OptionQuote) => opt.option_type.toLowerCase() === 'put')
-        .sort((a: OptionQuote, b: OptionQuote) => Math.abs(a.strike - recommendation.strike) - Math.abs(b.strike - recommendation.strike))
+        .sort((a: OptionQuote, b: OptionQuote) => a.strike - b.strike) // Sort by strike price first
       
       setOptionQuotes(putOptions)
       
@@ -137,6 +139,16 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
       if (recommendedOption) {
         setSelectedOption(recommendedOption)
         setLimitPrice(recommendedOption.bid.toString())
+        
+        // Scroll to the recommended option after a short delay to ensure DOM is updated
+        setTimeout(() => {
+          if (recommendedOptionRef.current) {
+            recommendedOptionRef.current.scrollIntoView({ 
+              behavior: 'smooth', 
+              block: 'center' 
+            })
+          }
+        }, 100)
       }
       
     } catch (err: any) {
@@ -186,16 +198,75 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
     return `${(value * 100).toFixed(2)}%`
   }
 
-  const getMoneyness = (strike: number, underlying: number) => {
+  const getMoneyness = (strike: number, underlying: number, optionType: string) => {
+    // For PUT options: Lower strike = more ITM, Higher strike = more OTM
+    // For CALL options: Higher strike = more ITM, Lower strike = more OTM
+    
+    if (!underlying || underlying <= 0) {
+      return { label: 'N/A', color: 'default' as const }
+    }
+    
     const ratio = strike / underlying
-    if (ratio > 1.05) return { label: 'OTM', color: 'error' as const }
-    if (ratio > 0.95) return { label: 'ATM', color: 'warning' as const }
-    return { label: 'ITM', color: 'success' as const }
+    const optionTypeLower = optionType.toLowerCase()
+    
+    if (optionTypeLower === 'put') {
+      // PUT options: strike < underlying = ITM, strike > underlying = OTM
+      if (ratio < 0.97) return { label: 'ITM', color: 'success' as const }      // Strike < 97% of underlying
+      if (ratio < 1.03) return { label: 'ATM', color: 'warning' as const }      // Strike 97-103% of underlying
+      return { label: 'OTM', color: 'error' as const }                           // Strike > 103% of underlying
+    } else if (optionTypeLower === 'call') {
+      // CALL options: strike > underlying = ITM, strike < underlying = OTM
+      if (ratio > 1.03) return { label: 'ITM', color: 'success' as const }      // Strike > 103% of underlying
+      if (ratio > 0.97) return { label: 'ATM', color: 'warning' as const }      // Strike 97-103% of underlying
+      return { label: 'OTM', color: 'error' as const }                           // Strike < 97% of underlying
+    } else {
+      // Unknown option type
+      return { label: 'N/A', color: 'default' as const }
+    }
   }
 
   const handleSubmitTrade = () => {
-    // This is disabled for now as requested
-    alert('Trade submission is currently disabled. This is a preview-only interface.')
+    if (!selectedOption || !limitPrice) {
+      alert('Please select an option and enter a limit price.')
+      return
+    }
+
+    const environmentName = environment === 'production' ? 'LIVE MODE' : 'SANDBOX MODE'
+    const isProduction = environment === 'production'
+    
+    const confirmationMessage = isProduction 
+      ? `⚠️ WARNING: You are about to submit a REAL TRADE in LIVE MODE!\n\n` +
+        `Symbol: ${selectedOption.symbol}\n` +
+        `Strike: $${selectedOption.strike}\n` +
+        `Quantity: ${quantity}\n` +
+        `Limit Price: $${limitPrice}\n` +
+        `Total Value: $${(parseFloat(limitPrice) * quantity * 100).toFixed(2)}\n\n` +
+        `This will execute a real trade with real money. Are you sure?`
+      : `Trade submission in ${environmentName}:\n\n` +
+        `Symbol: ${selectedOption.symbol}\n` +
+        `Strike: $${selectedOption.strike}\n` +
+        `Quantity: ${quantity}\n` +
+        `Limit Price: $${limitPrice}\n` +
+        `Total Value: $${(parseFloat(limitPrice) * quantity * 100).toFixed(2)}\n\n` +
+        `This is paper trading - no real trades will be executed.`
+
+    if (confirm(confirmationMessage)) {
+      // TODO: Implement actual trade submission logic
+      console.log('Trade submitted:', {
+        symbol: selectedOption.symbol,
+        strike: selectedOption.strike,
+        quantity,
+        limitPrice,
+        orderType,
+        duration,
+        environment
+      })
+      
+      alert(isProduction 
+        ? 'Trade submitted successfully in LIVE MODE!' 
+        : 'Trade submitted successfully in SANDBOX MODE!'
+      )
+    }
   }
 
   if (!recommendation) return null
@@ -207,7 +278,7 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
       maxWidth="lg" 
       fullWidth
       PaperProps={{
-        sx: { minHeight: '80vh' }
+        sx: { minHeight: '80vh', borderRadius: 0 }
       }}
     >
       <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
@@ -226,17 +297,20 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
                 label={`${underlyingQuote.change >= 0 ? '+' : ''}${underlyingQuote.change.toFixed(2)} (${underlyingQuote.change_percentage?.toFixed(2)}%)`}
                 color={underlyingQuote.change >= 0 ? 'success' : 'error'}
                 variant="outlined"
+                sx={{ borderRadius: 0 }}
               />
             </Box>
           )}
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Tooltip title="Refresh market data">
-            <IconButton onClick={fetchMarketData} disabled={loading}>
-              <RefreshIcon />
-            </IconButton>
+            <span>
+              <IconButton onClick={fetchMarketData} disabled={loading} sx={{ borderRadius: 0 }}>
+                <RefreshIcon />
+              </IconButton>
+            </span>
           </Tooltip>
-          <IconButton onClick={onClose}>
+          <IconButton onClick={onClose} sx={{ borderRadius: 0 }}>
             <CloseIcon />
           </IconButton>
         </Box>
@@ -244,15 +318,15 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
 
       <DialogContent>
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
+          <Alert severity="error" sx={{ mb: 2, borderRadius: 0 }}>
             {error}
           </Alert>
         )}
 
         <Grid container spacing={3}>
           {/* Option Chain */}
-          <Grid item xs={12} lg={7}>
-            <Paper sx={{ p: 2 }}>
+          <Grid item xs={12} lg={8}>
+            <Paper sx={{ p: 2, borderRadius: 0 }}>
               <Typography variant="h6" gutterBottom>
                 Put Options Chain - {recommendation.expiry}
               </Typography>
@@ -262,58 +336,78 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
                   <CircularProgress />
                 </Box>
               ) : (
-                <TableContainer sx={{ maxHeight: 400 }}>
-                  <Table size="small" stickyHeader>
-                    <TableHead>
+                <TableContainer sx={{ height: 200, overflowX: 'hidden', width: '100%' }}>
+                  <Table size="small" stickyHeader sx={{ minWidth: 0, tableLayout: 'fixed' }} padding="checkbox">
+                                        <TableHead>
                       <TableRow>
-                        <TableCell>Strike</TableCell>
-                        <TableCell>Bid</TableCell>
-                        <TableCell>Ask</TableCell>
-                        <TableCell>Last</TableCell>
-                        <TableCell>Volume</TableCell>
-                        <TableCell>OI</TableCell>
-                        <TableCell>IV</TableCell>
-                        <TableCell>Delta</TableCell>
-                        <TableCell>Status</TableCell>
+                        <TableCell sx={{ width: '15%', minWidth: 70, fontSize: '0.75rem' }}>Strike</TableCell>
+                        <TableCell sx={{ width: '12%', minWidth: 55, fontSize: '0.75rem' }}>Bid</TableCell>
+                        <TableCell sx={{ width: '12%', minWidth: 55, fontSize: '0.75rem' }}>Ask</TableCell>
+                        <TableCell sx={{ width: '12%', minWidth: 55, fontSize: '0.75rem' }}>Last</TableCell>
+                        <TableCell sx={{ width: '10%', minWidth: 50, fontSize: '0.75rem' }}>Delta</TableCell>
+                        <TableCell sx={{ width: '10%', minWidth: 50, fontSize: '0.75rem' }}>Volume</TableCell>
+                        <TableCell sx={{ width: '10%', minWidth: 50, fontSize: '0.75rem' }}>OI</TableCell>
+                        <TableCell sx={{ width: '10%', minWidth: 50, fontSize: '0.75rem' }}>IV</TableCell>
+                        <TableCell sx={{ width: '9%', minWidth: 45, fontSize: '0.75rem' }}>Status</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {optionQuotes.map((option) => {
                         const isSelected = selectedOption?.symbol === option.symbol
-                        const moneyness = underlyingQuote ? getMoneyness(option.strike, underlyingQuote.last) : null
+                        const moneyness = underlyingQuote ? getMoneyness(option.strike, underlyingQuote.last, option.option_type) : null
                         const isRecommended = Math.abs(option.strike - recommendation.strike) < 0.01
                         
                         return (
                           <TableRow
                             key={option.symbol}
+                            ref={isRecommended ? recommendedOptionRef : undefined}
                             hover
                             selected={isSelected}
                             onClick={() => handleOptionSelect(option)}
                             sx={{ 
                               cursor: 'pointer',
-                              backgroundColor: isRecommended ? 'action.selected' : undefined
+                              backgroundColor: isRecommended ? 'primary.50' : undefined,
+                              borderLeft: isRecommended ? '4px solid' : undefined,
+                              borderLeftColor: isRecommended ? 'primary.main' : undefined,
+                              '&:hover': {
+                                backgroundColor: isRecommended ? 'primary.100' : 'action.hover'
+                              }
                             }}
                           >
-                            <TableCell>
+                            <TableCell sx={{ fontSize: '0.75rem' }}>
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <Typography variant="body2" fontWeight={isRecommended ? 'bold' : 'normal'}>
+                                {isRecommended && (
+                                  <Box
+                                    sx={{
+                                      width: 8,
+                                      height: 8,
+                                      borderRadius: '50%',
+                                      backgroundColor: 'primary.main',
+                                      flexShrink: 0
+                                    }}
+                                  />
+                                )}
+                                <Typography variant="body2" fontWeight={isRecommended ? 'bold' : 'normal'} sx={{ fontSize: '0.75rem' }}>
                                   ${option.strike}
                                 </Typography>
-                                {isRecommended && (
-                                  <Chip label="Recommended" size="small" color="primary" variant="outlined" />
-                                )}
                               </Box>
                             </TableCell>
-                            <TableCell>${option.bid.toFixed(2)}</TableCell>
-                            <TableCell>${option.ask.toFixed(2)}</TableCell>
-                            <TableCell>${option.last.toFixed(2)}</TableCell>
-                            <TableCell>{option.volume.toLocaleString()}</TableCell>
-                            <TableCell>{option.open_interest.toLocaleString()}</TableCell>
-                            <TableCell>{option.greeks.mid_iv ? formatPercent(option.greeks.mid_iv) : '-'}</TableCell>
-                            <TableCell>{option.greeks.delta ? option.greeks.delta.toFixed(3) : '-'}</TableCell>
-                            <TableCell>
+                            <TableCell sx={{ fontSize: '0.75rem' }}>${option.bid.toFixed(2)}</TableCell>
+                            <TableCell sx={{ fontSize: '0.75rem' }}>${option.ask.toFixed(2)}</TableCell>
+                            <TableCell sx={{ fontSize: '0.75rem' }}>${option.last.toFixed(2)}</TableCell>
+                            <TableCell sx={{ fontSize: '0.75rem' }}>
+                              {option.greeks.delta ? option.greeks.delta.toFixed(3) : '-'}
+                            </TableCell>
+                            <TableCell sx={{ fontSize: '0.75rem' }}>{option.volume.toLocaleString()}</TableCell>
+                            <TableCell sx={{ fontSize: '0.75rem' }}>{option.open_interest.toLocaleString()}</TableCell>
+                            <TableCell sx={{ fontSize: '0.75rem' }}>
+                              {option.greeks.mid_iv ? formatPercent(option.greeks.mid_iv) : '-'}
+                            </TableCell>
+                            <TableCell sx={{ fontSize: '0.75rem' }}>
                               {moneyness && (
-                                <Chip label={moneyness.label} size="small" color={moneyness.color} variant="outlined" />
+                                <Tooltip title={`Strike: $${option.strike} | Underlying: $${underlyingQuote?.last?.toFixed(2)} | Ratio: ${(option.strike / (underlyingQuote?.last || 1)).toFixed(3)}`}>
+                                  <Chip label={moneyness.label} size="small" color={moneyness.color} variant="outlined" sx={{ borderRadius: 0 }} />
+                                </Tooltip>
                               )}
                             </TableCell>
                           </TableRow>
@@ -326,36 +420,74 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
             </Paper>
           </Grid>
 
-          {/* Trade Panel */}
-          <Grid item xs={12} lg={5}>
-            <Paper sx={{ p: 2, mb: 2 }}>
+          {/* Score Breakdown */}
+          <Grid item xs={12} lg={4}>
+            <Paper sx={{ p: 2, borderRadius: 0 }}>
               <Typography variant="h6" gutterBottom>
+                Score Breakdown
+              </Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0, height: 200, overflowY: 'auto' }}>
+                {Object.entries(recommendation.score_breakdown).map(([key, value]) => (
+                  <Box 
+                    key={key} 
+                    sx={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center',
+                      py: 0.5,
+                      px: 1,
+                      borderBottom: '1px solid',
+                      borderColor: 'divider',
+                      '&:last-child': { borderBottom: 'none' }
+                    }}
+                  >
+                    <Typography variant="body2" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>
+                      {key}
+                    </Typography>
+                    <Typography variant="body2" fontWeight="bold" sx={{ fontSize: '0.75rem' }}>
+                      {value}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Paper>
+          </Grid>
+        </Grid>
+
+        {/* Order Entry and Trade Summary - Moved below option chains */}
+        <Grid container spacing={3} sx={{ mt: 2 }}>
+          {/* Order Entry */}
+          <Grid item xs={12} lg={6}>
+            <Paper sx={{ p: 1.5, borderRadius: 0 }}>
+              <Typography variant="h6" gutterBottom sx={{ mb: 1.5 }}>
                 Order Entry
               </Typography>
+              
+
 
               {selectedOption && (
-                <Box sx={{ mb: 2, p: 2, bgcolor: 'background.default', borderRadius: 1 }}>
-                  <Typography variant="subtitle2" color="primary">
+                <Box sx={{ mb: 1.5, p: 1.5, bgcolor: 'background.default' }}>
+                  <Typography variant="subtitle2" color="primary" sx={{ fontSize: '0.875rem' }}>
                     Selected Option
                   </Typography>
-                  <Typography variant="body2">
+                  <Typography variant="body2" sx={{ fontSize: '0.75rem', mt: 0.5 }}>
                     {selectedOption.description}
                   </Typography>
-                  <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
-                    <Typography variant="caption">
+                  <Box sx={{ display: 'flex', gap: 1.5, mt: 1 }}>
+                    <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
                       Bid: ${selectedOption.bid.toFixed(2)}
                     </Typography>
-                    <Typography variant="caption">
+                    <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
                       Ask: ${selectedOption.ask.toFixed(2)}
                     </Typography>
-                    <Typography variant="caption">
+                    <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
                       Last: ${selectedOption.last.toFixed(2)}
                     </Typography>
                   </Box>
                 </Box>
               )}
 
-              <Grid container spacing={2}>
+              <Grid container spacing={1.5}>
                 <Grid item xs={6}>
                   <TextField
                     fullWidth
@@ -364,10 +496,11 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
                     value={quantity}
                     onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
                     inputProps={{ min: 1 }}
+                    size="small"
                   />
                 </Grid>
                 <Grid item xs={6}>
-                  <FormControl fullWidth>
+                  <FormControl fullWidth size="small">
                     <InputLabel>Order Type</InputLabel>
                     <Select
                       value={orderType}
@@ -389,12 +522,13 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
                       value={limitPrice}
                       onChange={(e) => setLimitPrice(e.target.value)}
                       inputProps={{ step: 0.01, min: 0 }}
+                      size="small"
                     />
                   </Grid>
                 )}
 
                 <Grid item xs={6}>
-                  <FormControl fullWidth>
+                  <FormControl fullWidth size="small">
                     <InputLabel>Duration</InputLabel>
                     <Select
                       value={duration}
@@ -408,80 +542,73 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
                 </Grid>
               </Grid>
 
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={previewMode}
-                    onChange={(e) => setPreviewMode(e.target.checked)}
-                  />
-                }
-                label="Preview Mode (Trade submission disabled)"
-                sx={{ mt: 2 }}
-              />
-            </Paper>
 
-            {/* Trade Summary */}
-            <Paper sx={{ p: 2 }}>
-              <Typography variant="h6" gutterBottom>
+            </Paper>
+          </Grid>
+
+          {/* Trade Summary */}
+          <Grid item xs={12} lg={6}>
+            <Paper sx={{ p: 1.5, borderRadius: 0 }}>
+              <Typography variant="h6" gutterBottom sx={{ mb: 1.5 }}>
                 Trade Summary
               </Typography>
 
-              <Grid container spacing={2}>
+              <Grid container spacing={1.5}>
                 <Grid item xs={6}>
-                  <Card variant="outlined">
-                    <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                      <Typography variant="caption" color="textSecondary">
+                  <Card variant="outlined" sx={{ borderColor: 'success.main', bgcolor: 'success.50', borderRadius: 0 }}>
+                    <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
+                      <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>
                         Total Credit
                       </Typography>
-                      <Typography variant="h6" color="success.main">
+                      <Typography variant="h6" color="success.main" sx={{ fontSize: '1rem', mt: 0.5 }}>
                         {formatCurrency(totalCredit)}
                       </Typography>
                     </CardContent>
                   </Card>
                 </Grid>
                 <Grid item xs={6}>
-                  <Card variant="outlined">
-                    <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                      <Typography variant="caption" color="textSecondary">
+                  <Card variant="outlined" sx={{ borderColor: 'warning.main', bgcolor: 'warning.50', borderRadius: 0 }}>
+                    <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
+                      <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>
                         Collateral Required
                       </Typography>
-                      <Typography variant="h6">
+                      <Typography variant="h6" color="warning.main" sx={{ fontSize: '1rem', mt: 0.5 }}>
                         {formatCurrency(collateralRequired)}
                       </Typography>
                     </CardContent>
                   </Card>
                 </Grid>
                 <Grid item xs={6}>
-                  <Card variant="outlined">
-                    <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                      <Typography variant="caption" color="textSecondary">
+                  <Card variant="outlined" sx={{ borderRadius: 0 }}>
+                    <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
+                      <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>
                         Max Profit
                       </Typography>
-                      <Typography variant="h6" color="success.main">
+                      <Typography variant="h6" color="success.main" sx={{ fontSize: '1rem', mt: 0.5 }}>
                         {formatCurrency(maxProfit)}
                       </Typography>
                     </CardContent>
                   </Card>
                 </Grid>
                 <Grid item xs={6}>
-                  <Card variant="outlined">
-                    <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                      <Typography variant="caption" color="textSecondary">
+                  <Card variant="outlined" sx={{ borderRadius: 0 }}>
+                    <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
+                      <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>
                         Max Loss
                       </Typography>
-                      <Typography variant="h6" color="error.main">
+                      <Typography variant="h6" color="error.main" sx={{ fontSize: '1rem', mt: 0.5 }}>
                         {formatCurrency(maxLoss)}
                       </Typography>
                     </CardContent>
                   </Card>
                 </Grid>
                 <Grid item xs={12}>
-                  <Card variant="outlined">
-                    <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                      <Typography variant="caption" color="textSecondary">
+                  <Card variant="outlined" sx={{ borderRadius: 0 }}>
+                    <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
+                      <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>
                         Breakeven Point
                       </Typography>
-                      <Typography variant="h6">
+                      <Typography variant="h6" sx={{ fontSize: '1rem', mt: 0.5 }}>
                         ${breakeven.toFixed(2)}
                       </Typography>
                     </CardContent>
@@ -490,7 +617,7 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
               </Grid>
 
               {selectedOption && (
-                <Alert severity="info" sx={{ mt: 2 }}>
+                <Alert severity="info" sx={{ mt: 2, borderRadius: 0 }}>
                   <Typography variant="caption">
                     <strong>Strategy:</strong> Sell {quantity} {selectedOption.option_type.toUpperCase()} option{quantity > 1 ? 's' : ''} 
                     at ${selectedOption.strike} strike. Profit if {recommendation.symbol} stays above ${breakeven.toFixed(2)} at expiration.
@@ -506,20 +633,22 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <WarningIcon color="warning" fontSize="small" />
           <Typography variant="caption" color="textSecondary">
-            Real Tradier API data • Trade submission currently disabled
+            Mode: {environment === 'production' ? 'Live Mode' : 'Sandbox Mode'} • 
+            {environment === 'production' ? ' Real trades will be executed' : ' Paper trading - no real trades'}
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button onClick={onClose}>
+          <Button onClick={onClose} sx={{ borderRadius: 0 }}>
             Cancel
           </Button>
           <Button
             variant="contained"
             onClick={handleSubmitTrade}
-            disabled={!selectedOption || !limitPrice || previewMode}
+            disabled={!selectedOption || !limitPrice}
             color="primary"
+            sx={{ borderRadius: 0 }}
           >
-            Submit Trade (Disabled)
+            Submit Trade
           </Button>
         </Box>
       </DialogActions>

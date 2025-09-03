@@ -461,33 +461,54 @@ async def get_option_quotes(
         # Format options for trading interface
         formatted_options = []
         for option in options_chain:
+            # Helper function to safely convert to float with None handling
+            def safe_float(value, default=0.0):
+                if value is None:
+                    return default
+                try:
+                    return float(value)
+                except (ValueError, TypeError):
+                    return default
+            
+            # Helper function to safely convert to int with None handling
+            def safe_int(value, default=0):
+                if value is None:
+                    return default
+                try:
+                    return int(value)
+                except (ValueError, TypeError):
+                    return default
+            
             formatted_option = {
                 "symbol": option.get("symbol", ""),
                 "description": option.get("description", ""),
                 "option_type": option.get("option_type", ""),
-                "strike": float(option.get("strike", 0)),
+                "strike": safe_float(option.get("strike"), 0.0),
                 "expiration_date": option.get("expiration_date", ""),
-                "bid": float(option.get("bid", 0)),
-                "ask": float(option.get("ask", 0)),
-                "last": float(option.get("last", 0)),
-                "change": float(option.get("change", 0)),
-                "volume": int(option.get("volume", 0)),
-                "open_interest": int(option.get("open_interest", 0)),
-                "bid_size": int(option.get("bidsize", 0)),
-                "ask_size": int(option.get("asksize", 0)),
-                "last_volume": int(option.get("last_volume", 0)),
+                "bid": safe_float(option.get("bid"), 0.0),
+                "ask": safe_float(option.get("ask"), 0.0),
+                "last": safe_float(option.get("last"), 0.0),
+                "change": safe_float(option.get("change"), 0.0),
+                "volume": safe_int(option.get("volume"), 0),
+                "open_interest": safe_int(option.get("open_interest"), 0),
+                "bid_size": safe_int(option.get("bidsize"), 0),
+                "ask_size": safe_int(option.get("asksize"), 0),
+                "last_volume": safe_int(option.get("last_volume"), 0),
                 "trade_date": option.get("trade_date", ""),
-                "prevclose": float(option.get("prevclose", 0)),
-                "week_52_high": float(option.get("week_52_high", 0)),
-                "week_52_low": float(option.get("week_52_low", 0)),
+                "prevclose": safe_float(option.get("prevclose"), 0.0),
+                "week_52_high": safe_float(option.get("week_52_high"), 0.0),
+                "week_52_low": safe_float(option.get("week_52_low"), 0.0),
                 "greeks": option.get("greeks", {})
             }
             formatted_options.append(formatted_option)
         
+        # Sort options by strike price for better usability
+        sorted_options = sorted(formatted_options, key=lambda x: x["strike"])
+        
         return {
             "symbol": symbol.upper(),
             "expiration": expiration,
-            "options": formatted_options,
+            "options": sorted_options,
             "timestamp": datetime.now().isoformat()
         }
         
