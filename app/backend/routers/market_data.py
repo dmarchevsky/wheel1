@@ -4,7 +4,7 @@ from utils.timezone import pacific_now
 import logging
 from datetime import datetime
 from typing import Dict, Any, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import and_, func
 
@@ -438,6 +438,141 @@ async def fetch_ticker_options(
     except Exception as e:
         logger.error(f"Failed to fetch options for {symbol}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch options: {str(e)}")
+
+
+@router.get("/options/{symbol}/quotes")
+async def get_option_quotes(
+    symbol: str,
+    expiration: str = Query(..., description="Option expiration date in YYYY-MM-DD format"),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get real-time option quotes for a specific symbol and expiration."""
+    try:
+        from clients.tradier import TradierClient
+        
+        logger.info(f"Fetching option quotes for {symbol} expiration {expiration}")
+        
+        # Initialize Tradier client
+        tradier_client = TradierClient()
+        
+        # Get options chain with real-time data
+        options_chain = await tradier_client.get_options_chain(symbol.upper(), expiration)
+        
+        # Format options for trading interface
+        formatted_options = []
+        for option in options_chain:
+            formatted_option = {
+                "symbol": option.get("symbol", ""),
+                "description": option.get("description", ""),
+                "option_type": option.get("option_type", ""),
+                "strike": float(option.get("strike", 0)),
+                "expiration_date": option.get("expiration_date", ""),
+                "bid": float(option.get("bid", 0)),
+                "ask": float(option.get("ask", 0)),
+                "last": float(option.get("last", 0)),
+                "change": float(option.get("change", 0)),
+                "volume": int(option.get("volume", 0)),
+                "open_interest": int(option.get("open_interest", 0)),
+                "bid_size": int(option.get("bidsize", 0)),
+                "ask_size": int(option.get("asksize", 0)),
+                "last_volume": int(option.get("last_volume", 0)),
+                "trade_date": option.get("trade_date", ""),
+                "prevclose": float(option.get("prevclose", 0)),
+                "week_52_high": float(option.get("week_52_high", 0)),
+                "week_52_low": float(option.get("week_52_low", 0)),
+                "greeks": option.get("greeks", {})
+            }
+            formatted_options.append(formatted_option)
+        
+        return {
+            "symbol": symbol.upper(),
+            "expiration": expiration,
+            "options": formatted_options,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching option quotes for {symbol}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch option quotes: {str(e)}")
+
+
+@router.get("/options/{symbol}/strikes")
+async def get_option_strikes(
+    symbol: str,
+    expiration: str = Query(..., description="Option expiration date in YYYY-MM-DD format")
+):
+    """Get available strikes for a symbol and expiration."""
+    try:
+        from clients.tradier import TradierClient
+        
+        logger.info(f"Fetching strikes for {symbol} expiration {expiration}")
+        
+        # Initialize Tradier client
+        tradier_client = TradierClient()
+        
+        # Get strikes
+        strikes = await tradier_client.get_option_strikes(symbol.upper(), expiration)
+        
+        return {
+            "symbol": symbol.upper(),
+            "expiration": expiration,
+            "strikes": sorted(strikes),
+            "count": len(strikes)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching strikes for {symbol}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch strikes: {str(e)}")
+
+
+@router.get("/options/{symbol}/expirations")
+async def get_option_expirations(symbol: str):
+    """Get available expirations for a symbol."""
+    try:
+        from clients.tradier import TradierClient
+        
+        logger.info(f"Fetching expirations for {symbol}")
+        
+        # Initialize Tradier client
+        tradier_client = TradierClient()
+        
+        # Get expirations
+        expirations = await tradier_client.get_option_expirations(symbol.upper())
+        
+        return {
+            "symbol": symbol.upper(),
+            "expirations": sorted(expirations),
+            "count": len(expirations)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching expirations for {symbol}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch expirations: {str(e)}")
+
+
+@router.get("/quotes/{symbol}")
+async def get_real_time_quote(symbol: str):
+    """Get real-time quote for a symbol."""
+    try:
+        from clients.tradier import TradierClient
+        
+        logger.info(f"Fetching real-time quote for {symbol}")
+        
+        # Initialize Tradier client
+        tradier_client = TradierClient()
+        
+        # Get quote
+        quote = await tradier_client.get_quote(symbol.upper())
+        
+        return {
+            "symbol": symbol.upper(),
+            "quote": quote,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching quote for {symbol}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch quote: {str(e)}")
 
 
 @router.get("/tradier-test")

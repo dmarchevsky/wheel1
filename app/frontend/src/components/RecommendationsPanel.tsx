@@ -41,6 +41,7 @@ import {
   Delete as DeleteIcon,
 } from '@mui/icons-material'
 import { recommendationsApi } from '@/lib/api'
+import TradeModal from './TradeModal'
 
 interface FilterOptions {
   score_range: { min: number; max: number };
@@ -119,6 +120,10 @@ const RecommendationsPanel = forwardRef<any, RecommendationsPanelProps>(({
   
   // Polling state - managed by parent
   const [lastPollTime, setLastPollTime] = useState<Date | null>(null)
+  
+  // Trade modal state
+  const [tradeModalOpen, setTradeModalOpen] = useState(false)
+  const [selectedRecommendation, setSelectedRecommendation] = useState<any>(null)
   
   // Use external generation status only (no internal state)
   const actualGenerationStatus = externalGenerationStatus || 'idle'
@@ -332,8 +337,13 @@ const RecommendationsPanel = forwardRef<any, RecommendationsPanelProps>(({
   }
 
   const handleTrade = (recommendation: any) => {
-    // TODO: Implement trade functionality
-    console.log('Trade clicked for:', recommendation)
+    setSelectedRecommendation(recommendation)
+    setTradeModalOpen(true)
+  }
+
+  const handleTradeModalClose = () => {
+    setTradeModalOpen(false)
+    setSelectedRecommendation(null)
   }
 
   const handleFilterChange = (key: keyof Filters, value: any) => {
@@ -1003,6 +1013,13 @@ const RecommendationsPanel = forwardRef<any, RecommendationsPanelProps>(({
           </Table>
         </TableContainer>
       )}
+
+      {/* Trade Modal */}
+      <TradeModal
+        open={tradeModalOpen}
+        onClose={handleTradeModalClose}
+        recommendation={selectedRecommendation}
+      />
     </Box>
   )
 })
