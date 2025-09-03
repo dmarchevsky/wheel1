@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional
 
 from config import settings
 from clients.tradier import TradierClient
+from services.trading_environment_service import trading_env
 
 logger = logging.getLogger(__name__)
 
@@ -15,33 +16,41 @@ class AccountService:
     """Service for managing account information."""
     
     def __init__(self):
-        self.tradier_client = TradierClient()
+        pass
+    
+    def _get_tradier_client(self) -> TradierClient:
+        """Get Tradier client for current environment."""
+        return trading_env.get_tradier_client()
     
     async def get_account_info(self) -> Dict[str, Any]:
         """Get account information from Tradier."""
         try:
-            logger.info("Fetching account information from Tradier...")
+            logger.info(f"Fetching account information from Tradier ({trading_env.current_environment})...")
             
-            # Get account balances
-            balances = await self.tradier_client.get_account_balances()
-            
-            # Log raw response for debugging
-            logger.info(f"Raw Tradier balances response: {balances}")
-            
-            # Parse balance data
-            account_info = self._parse_balance_data(balances)
-            
-            logger.info(f"Parsed account info: {account_info}")
-            return account_info
+            # Get environment-aware Tradier client
+            async with self._get_tradier_client() as tradier_client:
+                # Get account balances
+                balances = await tradier_client.get_account_balances()
+                
+                # Log raw response for debugging
+                logger.info(f"Raw Tradier balances response: {balances}")
+                
+                # Parse balance data
+                account_info = self._parse_balance_data(balances)
+                
+                logger.info(f"Parsed account info: {account_info}")
+                return account_info
             
         except Exception as e:
             logger.error(f"Error fetching account information: {e}")
             logger.error(f"Exception type: {type(e)}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
-            # Return fallback data
+            
+            # Return empty data with error context
+            current_env = trading_env.current_environment
             return {
-                "account_number": settings.tradier_account_id,
+                "account_number": trading_env.get_tradier_client().account_id,
                 "total_value": 0.0,
                 "cash": 0.0,
                 "long_stock_value": 0.0,
@@ -51,14 +60,15 @@ class AccountService:
                 "buying_power": 0.0,
                 "day_trade_buying_power": 0.0,
                 "equity": 0.0,
-                "last_updated": datetime.now().isoformat()
+                "last_updated": datetime.now().isoformat(),
+                "_error_message": f"Failed to fetch account data from {current_env} environment: {str(e)}"
             }
     
     def _parse_balance_data(self, balances: Dict[str, Any]) -> Dict[str, Any]:
         """Parse balance data from Tradier API response."""
         try:
             # Extract account number
-            account_number = balances.get("account_number", settings.tradier_account_id)
+            account_number = balances.get("account_number", trading_env.get_tradier_client().account_id)
             
             # Extract cash values (direct from balances object)
             cash = float(balances.get("total_cash", 0))
@@ -102,7 +112,7 @@ class AccountService:
             logger.error(f"Raw balances data: {balances}")
             # Return fallback data
             return {
-                "account_number": settings.tradier_account_id,
+                "account_number": trading_env.get_tradier_client().account_id,
                 "total_value": 0.0,
                 "cash": 0.0,
                 "long_stock_value": 0.0,

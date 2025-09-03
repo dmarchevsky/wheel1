@@ -131,3 +131,26 @@ export interface PaginatedResponse<T> {
   totalPages: number
 }
 
+export type TradingEnvironment = 'production' | 'sandbox'
+
+export interface EnvironmentStatus {
+  current_environment: TradingEnvironment
+  available_environments: string[]
+  data_source: string
+  account_operations: string
+}
+
+export interface EnvironmentSwitchResponse {
+  status: string
+  message: string
+  environment: TradingEnvironment
+  connection_test: {
+    status: string
+    message: string
+    account_id: string
+    base_url: string
+    environment: TradingEnvironment
+  }
+  warning?: string // Optional warning when credentials are not configured
+}
+

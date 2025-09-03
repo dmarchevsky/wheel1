@@ -52,15 +52,46 @@ A production-ready, containerized application that automates the **Wheel** optio
 Copy `.env.example` to `.env` and configure:
 
 ```bash
-# Required API Keys
+# Required API Keys - Production
 TRADIER_ACCESS_TOKEN=your_tradier_token
+TRADIER_ACCOUNT_ID=your_account_id
 OPENAI_API_KEY=your_openai_key
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
 
+# Optional - Sandbox Trading Environment
+TRADIER_SANDBOX_ACCESS_TOKEN=your_sandbox_token
+TRADIER_SANDBOX_ACCOUNT_ID=your_sandbox_account_id
+
 # Database
 POSTGRES_PASSWORD=secure_password
 ```
+
+### Trading Environments
+
+The application supports both **Production** and **Sandbox** trading environments:
+
+- **Production**: Uses live Tradier account for real trading (always required)
+- **Sandbox**: Uses Tradier paper trading for testing (optional)
+
+**Environment Switching:**
+- Toggle between environments using the switch in the app header
+- Production mode: Green indicators and standard theme
+- Sandbox mode: Orange indicators and amber-tinted theme for safety
+- Market data always comes from production for accuracy
+- Account operations (positions, orders) respect the selected environment
+
+**Setup Sandbox (Optional):**
+1. Create a [Tradier Developer Account](https://developer.tradier.com)
+2. Get sandbox API credentials
+3. Add `TRADIER_SANDBOX_*` variables to your `.env` file
+4. Switch to sandbox mode in the UI for safe testing
+
+**Sandbox Behavior:**
+- Sandbox APIs may have limited data or occasional unavailability
+- When sandbox APIs fail, the app shows clear error messages
+- No mock/fake data is displayed - only real API responses or empty states
+- API errors are logged and displayed to help with debugging
 
 ## Development
 

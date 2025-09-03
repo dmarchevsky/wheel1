@@ -10,7 +10,7 @@ import uvicorn
 
 from config import settings, validate_required_settings
 from db.session import get_async_db, create_tables
-from routers import recommendations, positions, trades, export, health, market_data, settings as settings_router
+from routers import recommendations, positions, trades, export, health, market_data, settings as settings_router, trading_environment
 from services.telegram_service import TelegramService
 
 
@@ -83,6 +83,7 @@ app.include_router(trades.router, prefix="/v1/trades", tags=["trades"])
 app.include_router(export.router, prefix="/v1/export", tags=["export"])
 app.include_router(market_data.router, prefix="/v1", tags=["market-data"])
 app.include_router(settings_router.router, prefix="/v1", tags=["settings"])
+app.include_router(trading_environment.router, prefix="/v1", tags=["trading-environment"])
 
 
 @app.get("/")

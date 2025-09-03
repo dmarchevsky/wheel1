@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from clients.tradier import TradierClient
 from config import settings
 from services.account_service import AccountService
+from services.trading_environment_service import trading_env
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -180,8 +181,8 @@ async def get_portfolio(
 ):
     """Get portfolio summary with real positions from Tradier API."""
     try:
-        # Get real positions from Tradier
-        async with TradierClient() as tradier_client:
+        # Get environment-aware Tradier client
+        async with trading_env.get_tradier_client() as tradier_client:
             # Fetch real positions from Tradier API
             tradier_positions = await tradier_client.get_account_positions()
             
@@ -307,7 +308,8 @@ async def get_portfolio(
             
     except Exception as e:
         logger.error(f"Error fetching portfolio from Tradier: {e}")
-        # Fallback to placeholder data with warning message
+        
+        # Return empty data for any environment on error
         return PortfolioResponse(
             cash=0.0,
             equity_value=0.0,

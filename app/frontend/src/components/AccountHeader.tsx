@@ -18,6 +18,9 @@ import {
   TrendingDown,
 } from '@mui/icons-material';
 import { accountApi } from '@/lib/api';
+import EnvironmentToggle from './EnvironmentToggle';
+import { TradingEnvironment } from '@/types';
+import { useThemeContext } from '@/contexts/ThemeContext';
 
 interface PortfolioSummary {
   cash: number;
@@ -26,6 +29,7 @@ interface PortfolioSummary {
   total_value: number;
   total_pnl: number;
   total_pnl_pct: number;
+  _error_message?: string; // Optional field for API error information
 }
 
 interface AccountHeaderProps {
@@ -38,6 +42,7 @@ export default function AccountHeader({ collapsed }: AccountHeaderProps) {
   const [error, setError] = useState<string | null>(null);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const { environment: currentEnvironment } = useThemeContext();
 
   const fetchPortfolioData = async () => {
     try {
@@ -65,6 +70,11 @@ export default function AccountHeader({ collapsed }: AccountHeaderProps) {
   }, []);
 
   const handleRefresh = () => {
+    fetchPortfolioData();
+  };
+
+  const handleEnvironmentChange = (environment: TradingEnvironment) => {
+    // Refresh portfolio data when environment changes
     fetchPortfolioData();
   };
 
@@ -96,12 +106,27 @@ export default function AccountHeader({ collapsed }: AccountHeaderProps) {
     );
   }
 
+  // Show API error if present in portfolio data
+  if (portfolioData?._error_message) {
+    return (
+      <Alert severity="warning" sx={{ mb: 2 }}>
+        {portfolioData._error_message}
+      </Alert>
+    );
+  }
+
   if (!portfolioData) {
+    // Dynamic styling for loading state too
+    const loadingCardBackground = currentEnvironment === 'sandbox' 
+      ? 'linear-gradient(135deg, #2d1a00 0%, #4a2c00 100%)' 
+      : 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)';
+    const loadingCardBorderColor = currentEnvironment === 'sandbox' ? '#ff9800' : '#333';
+    
     return (
       <Card sx={{ 
         mb: 3, 
-        background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', 
-        border: '1px solid #333',
+        background: loadingCardBackground, 
+        border: `1px solid ${loadingCardBorderColor}`,
         borderRadius: 0,
         width: '100%',
         ml: 0,
@@ -116,11 +141,18 @@ export default function AccountHeader({ collapsed }: AccountHeaderProps) {
     );
   }
 
+  // Dynamic styling based on environment
+  const isSandbox = currentEnvironment === 'sandbox';
+  const cardBackground = isSandbox 
+    ? 'linear-gradient(135deg, #2d1a00 0%, #4a2c00 100%)' // Orange/amber gradient for sandbox
+    : 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)'; // Default dark gradient
+  const cardBorderColor = isSandbox ? '#ff9800' : '#333'; // Orange border for sandbox
+
   return (
     <Card sx={{ 
       mb: 3, 
-      background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', 
-      border: '1px solid #333',
+      background: cardBackground, 
+      border: `1px solid ${cardBorderColor}`,
       borderRadius: 0,
       width: '100%',
       ml: 0,
@@ -143,6 +175,18 @@ export default function AccountHeader({ collapsed }: AccountHeaderProps) {
               <Typography variant="h6" sx={{ fontWeight: 700 }}>
                 {formatCurrency(portfolioData.total_value)}
               </Typography>
+              {portfolioData._error_message && (
+                <Typography 
+                  variant="caption" 
+                  sx={{ 
+                    color: 'error.main',
+                    fontSize: '0.7rem',
+                    fontStyle: 'italic'
+                  }}
+                >
+                  (API Error)
+                </Typography>
+              )}
               <Box sx={{ display: 'flex', alignItems: 'center', ml: 1 }}>
                 {portfolioData.total_pnl >= 0 ? 
                   <TrendingUp sx={{ fontSize: 16, color: getPnLColor(portfolioData.total_pnl) }} /> : 
@@ -189,18 +233,24 @@ export default function AccountHeader({ collapsed }: AccountHeaderProps) {
             </Box>
           </Box>
           
-          <IconButton 
-            onClick={handleRefresh} 
-            disabled={loading}
-            size="small"
-            sx={{ 
-              backgroundColor: 'rgba(255,255,255,0.1)', 
-              '&:hover': { backgroundColor: 'rgba(255,255,255,0.2)' },
-              ml: 2
-            }}
-          >
-            {loading ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
-          </IconButton>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <EnvironmentToggle 
+              onEnvironmentChange={handleEnvironmentChange}
+              collapsed={collapsed}
+            />
+            
+            <IconButton 
+              onClick={handleRefresh} 
+              disabled={loading}
+              size="small"
+              sx={{ 
+                backgroundColor: 'rgba(255,255,255,0.1)', 
+                '&:hover': { backgroundColor: 'rgba(255,255,255,0.2)' }
+              }}
+            >
+              {loading ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
+            </IconButton>
+          </Box>
         </Box>
       </CardContent>
     </Card>

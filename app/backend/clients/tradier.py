@@ -1,299 +1,115 @@
-from utils.timezone import pacific_now
-"""Tradier API client with retry logic and rate limiting."""
+"""Unified Tradier API client using split data and account clients."""
 
-import asyncio
 import logging
-from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
-import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from datetime import datetime, timedelta
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import settings as env_settings
+from utils.timezone import pacific_now
 from services.settings_service import get_setting
 from datetime import datetime, timezone
 from db.models import Option, InterestingTicker, TickerQuote, Position, OptionPosition, Trade
+from .tradier_data import TradierDataClient, TradierAPIError
+from .tradier_account import TradierAccountClient
 
 
 logger = logging.getLogger(__name__)
 
 
-class TradierAPIError(Exception):
-    """Custom exception for Tradier API errors."""
-    pass
-
-
 class TradierClient:
-    """Tradier API client with retry logic and rate limiting."""
+    """Unified Tradier API client using split data and account clients."""
     
-    def __init__(self):
-        self.base_url = env_settings.tradier_base_url
-        self.access_token = env_settings.tradier_access_token
-        self.account_id = env_settings.tradier_account_id
+    def __init__(self, environment: str = "production"):
+        """
+        Initialize the unified client.
         
-        # Validate required configuration
-        if not self.access_token or self.access_token == "REPLACE_ME":
-            logger.error("Tradier access token not configured or set to placeholder value")
-            raise ValueError("Tradier access token not properly configured")
+        Args:
+            environment: "production" or "sandbox" for account operations
+        """
+        self.environment = environment
+        self.data_client = TradierDataClient()  # Always use production for data
+        self.account_client = TradierAccountClient(environment)
         
-        if not self.account_id or self.account_id == "REPLACE_ME":
-            logger.error("Tradier account ID not configured or set to placeholder value")
-            raise ValueError("Tradier account ID not properly configured")
-        
-        self.headers = {
-            "Authorization": f"Bearer {self.access_token}",
-            "Accept": "application/json"
-        }
-        self.client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
-        
-        logger.debug(f"Tradier client initialized with base URL: {self.base_url}")
-        logger.debug(f"Tradier account ID: {self.account_id}")
+        logger.debug(f"Tradier unified client initialized for {environment} environment")
     
     async def __aenter__(self):
+        await self.data_client.__aenter__()
+        await self.account_client.__aenter__()
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.client.aclose()
+        await self.data_client.__aexit__(exc_type, exc_val, exc_tb)
+        await self.account_client.__aexit__(exc_type, exc_val, exc_tb)
     
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError))
-    )
-    async def _make_request(self, method: str, endpoint: str, params: Optional[Dict] = None, base_url: Optional[str] = None) -> Dict[str, Any]:
-        """Make HTTP request with retry logic."""
-        # Use provided base_url or default to self.base_url
-        request_base_url = base_url if base_url else self.base_url
-        url = f"{request_base_url}{endpoint}"
-        
-        # Build full URL with parameters for logging
-        full_url = url
-        if params:
-            import urllib.parse
-            query_string = urllib.parse.urlencode(params)
-            full_url = f"{url}?{query_string}"
-        
-        logger.debug(f"Tradier API request: {method} {full_url}")
-        
-        try:
-            response = await self.client.request(
-                method=method,
-                url=url,
-                headers=self.headers,
-                params=params
-            )
-            
-            response.raise_for_status()
-            
-            # Check if response is empty
-            response_text = response.text.strip()
-            
-            if not response_text:
-                logger.warning(f"Empty response received for {method} {url}")
-                return {}
-            
-            try:
-                data = response.json()
-                
-                # Check for Tradier API errors
-                if "errors" in data:
-                    error_msg = data["errors"].get("error", "Unknown Tradier API error")
-                    logger.error(f"Tradier API error: {error_msg}")
-                    raise TradierAPIError(f"Tradier API error: {error_msg}")
-                
-                return data
-            except ValueError as e:
-                logger.error(f"Failed to parse JSON response: {e}")
-                raise TradierAPIError(f"Invalid JSON response: {e}")
-            
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 429:
-                # Rate limited - wait and retry
-                logger.warning("Rate limited by Tradier API, waiting 2 seconds...")
-                await asyncio.sleep(2)
-                raise
-            elif e.response.status_code in [301, 302, 303, 307, 308]:
-                # Redirect error - this shouldn't happen with follow_redirects=True
-                logger.error(f"Unexpected redirect response: {e.response.status_code}")
-                raise TradierAPIError(f"Unexpected redirect: {e.response.status_code}")
-            
-            raise TradierAPIError(f"HTTP {e.response.status_code}: {e.response.text}")
-            
-        except httpx.RequestError as e:
-            raise TradierAPIError(f"Request error: {str(e)}")
-            
-        except Exception as e:
-            logger.error(f"Unexpected Tradier API error: {str(e)}")
-            raise TradierAPIError(f"Unexpected error: {str(e)}")
-    
+    # Data operations (always use production data endpoints)
     async def get_quote(self, symbol: str) -> Dict[str, Any]:
         """Get real-time quote for a symbol."""
-        params = {"symbols": symbol}
-        data = await self._make_request("GET", "/markets/quotes", params)
-        quote_data = data.get("quotes", {}).get("quote", {})
-        return quote_data
+        return await self.data_client.get_quote(symbol)
     
     async def get_options_chain(self, symbol: str, expiration: str) -> List[Dict[str, Any]]:
         """Get options chain for a symbol and expiration."""
-        params = {
-            "symbol": symbol,
-            "expiration": expiration,
-            "greeks": "true"  # Request greeks data
-        }
-        data = await self._make_request("GET", "/markets/options/chains", params)
-        
-        # Debug: Log the raw response to see what we're getting
-        logger.info(f"🔍 Raw Tradier API response for {symbol} {expiration}: {data}")
-        
-        options = data.get("options", {}).get("option", [])
-        if not isinstance(options, list):
-            options = [options]
-        
-        # Debug: Check if any options have greeks data
-        greeks_count = 0
-        for opt in options:
-            if opt.get("greeks"):
-                greeks_count += 1
-        logger.info(f"📊 Found {greeks_count} options with greeks data out of {len(options)} total options")
-        
-        return options
+        return await self.data_client.get_options_chain(symbol, expiration)
     
     async def get_option_strikes(self, symbol: str, expiration: str) -> List[float]:
         """Get available strikes for a symbol and expiration."""
-        params = {
-            "symbol": symbol,
-            "expiration": expiration
-        }
-        data = await self._make_request("GET", "/markets/options/strikes", params)
-        
-        strikes = data.get("strikes", {}).get("strike", [])
-        if not isinstance(strikes, list):
-            strikes = [strikes]
-        
-        float_strikes = [float(s) for s in strikes]
-        return float_strikes
+        return await self.data_client.get_option_strikes(symbol, expiration)
     
     async def get_option_expirations(self, symbol: str) -> List[str]:
         """Get available expirations for a symbol."""
-        params = {"symbol": symbol}
-        data = await self._make_request("GET", "/markets/options/expirations", params)
-        
-        expirations = data.get("expirations", {}).get("date", [])
-        if not isinstance(expirations, list):
-            expirations = [expirations]
-        
-        return expirations
-    
-    async def get_account_positions(self) -> List[Dict[str, Any]]:
-        """Get account positions."""
-        data = await self._make_request("GET", f"/accounts/{self.account_id}/positions")
-        
-        positions_data = data.get("positions", {})
-        # Handle case where positions is "null" string
-        if positions_data == "null" or not positions_data:
-            return []
-        
-        positions = positions_data.get("position", [])
-        if not isinstance(positions, list):
-            positions = [positions]
-        
-        return positions
-    
-    async def get_account_orders(self, include_tags: bool = False) -> List[Dict[str, Any]]:
-        """Get account orders."""
-        params = {"includeTags": str(include_tags).lower()}
-        data = await self._make_request("GET", f"/accounts/{self.account_id}/orders", params)
-        
-        orders = data.get("orders", {}).get("order", [])
-        if not isinstance(orders, list):
-            orders = [orders]
-        
-        return orders
-    
-    async def place_order(self, order_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Place an order."""
-        data = await self._make_request("POST", f"/accounts/{self.account_id}/orders", order_data)
-        return data.get("order", {})
-    
-    async def get_order_status(self, order_id: str) -> Dict[str, Any]:
-        """Get order status."""
-        data = await self._make_request("GET", f"/accounts/{self.account_id}/orders/{order_id}")
-        return data.get("order", {})
-    
-    async def cancel_order(self, order_id: str) -> Dict[str, Any]:
-        """Cancel an order."""
-        data = await self._make_request("DELETE", f"/accounts/{self.account_id}/orders/{order_id}")
-        return data.get("order", {})
-    
-    async def get_account_balances(self) -> Dict[str, Any]:
-        """Get account balances."""
-        data = await self._make_request("GET", f"/accounts/{self.account_id}/balances")
-        
-        balances = data.get("balances", {})
-        # Handle case where balances is "null" string
-        if balances == "null":
-            return {}
-        
-        return balances
-    
-    async def get_account_history(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:
-        """Get account history."""
-        params = {
-            "start": start_date,
-            "end": end_date
-        }
-        data = await self._make_request("GET", f"/accounts/{self.account_id}/history", params)
-        
-        history = data.get("history", {}).get("event", [])
-        if not isinstance(history, list):
-            history = [history]
-        
-        return history
+        return await self.data_client.get_option_expirations(symbol)
     
     async def get_fundamentals_company(self, symbol: str) -> Dict[str, Any]:
         """Get company fundamental data from Tradier API beta endpoint."""
-        params = {"symbols": symbol}
-        try:
-            # Use beta base URL for fundamentals endpoints
-            beta_url = "https://api.tradier.com/beta"
-            data = await self._make_request("GET", "/markets/fundamentals/company", params, base_url=beta_url)
-            return data
-        except Exception as e:
-            logger.error(f"❌ Failed to get company fundamentals for {symbol}: {e}")
-            return {}
+        return await self.data_client.get_fundamentals_company(symbol)
     
     async def get_fundamentals_ratios(self, symbol: str) -> Dict[str, Any]:
         """Get financial ratios from Tradier API beta endpoint."""
-        params = {"symbols": symbol}
-        try:
-            # Use beta base URL for fundamentals endpoints
-            beta_url = "https://api.tradier.com/beta"
-            data = await self._make_request("GET", "/markets/fundamentals/ratios", params, base_url=beta_url)
-            return data
-        except Exception as e:
-            logger.error(f"❌ Failed to get financial ratios for {symbol}: {e}")
-            return {}
+        return await self.data_client.get_fundamentals_ratios(symbol)
+    
+    # Account operations (use environment-specific endpoints)
+    async def get_account_positions(self) -> List[Dict[str, Any]]:
+        """Get account positions."""
+        return await self.account_client.get_account_positions()
+    
+    async def get_account_orders(self, include_tags: bool = False) -> List[Dict[str, Any]]:
+        """Get account orders."""
+        return await self.account_client.get_account_orders(include_tags)
+    
+    async def place_order(self, order_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Place an order."""
+        return await self.account_client.place_order(order_data)
+    
+    async def get_order_status(self, order_id: str) -> Dict[str, Any]:
+        """Get order status."""
+        return await self.account_client.get_order_status(order_id)
+    
+    async def cancel_order(self, order_id: str) -> Dict[str, Any]:
+        """Cancel an order."""
+        return await self.account_client.cancel_order(order_id)
+    
+    async def get_account_balances(self) -> Dict[str, Any]:
+        """Get account balances."""
+        return await self.account_client.get_account_balances()
+    
+    async def get_account_history(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+        """Get account history."""
+        return await self.account_client.get_account_history(start_date, end_date)
     
     async def test_connection(self) -> Dict[str, Any]:
         """Test Tradier API connection with a simple request."""
-        try:
-            # Try to get account balances as a connection test
-            data = await self.get_account_balances()
-            return {
-                "status": "success",
-                "message": "Tradier API connection working",
-                "account_id": self.account_id,
-                "base_url": self.base_url
-            }
-        except Exception as e:
-            logger.error(f"❌ Tradier API connection test failed: {e}")
-            return {
-                "status": "error",
-                "message": f"Tradier API connection failed: {str(e)}",
-                "account_id": self.account_id,
-                "base_url": self.base_url
-            }
+        return await self.account_client.test_connection()
+    
+    # Properties for backward compatibility
+    @property
+    def base_url(self) -> str:
+        """Get base URL for account operations."""
+        return self.account_client.base_url
+    
+    @property
+    def account_id(self) -> str:
+        """Get account ID."""
+        return self.account_client.account_id
     
 
 
@@ -301,9 +117,10 @@ class TradierClient:
 class TradierDataManager:
     """Manages Tradier data synchronization with database."""
     
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, environment: str = "production"):
         self.db = db
-        self.client = TradierClient()
+        self.environment = environment
+        self.client = TradierClient(environment)
     
 
     

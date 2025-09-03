@@ -33,10 +33,15 @@ class Settings(BaseSettings):
     # Redis
     redis_url: str = Field(env="REDIS_URL")
     
-    # Tradier API
+    # Tradier API - Production
     tradier_base_url: str = Field(env="TRADIER_BASE_URL")
     tradier_access_token: str = Field(env="TRADIER_ACCESS_TOKEN")
     tradier_account_id: str = Field(env="TRADIER_ACCOUNT_ID")
+    
+    # Tradier API - Sandbox
+    tradier_sandbox_base_url: str = Field(default="https://sandbox.tradier.com/v1", env="TRADIER_SANDBOX_BASE_URL")
+    tradier_sandbox_access_token: str = Field(default="REPLACE_ME", env="TRADIER_SANDBOX_ACCESS_TOKEN")
+    tradier_sandbox_account_id: str = Field(default="REPLACE_ME", env="TRADIER_SANDBOX_ACCOUNT_ID")
     
     # OpenAI
     openai_enabled: bool = Field(default=False, env="OPENAI_ENABLED")
