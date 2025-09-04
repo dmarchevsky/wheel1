@@ -184,14 +184,15 @@ class ScoringEngine:
         
         return min(1.0, base_score)
     
-    def calculate_liquidity_score(self, oi: int, volume: int, spread_pct: float) -> float:
+    def calculate_liquidity_score(self, oi: int, volume: int, spread_pct: float, 
+                                oi_threshold: int = 1000, volume_threshold: int = 500) -> float:
         """Calculate liquidity score based on OI, volume, and spread."""
         if oi <= 0 or volume <= 0:
             return 0.0
         
-        # Normalize OI and volume (assuming good liquidity starts at 500 OI, 200 volume)
-        oi_score = min(1.0, oi / 1000)
-        volume_score = min(1.0, volume / 500)
+        # Normalize OI and volume using provided thresholds
+        oi_score = min(1.0, oi / oi_threshold)
+        volume_score = min(1.0, volume / volume_threshold)
         
         # Spread score (inverse - lower spread is better)
         spread_score = max(0.0, 1.0 - (spread_pct / 10))  # 10% spread = 0 score
@@ -388,10 +389,22 @@ class ScoringEngine:
         # Calculate components
         annualized_yield = self.calculate_annualized_yield(mid_price, option.strike, dte)
         proximity_score = self.calculate_proximity_to_support(current_price, option.strike)
+        
+        # Get liquidity thresholds from settings
+        try:
+            oi_threshold = await get_setting(self.db, "liquidity_oi_threshold", 1000)
+            volume_threshold = await get_setting(self.db, "liquidity_volume_threshold", 500)
+        except:
+            # Fallback to reasonable defaults if settings not available
+            oi_threshold = 1000
+            volume_threshold = 500
+        
         liquidity_score = self.calculate_liquidity_score(
             option.open_interest or 0, 
             option.volume or 0, 
-            spread_pct
+            spread_pct,
+            oi_threshold,
+            volume_threshold
         )
         
         # Risk adjustment
@@ -566,11 +579,7 @@ class ScoringEngine:
         
         return True
     
-    async def get_top_recommendations(self, scored_options: List[Tuple[Option, Dict]], 
-                              max_recommendations: int = None) -> List[Tuple[Option, Dict]]:
+    async def get_top_recommendations(self, scored_options: List[Tuple[Option, Dict]]) -> List[Tuple[Option, Dict]]:
         """Get top recommendations based purely on score ranking."""
-        if max_recommendations is None:
-            max_recommendations = await get_setting(self.db, "max_recommendations", 3)
-        
-        # Simply return the top N recommendations by score
-        return scored_options[:max_recommendations]
+        # Simply return the top option by score
+        return scored_options[:1] if scored_options else []

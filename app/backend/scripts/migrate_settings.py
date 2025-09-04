@@ -41,7 +41,7 @@ async def migrate_settings():
                 "min_volume": env_settings.min_volume,
                 "max_bid_ask_pct": env_settings.max_bid_ask_pct,
                 "annualized_min_pct": env_settings.annualized_min_pct,
-                "max_recommendations": env_settings.max_recommendations,
+
                 "earnings_blackout_days": env_settings.earnings_blackout_days,
                 
                 # Trading Configuration

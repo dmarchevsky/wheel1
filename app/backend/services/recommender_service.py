@@ -31,8 +31,7 @@ class RecommenderService:
         """Generate new recommendations with optimized processing."""
         start_time = pacific_now()
         logger.info("🚀 Starting recommendation generation...")
-        max_recommendations = await get_setting(db, "max_recommendations", 3)
-        logger.info(f"📊 Max recommendations: {max_recommendations}")
+
         
         try:
             # Step 1: Get universe of tickers
@@ -163,9 +162,9 @@ class RecommenderService:
                     # Sort by score and take top recommendations
                     if scored_options:
                         scored_options.sort(key=lambda x: x[1]["score"], reverse=True)
-                        top_options = scored_options[:max_recommendations]
+                        top_options = scored_options[:1]  # Just take the top option
                         
-                        logger.info(f"🏆 Top {len(top_options)} options for {ticker.symbol}:")
+                        logger.info(f"🏆 Top option for {ticker.symbol}:")
                         for k, (option, score_data) in enumerate(top_options):
                             logger.info(f"   {k+1}. {option.symbol} {option.strike} - Score: {score_data['score']:.3f}")
                         
@@ -258,6 +257,37 @@ class RecommenderService:
             top_scored_tickers = result.scalars().all()
             logger.info(f"📊 Found {len(top_scored_tickers)} tickers with universe scores")
             
+            # Apply price filter to universe
+            max_ticker_price = await get_setting(db, "max_ticker_price", 500.0)
+            logger.info(f"📊 Applying price filter: max ticker price (current + 5%) <= ${max_ticker_price}")
+            
+            price_filtered_tickers = []
+            for ticker in top_scored_tickers:
+                try:
+                    # Get current price from TickerQuote
+                    quote_result = await db.execute(
+                        select(TickerQuote).where(TickerQuote.symbol == ticker.symbol)
+                    )
+                    quote = quote_result.scalar_one_or_none()
+                    if quote and quote.current_price:
+                        # Apply 5% buffer as specified in requirements
+                        price_with_buffer = quote.current_price * 1.05
+                        if price_with_buffer <= max_ticker_price:
+                            price_filtered_tickers.append(ticker)
+                            logger.debug(f"✅ {ticker.symbol}: ${quote.current_price} (${price_with_buffer:.2f} with buffer) <= ${max_ticker_price}")
+                        else:
+                            logger.debug(f"❌ {ticker.symbol}: ${quote.current_price} (${price_with_buffer:.2f} with buffer) > ${max_ticker_price}")
+                    else:
+                        # If no current price available, skip this ticker
+                        logger.debug(f"⚠️  {ticker.symbol}: No current price available, skipping")
+                        continue
+                except Exception as e:
+                    logger.warning(f"⚠️  Error checking price for {ticker.symbol}: {e}")
+                    continue
+            
+            logger.info(f"📊 Price filter: {len(price_filtered_tickers)}/{len(top_scored_tickers)} tickers passed (removed {len(top_scored_tickers) - len(price_filtered_tickers)} above price limit)")
+            top_scored_tickers = price_filtered_tickers
+            
             if len(top_scored_tickers) >= 10:  # If we have enough scored tickers
                 tickers = top_scored_tickers
                 logger.info(f"✅ Using top {len(tickers)} tickers by universe score")
@@ -277,16 +307,58 @@ class RecommenderService:
                 tickers = await universe_service.get_filtered_universe()
                 logger.info(f"📊 UniverseService returned {len(tickers)} tickers")
                 
+                # Apply price filter to UniverseService results
+                max_ticker_price = await get_setting(db, "max_ticker_price", 500.0)
+                price_filtered_tickers = []
+                for ticker in tickers:
+                    try:
+                        quote_result = await db.execute(
+                            select(TickerQuote).where(TickerQuote.symbol == ticker.symbol)
+                        )
+                        quote = quote_result.scalar_one_or_none()
+                        if quote and quote.current_price:
+                            price_with_buffer = quote.current_price * 1.05
+                            if price_with_buffer <= max_ticker_price:
+                                price_filtered_tickers.append(ticker)
+                        else:
+                            continue
+                    except Exception as e:
+                        logger.warning(f"⚠️  Error checking price for {ticker.symbol}: {e}")
+                        continue
+                
+                tickers = price_filtered_tickers
+                logger.info(f"📊 Applied price filter to UniverseService results: {len(tickers)} tickers remaining")
+                
                 if len(tickers) == 0:
-                    logger.warning("⚠️  UniverseService returned 0 tickers! Falling back to basic selection...")
+                    logger.warning("⚠️  UniverseService returned 0 tickers after price filtering! Falling back to basic selection...")
                     # Final fallback to basic selection
                     result = await db.execute(
                         select(InterestingTicker).where(InterestingTicker.active == True)
                         .order_by(InterestingTicker.symbol)
                         .limit(top_universe_score)
                     )
-                    tickers = result.scalars().all()
-                    logger.info(f"📊 Fallback selection returned {len(tickers)} tickers")
+                    fallback_tickers = result.scalars().all()
+                    
+                    # Apply price filter to fallback selection too
+                    price_filtered_fallback = []
+                    for ticker in fallback_tickers:
+                        try:
+                            quote_result = await db.execute(
+                                select(TickerQuote).where(TickerQuote.symbol == ticker.symbol)
+                            )
+                            quote = quote_result.scalar_one_or_none()
+                            if quote and quote.current_price:
+                                price_with_buffer = quote.current_price * 1.05
+                                if price_with_buffer <= max_ticker_price:
+                                    price_filtered_fallback.append(ticker)
+                            else:
+                                continue
+                        except Exception as e:
+                            logger.warning(f"⚠️  Error checking price for {ticker.symbol}: {e}")
+                            continue
+                    
+                    tickers = price_filtered_fallback
+                    logger.info(f"📊 Fallback selection returned {len(tickers)} tickers after price filtering")
             
             # Log sector distribution for final universe
             if tickers:
@@ -313,8 +385,28 @@ class RecommenderService:
                     .limit(top_universe_score)
                 )
                 fallback_tickers = result.scalars().all()
-                logger.info(f"📊 Fallback selection returned {len(fallback_tickers)} tickers")
-                return fallback_tickers
+                
+                # Apply price filter even in exception fallback
+                max_ticker_price = await get_setting(db, "max_ticker_price", 500.0)
+                price_filtered_fallback = []
+                for ticker in fallback_tickers:
+                    try:
+                        quote_result = await db.execute(
+                            select(TickerQuote).where(TickerQuote.symbol == ticker.symbol)
+                        )
+                        quote = quote_result.scalar_one_or_none()
+                        if quote and quote.current_price:
+                            price_with_buffer = quote.current_price * 1.05
+                            if price_with_buffer <= max_ticker_price:
+                                price_filtered_fallback.append(ticker)
+                        else:
+                            continue
+                    except Exception as price_error:
+                        logger.warning(f"⚠️  Error checking price for {ticker.symbol}: {price_error}")
+                        continue
+                
+                logger.info(f"📊 Exception fallback selection returned {len(price_filtered_fallback)} tickers after price filtering")
+                return price_filtered_fallback
             except Exception as fallback_error:
                 logger.error(f"❌ Error in fallback selection: {fallback_error}")
                 return []
@@ -603,6 +695,124 @@ class RecommenderService:
             logger.error(f"Error dismissing recommendation {recommendation_id}: {e}")
             await db.rollback()
             return False
+    
+    async def generate_recommendations_for_ticker(self, db: AsyncSession, symbol: str) -> List[Recommendation]:
+        """Generate recommendations for a specific ticker."""
+        try:
+            logger.info(f"🎯 Generating recommendations for specific ticker: {symbol}")
+            
+            # Get the ticker from the universe
+            ticker_result = await db.execute(
+                select(InterestingTicker).where(InterestingTicker.symbol == symbol.upper())
+            )
+            ticker = ticker_result.scalar_one_or_none()
+            
+            if not ticker:
+                logger.warning(f"❌ Ticker {symbol} not found in universe")
+                return []
+            
+            # Check if ticker already has active recommendations
+            existing_recommendations = await db.execute(
+                select(Recommendation).where(
+                    and_(
+                        Recommendation.symbol == symbol.upper(),
+                        Recommendation.status == "proposed"
+                    )
+                )
+            )
+            existing = existing_recommendations.scalars().all()
+            
+            if existing:
+                logger.info(f"📊 Ticker {symbol} already has {len(existing)} active recommendations")
+                return existing
+            
+            # Refresh ticker quote to ensure current price is available
+            await self._refresh_ticker_quotes(db, [ticker])
+            
+            # Get current positions to avoid duplicates
+            current_positions = await self._get_current_positions(db)
+            if symbol.upper() in current_positions:
+                logger.info(f"📊 Ticker {symbol} already has an active position, skipping")
+                return []
+            
+            # Get options for the ticker
+            options = await self._get_options_for_ticker(db, ticker)
+            if not options:
+                logger.warning(f"⚠️  No options found for {symbol}")
+                return []
+            
+            # Generate recommendations using the existing scoring logic
+            recommendations = []
+            scoring_engine = ScoringEngine()
+            
+            for option in options:
+                try:
+                    # Get current price for scoring
+                    quote_result = await db.execute(
+                        select(TickerQuote).where(TickerQuote.symbol == option.underlying_ticker)
+                    )
+                    quote = quote_result.scalar_one_or_none()
+                    current_price = quote.current_price if quote else 0
+                    
+                    if current_price == 0:
+                        logger.warning(f"⚠️  No current price found for {option.underlying_ticker}, skipping option")
+                        continue
+                    
+                    # Score the option
+                    score_result = await scoring_engine.score_option(option, current_price)
+                    
+                    if score_result and score_result.get("score", 0) > 0:
+                        # Create recommendation
+                        recommendation = Recommendation(
+                            symbol=option.symbol,
+                            underlying_ticker=option.underlying_ticker,
+                            option_symbol=option.option_symbol,
+                            option_type=option.option_type,
+                            strike=option.strike,
+                            expiry=option.expiry,
+                            dte=option.dte,
+                            contract_price=option.price,
+                            current_price=option.underlying_price,
+                            volume=option.volume,
+                            open_interest=option.open_interest,
+                            put_call_ratio=option.put_call_ratio,
+                            score=score_result["score"],
+                            rationale_json=score_result.get("rationale", {}),
+                            status="proposed",
+                            created_at=pacific_now()
+                        )
+                        
+                        # Add expanded fields if available
+                        if "annualized_yield" in score_result:
+                            recommendation.annualized_yield = score_result["annualized_yield"]
+                        if "proximity_score" in score_result:
+                            recommendation.proximity_score = score_result["proximity_score"]
+                        if "liquidity_score" in score_result:
+                            recommendation.liquidity_score = score_result["liquidity_score"]
+                        if "risk_adjustment" in score_result:
+                            recommendation.risk_adjustment = score_result["risk_adjustment"]
+                        if "qualitative_score" in score_result:
+                            recommendation.qualitative_score = score_result["qualitative_score"]
+                        
+                        db.add(recommendation)
+                        recommendations.append(recommendation)
+                        
+                except Exception as e:
+                    logger.warning(f"⚠️  Error scoring option {option.option_symbol}: {e}")
+                    continue
+            
+            if recommendations:
+                await db.commit()
+                logger.info(f"✅ Generated {len(recommendations)} recommendations for {symbol}")
+            else:
+                logger.info(f"📊 No recommendations generated for {symbol} (no options met criteria)")
+            
+            return recommendations
+            
+        except Exception as e:
+            logger.error(f"❌ Error generating recommendations for {symbol}: {e}")
+            await db.rollback()
+            return []
     
     async def cleanup_old_recommendations(self, db: AsyncSession, days: int = 7) -> int:
         """Clean up old recommendations."""

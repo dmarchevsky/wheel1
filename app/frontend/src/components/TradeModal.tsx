@@ -40,7 +40,7 @@ import {
   Warning as WarningIcon,
 } from '@mui/icons-material'
 import { useThemeContext } from '@/contexts/ThemeContext'
-import { marketDataApi } from '@/lib/api'
+import { marketDataApi, tradesApi } from '@/lib/api'
 
 interface TradeModalProps {
   open: boolean
@@ -89,6 +89,7 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
   const [optionQuotes, setOptionQuotes] = useState<OptionQuote[]>([])
   const [selectedOption, setSelectedOption] = useState<OptionQuote | null>(null)
   const [loading, setLoading] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   
   // Trading parameters
@@ -210,24 +211,26 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
     const optionTypeLower = optionType.toLowerCase()
     
     if (optionTypeLower === 'put') {
-      // PUT options: strike < underlying = ITM, strike > underlying = OTM
-      if (ratio < 0.97) return { label: 'ITM', color: 'success' as const }      // Strike < 97% of underlying
-      if (ratio < 1.03) return { label: 'ATM', color: 'warning' as const }      // Strike 97-103% of underlying
-      return { label: 'OTM', color: 'error' as const }                           // Strike > 103% of underlying
-    } else if (optionTypeLower === 'call') {
-      // CALL options: strike > underlying = ITM, strike < underlying = OTM
-      if (ratio > 1.03) return { label: 'ITM', color: 'success' as const }      // Strike > 103% of underlying
+      // PUT options: strike > underlying = ITM, strike < underlying = OTM
+      // For sellers: OTM puts (low strike) are safer, ITM puts (high strike) are riskier
+      if (ratio > 1.03) return { label: 'ITM', color: 'error' as const }        // Strike > 103% of underlying (risky for sellers)
       if (ratio > 0.97) return { label: 'ATM', color: 'warning' as const }      // Strike 97-103% of underlying
-      return { label: 'OTM', color: 'error' as const }                           // Strike < 97% of underlying
+      return { label: 'OTM', color: 'success' as const }                        // Strike < 97% of underlying (safe for sellers)
+    } else if (optionTypeLower === 'call') {
+      // CALL options: strike < underlying = ITM, strike > underlying = OTM  
+      // For sellers: OTM calls (high strike) are safer, ITM calls (low strike) are riskier
+      if (ratio < 0.97) return { label: 'ITM', color: 'error' as const }        // Strike < 97% of underlying (risky for sellers)
+      if (ratio < 1.03) return { label: 'ATM', color: 'warning' as const }      // Strike 97-103% of underlying
+      return { label: 'OTM', color: 'success' as const }                        // Strike > 103% of underlying (safe for sellers)
     } else {
       // Unknown option type
       return { label: 'N/A', color: 'default' as const }
     }
   }
 
-  const handleSubmitTrade = () => {
+  const handleSubmitTrade = async () => {
     if (!selectedOption || !limitPrice) {
-      alert('Please select an option and enter a limit price.')
+      setError('Please select an option and enter a limit price.')
       return
     }
 
@@ -248,24 +251,51 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
         `Quantity: ${quantity}\n` +
         `Limit Price: $${limitPrice}\n` +
         `Total Value: $${(parseFloat(limitPrice) * quantity * 100).toFixed(2)}\n\n` +
-        `This is paper trading - no real trades will be executed.`
+        `This trade will be submitted to your ${environmentName.toLowerCase()}.`
 
-    if (confirm(confirmationMessage)) {
-      // TODO: Implement actual trade submission logic
-      console.log('Trade submitted:', {
-        symbol: selectedOption.symbol,
+    if (!confirm(confirmationMessage)) {
+      return
+    }
+
+    setSubmitting(true)
+    setError(null)
+
+    try {
+      const tradeData = {
+        option_symbol: selectedOption.symbol,
+        underlying_symbol: selectedOption.description.split(' ')[0], // Extract underlying symbol
         strike: selectedOption.strike,
+        expiration: selectedOption.expiration_date,
+        option_type: selectedOption.option_type.toLowerCase(),
+        side: "sell_to_open", // For cash-secured puts
         quantity,
-        limitPrice,
-        orderType,
-        duration,
-        environment
-      })
+        order_type: orderType,
+        price: orderType === 'limit' ? parseFloat(limitPrice) : undefined,
+        duration
+      }
+
+      const response = await tradesApi.submit(tradeData)
       
-      alert(isProduction 
-        ? 'Trade submitted successfully in LIVE MODE!' 
-        : 'Trade submitted successfully in SANDBOX MODE!'
-      )
+      if (response.data) {
+        const { trade_id, order_id, environment: responseEnv } = response.data
+        
+        alert(
+          `✅ Trade submitted successfully!\n\n` +
+          `Environment: ${responseEnv.toUpperCase()}\n` +
+          `Trade ID: ${trade_id}\n` +
+          `Order ID: ${order_id}\n\n` +
+          `You can check the status in your ${responseEnv === 'production' ? 'live' : 'sandbox'} Tradier account.`
+        )
+        
+        // Close modal on successful submission
+        onClose()
+      }
+    } catch (err: any) {
+      console.error('Error submitting trade:', err)
+      const errorMessage = err.response?.data?.detail || err.message || 'Failed to submit trade'
+      setError(`Trade submission failed: ${errorMessage}`)
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -644,11 +674,12 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
           <Button
             variant="contained"
             onClick={handleSubmitTrade}
-            disabled={!selectedOption || !limitPrice}
+            disabled={!selectedOption || !limitPrice || submitting}
             color="primary"
             sx={{ borderRadius: 0 }}
+            startIcon={submitting ? <CircularProgress size={16} /> : undefined}
           >
-            Submit Trade
+            {submitting ? 'Submitting...' : 'Submit Trade'}
           </Button>
         </Box>
       </DialogActions>

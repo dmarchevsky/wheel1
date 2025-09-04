@@ -179,7 +179,7 @@ async def debug_recommendations():
         print("\n9. Checking recommendation settings...")
         # Check configuration
         from config import settings
-        print(f"   📊 Max recommendations: {settings.max_recommendations}")
+
         print(f"   📊 Put delta min: {settings.put_delta_min}")
         print(f"   📊 Put delta max: {settings.put_delta_max}")
         print(f"   📊 Min OI: {settings.min_oi}")

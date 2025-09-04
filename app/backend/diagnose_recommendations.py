@@ -77,7 +77,7 @@ def check_recommendations():
         # 3. Try generating new recommendations
         print(f"\n3. Checking recommendation generation...")
         print("   ⚠️  Generation can take 30+ seconds, skipping for now")
-        print("   💡 To manually generate: curl -X POST http://localhost/api/v1/recommendations/refresh")
+        print("   💡 To manually generate: curl -X POST http://localhost/api/v1/recommendations/generate")
         
     except requests.RequestException as e:
         print(f"❌ Failed to connect to API: {e}")

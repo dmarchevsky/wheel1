@@ -18,8 +18,9 @@ logger = logging.getLogger(__name__)
 class TradeExecutor:
     """Service for executing trades through Tradier."""
     
-    def __init__(self):
-        self.tradier_client = TradierClient()
+    def __init__(self, environment: str = "sandbox"):
+        self.environment = environment
+        self.tradier_client = TradierClient(environment=environment)
     
     async def execute_recommendation(self, db: AsyncSession, recommendation_id: int) -> Optional[Trade]:
         """Execute a trade based on a recommendation."""
@@ -92,7 +93,7 @@ class TradeExecutor:
                 side="sell_to_open",
                 quantity=1,
                 price=option.bid,
-                order_id=order_result["id"],
+                order_id=str(order_result["id"]),
                 status="pending",
                 created_at=pacific_now()
             )
@@ -154,7 +155,7 @@ class TradeExecutor:
                 side="sell_to_open",
                 quantity=1,
                 price=1.00,  # Placeholder price
-                order_id=order_result["id"],
+                order_id=str(order_result["id"]),
                 status="pending",
                 created_at=pacific_now()
             )
@@ -210,7 +211,7 @@ class TradeExecutor:
                 side=side,
                 quantity=abs(position.quantity),
                 price=0,  # Market order, price will be filled
-                order_id=order_result["id"],
+                order_id=str(order_result["id"]),
                 status="pending",
                 created_at=pacific_now()
             )
@@ -273,3 +274,44 @@ class TradeExecutor:
         except Exception as e:
             logger.error(f"Error getting trade history: {e}")
             return []
+    
+    async def submit_trade(self, db: AsyncSession, order_params: dict) -> Optional[dict]:
+        """Submit a trade order directly."""
+        try:
+            logger.info(f"Submitting trade order in {self.environment} environment: {order_params}")
+            
+            # Submit order through Tradier
+            order_result = await self.tradier_client.place_order(order_params)
+            
+            if not order_result or not order_result.get("id"):
+                logger.error(f"Failed to submit order: {order_result}")
+                return None
+            
+            # Create trade record in database
+            trade = Trade(
+                symbol=order_params.get("symbol"),
+                option_symbol=order_params.get("option_symbol"),
+                side=order_params.get("side"),
+                quantity=order_params.get("quantity"),
+                price=order_params.get("price", 0),
+                order_id=str(order_result["id"]),  # Convert to string
+                status="pending",
+                created_at=pacific_now()
+            )
+            
+            db.add(trade)
+            await db.commit()
+            
+            logger.info(f"Successfully submitted trade order {order_result['id']} in {self.environment} environment")
+            
+            return {
+                "trade_id": trade.id,
+                "order_id": order_result["id"],
+                "status": "pending",
+                "environment": self.environment
+            }
+            
+        except Exception as e:
+            logger.error(f"Error submitting trade: {e}")
+            await db.rollback()
+            return None

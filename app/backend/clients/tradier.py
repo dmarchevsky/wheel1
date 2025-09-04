@@ -716,8 +716,12 @@ class TradierDataManager:
             
             # Use lower thresholds for storage than for recommendation scoring
             # This allows us to store more options while still filtering most junk
-            storage_volume_threshold = max(50, min_volume_storage // 4)  # 25% of recommendation threshold, min 50
-            storage_oi_threshold = max(100, min_oi_storage // 5)  # 20% of recommendation threshold, min 100
+            # Get storage thresholds from settings or use reasonable defaults
+            storage_volume_ratio = await get_setting(self.db, "storage_volume_ratio", 0.25)  # 25% of recommendation threshold
+            storage_oi_ratio = await get_setting(self.db, "storage_oi_ratio", 0.20)  # 20% of recommendation threshold
+            
+            storage_volume_threshold = max(1, int(min_volume_storage * storage_volume_ratio))  # Configurable minimum
+            storage_oi_threshold = max(1, int(min_oi_storage * storage_oi_ratio))  # Configurable minimum
             
             if not option.volume or option.volume < storage_volume_threshold:
                 logger.debug(f"Option {option.symbol} {option.strike} failed volume filter: {option.volume} (need ≥{storage_volume_threshold})")

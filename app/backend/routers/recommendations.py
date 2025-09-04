@@ -6,7 +6,7 @@ from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, and_
 
 from db.session import get_async_db
 from db.models import Recommendation, InterestingTicker, Option
@@ -692,32 +692,112 @@ async def get_recommendations_by_symbol(
         return []
 
 
-@router.post("/refresh")
-async def refresh_recommendations(
+@router.post("/generate/ticker/{symbol}")
+async def generate_recommendations_for_ticker(
+    symbol: str,
+    force_refresh: bool = Query(default=False, description="Force refresh of options data"),
     db: AsyncSession = Depends(get_async_db)
 ):
-    """Refresh recommendations by generating new ones."""
+    """Generate recommendations for a specific ticker."""
     try:
-        logger.info("Manual recommendation refresh requested")
+        logger.info(f"🎯 Manual recommendation generation requested for ticker: {symbol}")
         
-        # Initialize recommender service and generate recommendations directly
+        # Validate symbol format
+        if not symbol or len(symbol.strip()) == 0:
+            raise HTTPException(status_code=400, detail="Symbol is required")
+        
+        symbol = symbol.upper().strip()
+        
+        # Check if ticker exists in universe
+        from db.models import InterestingTicker
+        ticker_result = await db.execute(
+            select(InterestingTicker).where(InterestingTicker.symbol == symbol)
+        )
+        ticker = ticker_result.scalar_one_or_none()
+        
+        if not ticker:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Ticker {symbol} not found in universe. Add it to your watchlist first."
+            )
+        
+        # Check if ticker already has active recommendations
+        existing_recommendations = await db.execute(
+            select(Recommendation).where(
+                and_(
+                    Recommendation.symbol == symbol,
+                    Recommendation.status == "proposed"
+                )
+            )
+        )
+        existing = existing_recommendations.scalars().all()
+        
+        if existing and not force_refresh:
+            logger.info(f"📊 Ticker {symbol} already has {len(existing)} active recommendations")
+            # Return existing recommendations instead of creating new ones
+            response_list = []
+            for rec in existing:
+                option = await get_option_for_recommendation(db, rec)
+                response = await build_recommendation_response(db, rec, option)
+                response_list.append(response)
+            
+            return {
+                "message": f"Ticker {symbol} already has active recommendations",
+                "status": "existing",
+                "recommendations_count": len(existing),
+                "recommendations": response_list,
+                "timestamp": pacific_now().isoformat()
+            }
+        
+        # If force_refresh is True, clear existing recommendations first
+        if force_refresh and existing:
+            logger.info(f"🔄 Force refresh requested for {symbol}, clearing {len(existing)} existing recommendations")
+            for rec in existing:
+                rec.status = "dismissed"
+                rec.updated_at = pacific_now()
+            await db.commit()
+            logger.info(f"✅ Cleared existing recommendations for {symbol}")
+        
+        # Generate new recommendations
+        from services.recommender_service import RecommenderService
         recommender_service = RecommenderService()
-        new_recommendations = await recommender_service.generate_recommendations(db)
+        
+        logger.info(f"🔄 Starting recommendation generation for {symbol}...")
+        recommendations = await recommender_service.generate_recommendations_for_ticker(db, symbol)
+        logger.info(f"✅ Recommendation generation completed for {symbol}")
+        
+        if not recommendations:
+            return {
+                "message": f"No recommendations generated for {symbol}",
+                "status": "no_recommendations",
+                "recommendations_count": 0,
+                "recommendations": [],
+                "timestamp": pacific_now().isoformat()
+            }
+        
+        # Build response for new recommendations
+        response_list = []
+        for rec in recommendations:
+            option = await get_option_for_recommendation(db, rec)
+            response = await build_recommendation_response(db, rec, option)
+            response_list.append(response)
         
         return {
-            "message": "Recommendations refreshed successfully",
-            "status": "success",
-            "new_recommendations_count": len(new_recommendations),
-            "timestamp": pacific_now().isoformat(),
-            "recommendations": [
-                {
-                    "symbol": rec.symbol,
-                    "score": rec.score,
-                    "status": rec.status
-                } for rec in new_recommendations
-            ]
+            "message": f"Successfully generated {len(recommendations)} recommendations for {symbol}",
+            "status": "generated",
+            "recommendations_count": len(recommendations),
+            "recommendations": response_list,
+            "timestamp": pacific_now().isoformat()
         }
-            
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to refresh recommendations: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to refresh recommendations: {str(e)}")
+        logger.error(f"❌ Failed to generate recommendations for ticker {symbol}: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to generate recommendations for {symbol}: {str(e)}"
+        )
+
+
+

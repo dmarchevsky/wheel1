@@ -231,14 +231,7 @@ class SettingsService:
                 "description": "Minimum annualized return percentage",
                 "category": "Risk/Scoring Thresholds"
             },
-            "max_recommendations": {
-                "type": "int",
-                "default": 3,
-                "min": 1,
-                "max": 20,
-                "description": "Maximum number of recommendations",
-                "category": "Risk/Scoring Thresholds"
-            },
+
             "top_universe_score": {
                 "type": "int",
                 "default": 50,
@@ -328,6 +321,14 @@ class SettingsService:
                 "max": 1.0,
                 "description": "Maximum delta for covered calls",
                 "category": "Trading Configuration"
+            },
+            "max_ticker_price": {
+                "type": "float",
+                "default": 500.0,
+                "min": 1.0,
+                "max": 10000.0,
+                "description": "Maximum ticker price",
+                "category": "Risk/Scoring Thresholds"
             }
         }
     
