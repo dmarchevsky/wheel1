@@ -22,60 +22,61 @@ import EnvironmentToggle from './EnvironmentToggle';
 import { TradingEnvironment } from '@/types';
 import { useThemeContext } from '@/contexts/ThemeContext';
 
-interface PortfolioSummary {
-  cash: number;
-  equity_value: number;
-  option_value: number;
+interface AccountBalanceData {
+  account_number: string;
   total_value: number;
-  total_pnl: number;
-  total_pnl_pct: number;
-  _error_message?: string; // Optional field for API error information
+  cash: number;
+  long_stock_value: number;
+  short_stock_value: number;
+  long_option_value: number;
+  short_option_value: number;
+  buying_power: number;
+  day_trade_buying_power: number;
+  equity: number;
+  margin_info: {
+    fed_call: number;
+    maintenance_call: number;
+    option_buying_power: number;
+    stock_buying_power: number;
+    stock_short_value: number;
+    sweep: number;
+  };
+  last_updated: string;
 }
 
-interface AccountHeaderProps {
-  collapsed: boolean;
-}
-
-export default function AccountHeader({ collapsed }: AccountHeaderProps) {
-  const [portfolioData, setPortfolioData] = useState<PortfolioSummary | null>(null);
+export default function AccountHeader() {
+  const [balanceData, setBalanceData] = useState<AccountBalanceData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const { environment: currentEnvironment } = useThemeContext();
 
-  const fetchPortfolioData = async () => {
+  const fetchBalanceData = async () => {
     try {
       setLoading(true);
       setError(null);
-      const portfolioRes = await accountApi.getPortfolio();
-      setPortfolioData({
-        cash: portfolioRes.data.cash,
-        equity_value: portfolioRes.data.equity_value,
-        option_value: portfolioRes.data.option_value,
-        total_value: portfolioRes.data.total_value,
-        total_pnl: portfolioRes.data.total_pnl,
-        total_pnl_pct: portfolioRes.data.total_pnl_pct,
-      });
+      const balancesRes = await accountApi.getBalances();
+      setBalanceData(balancesRes.data);
     } catch (err) {
-      console.error('Error fetching portfolio data:', err);
-      setError('Failed to fetch portfolio data');
+      console.error('Error fetching balance data:', err);
+      setError('Failed to fetch balance data');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchPortfolioData();
+    fetchBalanceData();
   }, []);
 
   const handleRefresh = () => {
-    fetchPortfolioData();
+    fetchBalanceData();
   };
 
   const handleEnvironmentChange = (environment: TradingEnvironment) => {
-    // Refresh portfolio data when environment changes
-    fetchPortfolioData();
+    // Refresh balance data when environment changes
+    fetchBalanceData();
   };
 
   const formatCurrency = (value: number | undefined | null) => {
@@ -88,13 +89,8 @@ export default function AccountHeader({ collapsed }: AccountHeaderProps) {
     }).format(value);
   };
 
-  const formatPercent = (value: number | undefined | null) => {
-    if (value === undefined || value === null) return '0.00%';
-    return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
-  };
-
-  const getPnLColor = (value: number | undefined | null) => {
-    if (value === undefined || value === null || value === 0) return theme.palette.text.secondary;
+  const getValueColor = (value: number | undefined | null) => {
+    if (value === undefined || value === null || value === 0) return theme.palette.text.primary;
     return value > 0 ? theme.palette.success.main : theme.palette.error.main;
   };
 
@@ -106,16 +102,7 @@ export default function AccountHeader({ collapsed }: AccountHeaderProps) {
     );
   }
 
-  // Show API error if present in portfolio data
-  if (portfolioData?._error_message) {
-    return (
-      <Alert severity="warning" sx={{ mb: 2 }}>
-        {portfolioData._error_message}
-      </Alert>
-    );
-  }
-
-  if (!portfolioData) {
+  if (!balanceData) {
     // Dynamic styling for loading state too
     const loadingCardBackground = currentEnvironment === 'sandbox' 
       ? 'linear-gradient(135deg, #2d1a00 0%, #4a2c00 100%)' 
@@ -163,72 +150,78 @@ export default function AccountHeader({ collapsed }: AccountHeaderProps) {
           <Box sx={{ 
             display: 'flex', 
             flexWrap: 'wrap', 
-            gap: { xs: 2, md: 4 },
+            gap: { xs: 1.5, md: 3 },
             justifyContent: isMobile ? 'space-between' : 'flex-start',
             flexGrow: 1,
             alignItems: 'center'
           }}>
+            {/* Account Number & Total Value */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: { xs: '45%', md: 'auto' } }}>
               <Typography variant="body2" color="text.secondary">
-                Total Value:
+                Account {balanceData.account_number}:
               </Typography>
               <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                {formatCurrency(portfolioData.total_value)}
+                {formatCurrency(balanceData.total_value)}
               </Typography>
-              {portfolioData._error_message && (
-                <Typography 
-                  variant="caption" 
-                  sx={{ 
-                    color: 'error.main',
-                    fontSize: '0.7rem',
-                    fontStyle: 'italic'
-                  }}
-                >
-                  (API Error)
-                </Typography>
-              )}
-              <Box sx={{ display: 'flex', alignItems: 'center', ml: 1 }}>
-                {portfolioData.total_pnl >= 0 ? 
-                  <TrendingUp sx={{ fontSize: 16, color: getPnLColor(portfolioData.total_pnl) }} /> : 
-                  <TrendingDown sx={{ fontSize: 16, color: getPnLColor(portfolioData.total_pnl) }} />
-                }
-                <Typography 
-                  variant="body2" 
-                  sx={{ 
-                    color: getPnLColor(portfolioData.total_pnl),
-                    fontWeight: 600,
-                    ml: 0.5
-                  }}
-                >
-                  {formatPercent(portfolioData.total_pnl_pct)}
-                </Typography>
-              </Box>
             </Box>
             
+            {/* Cash */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: { xs: '45%', md: 'auto' } }}>
               <Typography variant="body2" color="text.secondary">
                 Cash:
               </Typography>
               <Typography variant="body1" sx={{ fontWeight: 600, color: theme.palette.success.main }}>
-                {formatCurrency(portfolioData.cash)}
+                {formatCurrency(balanceData.cash)}
               </Typography>
             </Box>
             
+            {/* Long Stock Value */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: { xs: '45%', md: 'auto' } }}>
               <Typography variant="body2" color="text.secondary">
-                Stocks:
+                Long Stock:
               </Typography>
-              <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                {formatCurrency(portfolioData.equity_value)}
+              <Typography variant="body1" sx={{ fontWeight: 600, color: getValueColor(balanceData.long_stock_value) }}>
+                {formatCurrency(balanceData.long_stock_value)}
               </Typography>
             </Box>
             
+            {/* Short Stock Value */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: { xs: '45%', md: 'auto' } }}>
               <Typography variant="body2" color="text.secondary">
-                Options:
+                Short Stock:
               </Typography>
-              <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                {formatCurrency(portfolioData.option_value)}
+              <Typography variant="body1" sx={{ fontWeight: 600, color: getValueColor(balanceData.short_stock_value) }}>
+                {formatCurrency(balanceData.short_stock_value)}
+              </Typography>
+            </Box>
+            
+            {/* Long Options Value */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: { xs: '45%', md: 'auto' } }}>
+              <Typography variant="body2" color="text.secondary">
+                Long Options:
+              </Typography>
+              <Typography variant="body1" sx={{ fontWeight: 600, color: getValueColor(balanceData.long_option_value) }}>
+                {formatCurrency(balanceData.long_option_value)}
+              </Typography>
+            </Box>
+            
+            {/* Short Options Value */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: { xs: '45%', md: 'auto' } }}>
+              <Typography variant="body2" color="text.secondary">
+                Short Options:
+              </Typography>
+              <Typography variant="body1" sx={{ fontWeight: 600, color: getValueColor(balanceData.short_option_value) }}>
+                {formatCurrency(balanceData.short_option_value)}
+              </Typography>
+            </Box>
+            
+            {/* Buying Power */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: { xs: '45%', md: 'auto' } }}>
+              <Typography variant="body2" color="text.secondary">
+                Buying Power:
+              </Typography>
+              <Typography variant="body1" sx={{ fontWeight: 600, color: theme.palette.info.main }}>
+                {formatCurrency(balanceData.buying_power)}
               </Typography>
             </Box>
           </Box>
@@ -236,7 +229,6 @@ export default function AccountHeader({ collapsed }: AccountHeaderProps) {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <EnvironmentToggle 
               onEnvironmentChange={handleEnvironmentChange}
-              collapsed={collapsed}
             />
             
             <IconButton 

@@ -31,8 +31,26 @@ import { accountApi } from '@/lib/api'
 import { Position, OptionPosition } from '@/types'
 
 interface PortfolioData {
-  positions: Position[]
-  option_positions: OptionPosition[]
+  account_status?: any
+  balances?: any
+  positions?: Array<{
+    symbol: string
+    instrument_type: string
+    quantity: number
+    cost_basis: number
+    current_price: number
+    market_value: number
+    pnl: number
+    pnl_percent: number
+    contract_symbol?: string
+    option_type?: string
+    strike?: number
+    expiration?: string
+    side?: string
+  }>
+  recent_orders?: any[]
+  // Legacy format compatibility
+  option_positions?: OptionPosition[]
 }
 
 export default function PositionsSummary() {
@@ -48,6 +66,7 @@ export default function PositionsSummary() {
       setLoading(true)
       setError(null)
       const response = await accountApi.getPortfolio()
+      console.log('Portfolio API response:', response.data) // Debug log
       setPortfolio(response.data)
     } catch (err: any) {
       console.error('Error fetching portfolio:', err)
@@ -107,9 +126,14 @@ export default function PositionsSummary() {
     )
   }
 
+  // Separate positions by instrument type
+  const allPositions = portfolio.positions || []
+  const stockPositions = allPositions.filter(pos => pos.instrument_type === 'equity')
+  const optionPositions = allPositions.filter(pos => pos.instrument_type === 'option')
+  
   // Show only top 5 positions for dashboard summary
-  const topStockPositions = portfolio.positions.slice(0, 5)
-  const topOptionPositions = portfolio.option_positions.slice(0, 5)
+  const topStockPositions = stockPositions.slice(0, 5)
+  const topOptionPositions = optionPositions.slice(0, 5)
 
   return (
     <Grid container spacing={3}>
@@ -117,7 +141,7 @@ export default function PositionsSummary() {
       <Grid item xs={12} lg={6}>
         <Card>
           <CardHeader
-            title={`Stock Positions (${portfolio.positions.length})`}
+            title={`Stock Positions (${stockPositions.length})`}
             action={
               <Box>
                 <IconButton onClick={fetchPortfolio} size="small">
@@ -154,7 +178,7 @@ export default function PositionsSummary() {
                             <Typography fontWeight="bold">{position.symbol}</Typography>
                           </TableCell>
                           <TableCell align="right">
-                            {position.shares.toLocaleString()}
+                            {Math.abs(position.quantity).toLocaleString()}
                           </TableCell>
                           <TableCell align="right">
                             {formatCurrency(position.current_price)}
@@ -166,7 +190,7 @@ export default function PositionsSummary() {
                           </TableCell>
                           <TableCell align="right">
                             <Chip 
-                              label={formatPercent(position.pnl_pct)}
+                              label={formatPercent(position.pnl_percent)}
                               color={position.pnl && position.pnl > 0 ? 'success' : 'error'}
                               variant="outlined"
                               size="small"
@@ -178,7 +202,7 @@ export default function PositionsSummary() {
                   </Table>
                 </TableContainer>
               )}
-              {portfolio.positions.length > 5 && (
+              {stockPositions.length > 5 && (
                 <Box textAlign="center" mt={2}>
                   <Typography variant="body2" color="textSecondary">
                     Showing top 5 positions. <a href="/portfolio" style={{ color: theme.palette.primary.main }}>View all positions</a>
@@ -194,7 +218,7 @@ export default function PositionsSummary() {
       <Grid item xs={12} lg={6}>
         <Card>
           <CardHeader
-            title={`Options Positions (${portfolio.option_positions.length})`}
+            title={`Options Positions (${optionPositions.length})`}
             action={
               <Box>
                 <IconButton onClick={fetchPortfolio} size="small">
@@ -226,12 +250,12 @@ export default function PositionsSummary() {
                     </TableHead>
                     <TableBody>
                       {topOptionPositions.map((position, index) => (
-                        <TableRow key={`${position.contract_symbol}-${index}`} hover>
+                        <TableRow key={`${position.contract_symbol || position.symbol}-${index}`} hover>
                           <TableCell>
                             <Typography variant="body2" fontFamily="monospace" fontSize="0.75rem">
-                              {position.contract_symbol.length > 20 
+                              {position.contract_symbol && position.contract_symbol.length > 20 
                                 ? `${position.contract_symbol.substring(0, 20)}...` 
-                                : position.contract_symbol
+                                : position.contract_symbol || position.symbol
                               }
                             </Typography>
                           </TableCell>
@@ -240,17 +264,17 @@ export default function PositionsSummary() {
                           </TableCell>
                           <TableCell align="center">
                             <Chip 
-                              label={position.side}
-                              color={position.side === 'long' ? 'primary' : 'secondary'}
+                              label={position.side || (position.quantity > 0 ? 'long' : 'short')}
+                              color={position.side === 'long' || position.quantity > 0 ? 'primary' : 'secondary'}
                               size="small"
                             />
                           </TableCell>
                           <TableCell align="right">
-                            {position.quantity}
+                            {Math.abs(position.quantity)}
                           </TableCell>
                           <TableCell align="right">
                             <Chip 
-                              label={formatPercent(position.pnl_pct)}
+                              label={formatPercent(position.pnl_percent)}
                               color={position.pnl && position.pnl > 0 ? 'success' : 'error'}
                               variant="outlined"
                               size="small"
@@ -262,7 +286,7 @@ export default function PositionsSummary() {
                   </Table>
                 </TableContainer>
               )}
-              {portfolio.option_positions.length > 5 && (
+              {optionPositions.length > 5 && (
                 <Box textAlign="center" mt={2}>
                   <Typography variant="body2" color="textSecondary">
                     Showing top 5 positions. <a href="/portfolio" style={{ color: theme.palette.primary.main }}>View all positions</a>

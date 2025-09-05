@@ -20,12 +20,14 @@ class AccountService:
     
     def _get_tradier_client(self) -> TradierClient:
         """Get Tradier client for current environment."""
-        return trading_env.get_tradier_client()
+        current_env = trading_env.current_environment
+        return TradierClient(environment=current_env)
     
     async def get_account_info(self) -> Dict[str, Any]:
         """Get account information from Tradier."""
         try:
-            logger.info(f"Fetching account information from Tradier ({trading_env.current_environment})...")
+            current_env = trading_env.current_environment
+            logger.info(f"Fetching account information from Tradier ({current_env})...")
             
             # Get environment-aware Tradier client
             async with self._get_tradier_client() as tradier_client:

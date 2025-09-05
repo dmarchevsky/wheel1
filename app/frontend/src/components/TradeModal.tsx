@@ -40,7 +40,7 @@ import {
   Warning as WarningIcon,
 } from '@mui/icons-material'
 import { useThemeContext } from '@/contexts/ThemeContext'
-import { marketDataApi, tradesApi } from '@/lib/api'
+import { marketDataApi, accountApi } from '@/lib/api'
 
 interface TradeModalProps {
   open: boolean
@@ -261,28 +261,24 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
     setError(null)
 
     try {
-      const tradeData = {
-        option_symbol: selectedOption.symbol,
-        underlying_symbol: selectedOption.description.split(' ')[0], // Extract underlying symbol
-        strike: selectedOption.strike,
-        expiration: selectedOption.expiration_date,
-        option_type: selectedOption.option_type.toLowerCase(),
+      const orderData = {
+        symbol: selectedOption.description.split(' ')[0], // Extract underlying symbol
         side: "sell_to_open", // For cash-secured puts
         quantity,
         order_type: orderType,
         price: orderType === 'limit' ? parseFloat(limitPrice) : undefined,
-        duration
+        duration,
+        option_symbol: selectedOption.symbol
       }
 
-      const response = await tradesApi.submit(tradeData)
+      const response = await accountApi.submitOrder(orderData)
       
       if (response.data) {
-        const { trade_id, order_id, environment: responseEnv } = response.data
+        const { order_id, environment: responseEnv } = response.data
         
         alert(
-          `✅ Trade submitted successfully!\n\n` +
+          `✅ Order submitted successfully!\n\n` +
           `Environment: ${responseEnv.toUpperCase()}\n` +
-          `Trade ID: ${trade_id}\n` +
           `Order ID: ${order_id}\n\n` +
           `You can check the status in your ${responseEnv === 'production' ? 'live' : 'sandbox'} Tradier account.`
         )

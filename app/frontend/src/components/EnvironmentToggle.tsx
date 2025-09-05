@@ -16,7 +16,7 @@ import {
   Science as SandboxIcon,
   BusinessCenter as LiveModeIcon,
 } from '@mui/icons-material';
-import { tradingEnvironmentApi } from '@/lib/api';
+import { accountApi, tradingEnvironmentApi } from '@/lib/api';
 import { TradingEnvironment, EnvironmentStatus } from '@/types';
 import { useThemeContext } from '@/contexts/ThemeContext';
 
@@ -62,29 +62,37 @@ export default function EnvironmentToggle({ onEnvironmentChange, collapsed }: En
       setLoading(true);
       setError(null);
       
-      const response = await tradingEnvironmentApi.switchEnvironment(newEnvironment);
+      // Use the new unified account API for switching
+      const response = await accountApi.switchEnvironment(newEnvironment);
       
       if (response.data.status === 'success') {
         // Update theme context immediately
         setEnvironment(newEnvironment);
         
-        // Check if there's a warning (credentials not configured)
-        if (response.data.warning) {
-          setSuccess(`⚠️ ${response.data.message}`);
-        } else {
-          const modeName = newEnvironment === 'sandbox' ? 'Sandbox Mode' : 'Live Mode';
-          setSuccess(`Successfully switched to ${modeName}`);
-        }
+        // Display detailed account switching information
+        const { account_info, previous_account } = response.data;
+        const modeName = newEnvironment === 'sandbox' ? 'Sandbox Mode' : 'Live Mode';
+        const prevModeName = response.data.previous_environment === 'sandbox' ? 'Sandbox' : 'Live';
+        
+        const successMessage = (
+          `✅ Switched to ${modeName}!\n\n` +
+          `FROM: ${prevModeName} Account ${previous_account.account_number}\n` +
+          `      $${previous_account.total_value?.toLocaleString() || '0.00'}\n\n` +
+          `TO:   ${newEnvironment.toUpperCase()} Account ${account_info.account_number}\n` +
+          `      $${account_info.total_value?.toLocaleString() || '0.00'}`
+        );
+        
+        setSuccess(successMessage);
         
         // Notify parent component
         if (onEnvironmentChange) {
           onEnvironmentChange(newEnvironment);
         }
         
-        // Refresh the page after a short delay to update all components
+        // Refresh the page after a longer delay to let user read the message
         setTimeout(() => {
           window.location.reload();
-        }, 1500);
+        }, 3000);
       } else {
         throw new Error(response.data.message || 'Failed to switch environment');
       }
@@ -178,7 +186,7 @@ export default function EnvironmentToggle({ onEnvironmentChange, collapsed }: En
       {/* Snackbar for success/error messages */}
       <Snackbar
         open={!!(error || success)}
-        autoHideDuration={success?.includes('⚠️') ? 8000 : 6000} // Longer for warnings
+        autoHideDuration={success?.includes('✅ Switched') ? 10000 : (success?.includes('⚠️') ? 8000 : 6000)} // Longer for account switching
         onClose={handleCloseSnackbar}
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
       >
@@ -186,6 +194,13 @@ export default function EnvironmentToggle({ onEnvironmentChange, collapsed }: En
           onClose={handleCloseSnackbar} 
           severity={error ? 'error' : (success?.includes('⚠️') ? 'warning' : 'success')}
           variant="filled"
+          sx={{ 
+            '& .MuiAlert-message': { 
+              whiteSpace: 'pre-line',
+              fontFamily: 'monospace',
+              fontSize: '0.85rem'
+            } 
+          }}
         >
           {error || success}
         </Alert>

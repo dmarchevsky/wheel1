@@ -1,7 +1,7 @@
 """Service for managing trading environment (production vs sandbox)."""
 
 import logging
-from typing import Literal
+from typing import Literal, Dict, Optional
 from clients.tradier import TradierClient, TradierDataManager
 from clients.tradier_account import TradierAccountClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,40 +11,55 @@ logger = logging.getLogger(__name__)
 TradingEnvironment = Literal["production", "sandbox"]
 
 class TradingEnvironmentService:
-    """Service for managing trading environment switching."""
+    """Service for managing trading environment switching with session persistence."""
     
     def __init__(self):
         self._current_environment: TradingEnvironment = "production"
+        self._session_environments: Dict[str, TradingEnvironment] = {}
     
     @property
     def current_environment(self) -> TradingEnvironment:
         """Get the current trading environment."""
         return self._current_environment
     
-    def set_environment(self, environment: TradingEnvironment) -> None:
+    def get_session_environment(self, session_id: Optional[str]) -> TradingEnvironment:
+        """Get environment for a specific session, fallback to global."""
+        if session_id and session_id in self._session_environments:
+            return self._session_environments[session_id]
+        return self._current_environment
+    
+    def set_environment(self, environment: TradingEnvironment, session_id: Optional[str] = None) -> None:
         """
         Set the current trading environment.
         
         Args:
             environment: "production" or "sandbox"
+            session_id: Optional session ID for per-session environments
         """
         if environment not in ["production", "sandbox"]:
             raise ValueError("Environment must be 'production' or 'sandbox'")
         
-        self._current_environment = environment
-        logger.info(f"Trading environment set to: {environment}")
+        if session_id:
+            self._session_environments[session_id] = environment
+            logger.info(f"Trading environment set to: {environment} for session {session_id}")
+        else:
+            self._current_environment = environment
+            logger.info(f"Global trading environment set to: {environment}")
     
-    def get_tradier_client(self) -> TradierClient:
+    def get_tradier_client(self, session_id: Optional[str] = None) -> TradierClient:
         """Get a Tradier client for the current environment."""
-        return TradierClient(self._current_environment)
+        env = self.get_session_environment(session_id)
+        return TradierClient(env)
     
-    def get_tradier_account_client(self) -> TradierAccountClient:
+    def get_tradier_account_client(self, session_id: Optional[str] = None) -> TradierAccountClient:
         """Get a Tradier account client for the current environment."""
-        return TradierAccountClient(self._current_environment)
+        env = self.get_session_environment(session_id)
+        return TradierAccountClient(env)
     
-    def get_tradier_data_manager(self, db: AsyncSession) -> TradierDataManager:
+    def get_tradier_data_manager(self, db: AsyncSession, session_id: Optional[str] = None) -> TradierDataManager:
         """Get a Tradier data manager for the current environment."""
-        return TradierDataManager(db, self._current_environment)
+        env = self.get_session_environment(session_id)
+        return TradierDataManager(db, env)
     
     async def test_environment_connection(self, environment: TradingEnvironment) -> dict:
         """
@@ -68,13 +83,14 @@ class TradingEnvironmentService:
                 "environment": environment
             }
     
-    def get_environment_info(self) -> dict:
+    def get_environment_info(self, session_id: Optional[str] = None) -> dict:
         """Get information about the current environment."""
+        env = self.get_session_environment(session_id)
         return {
-            "current_environment": self._current_environment,
+            "current_environment": env,
             "available_environments": ["production", "sandbox"],
             "data_source": "production",  # Data always comes from production
-            "account_operations": self._current_environment
+            "account_operations": env
         }
 
 # Global instance

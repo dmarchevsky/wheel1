@@ -30,14 +30,28 @@ export function DynamicThemeProvider({ children }: DynamicThemeProviderProps) {
   const [environment, setEnvironment] = useState<TradingEnvironment>('production');
   const [isDark, setIsDark] = useState(true); // Default to dark mode
 
-  // Fetch environment on mount
+  // Load environment from localStorage on mount, then fetch from server
   useEffect(() => {
     const fetchEnvironment = async () => {
       try {
+        // First, load from localStorage for immediate UI update
+        const storedEnvironment = localStorage.getItem('trading_environment') as TradingEnvironment;
+        if (storedEnvironment && (storedEnvironment === 'production' || storedEnvironment === 'sandbox')) {
+          setEnvironment(storedEnvironment);
+        }
+
+        // Then fetch from server and update both localStorage and state
         const response = await tradingEnvironmentApi.getStatus();
-        setEnvironment(response.data.current_environment);
+        const serverEnvironment = response.data.current_environment;
+        
+        // Update localStorage and state if server has different value
+        if (serverEnvironment !== storedEnvironment) {
+          localStorage.setItem('trading_environment', serverEnvironment);
+          setEnvironment(serverEnvironment);
+        }
       } catch (error) {
         console.error('Failed to fetch environment status:', error);
+        // If server fetch fails, keep the localStorage value
       }
     };
 
@@ -159,9 +173,15 @@ export function DynamicThemeProvider({ children }: DynamicThemeProviderProps) {
     },
   });
 
+  // Enhanced setEnvironment that also updates localStorage
+  const updateEnvironment = (env: TradingEnvironment) => {
+    setEnvironment(env);
+    localStorage.setItem('trading_environment', env);
+  };
+
   const contextValue: ThemeContextType = {
     environment,
-    setEnvironment,
+    setEnvironment: updateEnvironment,
     isDark,
     toggleDarkMode,
   };

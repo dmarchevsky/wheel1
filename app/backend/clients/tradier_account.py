@@ -158,10 +158,16 @@ class TradierAccountClient:
         data = await self._make_request("GET", f"/accounts/{self.account_id}/positions")
         
         positions_data = data.get("positions", {})
-        # Handle case where positions is "null" string
+        
+        # Handle case where positions is "null" string or empty
         if positions_data == "null" or not positions_data:
             return []
         
+        # Check if positions_data is directly a list (Tradier API format)
+        if isinstance(positions_data, list):
+            return positions_data
+        
+        # Handle nested structure: positions.position
         positions = positions_data.get("position", [])
         if not isinstance(positions, list):
             positions = [positions]
@@ -173,7 +179,12 @@ class TradierAccountClient:
         params = {"includeTags": str(include_tags).lower()}
         data = await self._make_request("GET", f"/accounts/{self.account_id}/orders", params)
         
-        orders = data.get("orders", {}).get("order", [])
+        orders_data = data.get("orders", {})
+        # Handle case where orders is "null" string
+        if orders_data == "null" or not orders_data:
+            return []
+        
+        orders = orders_data.get("order", [])
         if not isinstance(orders, list):
             orders = [orders]
         
