@@ -228,6 +228,10 @@ const RecommendationsPanel = forwardRef<any, RecommendationsPanelProps>(({
           aValue = a.annualized_roi || 0
           bValue = b.annualized_roi || 0
           break
+        case 'probability_of_profit_monte_carlo':
+          aValue = a.probability_of_profit_monte_carlo || 0
+          bValue = b.probability_of_profit_monte_carlo || 0
+          break
         case 'collateral':
           aValue = a.collateral || 0
           bValue = b.collateral || 0
@@ -692,13 +696,20 @@ const RecommendationsPanel = forwardRef<any, RecommendationsPanelProps>(({
                   ROI {getSortIcon('annualized_roi')}
                 </TableCell>
 
-                <TableCell sx={{ 
-                  fontWeight: 600, 
-                  fontSize: '0.875rem',
-                  color: 'text.primary',
-                  borderBottom: 'none',
-                  py: 1.5
-                }}>Win Prob</TableCell>
+                <TableCell 
+                  sx={{ 
+                    fontWeight: 600, 
+                    fontSize: '0.875rem',
+                    color: 'text.primary',
+                    borderBottom: 'none',
+                    py: 1.5,
+                    cursor: 'pointer',
+                    '&:hover': { backgroundColor: 'action.hover' }
+                  }}
+                  onClick={() => handleSortChange('probability_of_profit_monte_carlo')}
+                >
+                  Win Prob {getSortIcon('probability_of_profit_monte_carlo')}
+                </TableCell>
                 <TableCell 
                   sx={{ 
                     fontWeight: 600, 
