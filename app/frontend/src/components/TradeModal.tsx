@@ -299,14 +299,14 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
 
   return (
     <Dialog 
-      open={open} 
-      onClose={onClose} 
-      maxWidth="lg" 
-      fullWidth
-      PaperProps={{
-        sx: { minHeight: '80vh', borderRadius: 0 }
-      }}
-    >
+        open={open} 
+        onClose={onClose} 
+        maxWidth="lg" 
+        fullWidth
+        PaperProps={{
+          sx: { minHeight: '80vh', borderRadius: 0 }
+        }}
+      >
       <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
         <Box>
           <Typography variant="h6" component="span">
@@ -349,171 +349,223 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
           </Alert>
         )}
 
-        <Grid container spacing={3}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '2fr 1fr' }, gap: 2, alignItems: 'start' }}>
           {/* Option Chain */}
-          <Grid item xs={12} lg={8}>
-            <Paper sx={{ p: 2, borderRadius: 0 }}>
-              <Typography variant="h6" gutterBottom>
-                Put Options Chain - {recommendation.expiry}
-              </Typography>
-              
-              {loading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-                  <CircularProgress />
-                </Box>
-              ) : (
-                <TableContainer sx={{ height: 200, overflowX: 'hidden', width: '100%' }}>
-                  <Table size="small" stickyHeader sx={{ minWidth: 0, tableLayout: 'fixed' }} padding="checkbox">
-                                        <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ width: '15%', minWidth: 70, fontSize: '0.75rem' }}>Strike</TableCell>
-                        <TableCell sx={{ width: '12%', minWidth: 55, fontSize: '0.75rem' }}>Bid</TableCell>
-                        <TableCell sx={{ width: '12%', minWidth: 55, fontSize: '0.75rem' }}>Ask</TableCell>
-                        <TableCell sx={{ width: '12%', minWidth: 55, fontSize: '0.75rem' }}>Last</TableCell>
-                        <TableCell sx={{ width: '10%', minWidth: 50, fontSize: '0.75rem' }}>Delta</TableCell>
-                        <TableCell sx={{ width: '10%', minWidth: 50, fontSize: '0.75rem' }}>Volume</TableCell>
-                        <TableCell sx={{ width: '10%', minWidth: 50, fontSize: '0.75rem' }}>OI</TableCell>
-                        <TableCell sx={{ width: '10%', minWidth: 50, fontSize: '0.75rem' }}>IV</TableCell>
-                        <TableCell sx={{ width: '9%', minWidth: 45, fontSize: '0.75rem' }}>Status</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {optionQuotes.map((option) => {
-                        const isSelected = selectedOption?.symbol === option.symbol
-                        const moneyness = underlyingQuote ? getMoneyness(option.strike, underlyingQuote.last, option.option_type) : null
-                        const isRecommended = Math.abs(option.strike - recommendation.strike) < 0.01
-                        
-                        return (
-                          <TableRow
-                            key={option.symbol}
-                            ref={isRecommended ? recommendedOptionRef : undefined}
-                            hover
-                            selected={isSelected}
-                            onClick={() => handleOptionSelect(option)}
-                            sx={{ 
-                              cursor: 'pointer',
-                              backgroundColor: isRecommended ? 'primary.50' : undefined,
-                              borderLeft: isRecommended ? '4px solid' : undefined,
-                              borderLeftColor: isRecommended ? 'primary.main' : undefined,
-                              '&:hover': {
-                                backgroundColor: isRecommended ? 'primary.100' : 'action.hover'
-                              }
-                            }}
-                          >
-                            <TableCell sx={{ fontSize: '0.75rem' }}>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                {isRecommended && (
-                                  <Box
-                                    sx={{
-                                      width: 8,
-                                      height: 8,
-                                      borderRadius: '50%',
-                                      backgroundColor: 'primary.main',
-                                      flexShrink: 0
-                                    }}
-                                  />
-                                )}
-                                <Typography variant="body2" fontWeight={isRecommended ? 'bold' : 'normal'} sx={{ fontSize: '0.75rem' }}>
-                                  ${option.strike}
-                                </Typography>
-                              </Box>
-                            </TableCell>
-                            <TableCell sx={{ fontSize: '0.75rem' }}>${option.bid.toFixed(2)}</TableCell>
-                            <TableCell sx={{ fontSize: '0.75rem' }}>${option.ask.toFixed(2)}</TableCell>
-                            <TableCell sx={{ fontSize: '0.75rem' }}>${option.last.toFixed(2)}</TableCell>
-                            <TableCell sx={{ fontSize: '0.75rem' }}>
-                              {option.greeks.delta ? option.greeks.delta.toFixed(3) : '-'}
-                            </TableCell>
-                            <TableCell sx={{ fontSize: '0.75rem' }}>{option.volume.toLocaleString()}</TableCell>
-                            <TableCell sx={{ fontSize: '0.75rem' }}>{option.open_interest.toLocaleString()}</TableCell>
-                            <TableCell sx={{ fontSize: '0.75rem' }}>
-                              {option.greeks.mid_iv ? formatPercent(option.greeks.mid_iv) : '-'}
-                            </TableCell>
-                            <TableCell sx={{ fontSize: '0.75rem' }}>
-                              {moneyness && (
-                                <Tooltip title={`Strike: $${option.strike} | Underlying: $${underlyingQuote?.last?.toFixed(2)} | Ratio: ${(option.strike / (underlyingQuote?.last || 1)).toFixed(3)}`}>
-                                  <Chip label={moneyness.label} size="small" color={moneyness.color} variant="outlined" sx={{ borderRadius: 0 }} />
-                                </Tooltip>
+          <Paper sx={{ p: 1.5, borderRadius: 0, display: 'flex', flexDirection: 'column', maxHeight: 280 }}>
+            <Typography variant="h6" gutterBottom sx={{ mb: 1 }}>
+              Put Options Chain - {recommendation.expiry}
+            </Typography>
+            
+            {loading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 220 }}>
+                <CircularProgress />
+              </Box>
+            ) : (
+              <TableContainer sx={{ height: 220, overflowY: 'auto', overflowX: 'hidden', width: '100%' }}>
+                <Table size="small" stickyHeader sx={{ minWidth: 0, tableLayout: 'fixed' }} padding="checkbox">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ width: '15%', minWidth: 70, fontSize: '0.75rem' }}>Strike</TableCell>
+                      <TableCell sx={{ width: '12%', minWidth: 55, fontSize: '0.75rem' }}>Bid</TableCell>
+                      <TableCell sx={{ width: '12%', minWidth: 55, fontSize: '0.75rem' }}>Ask</TableCell>
+                      <TableCell sx={{ width: '12%', minWidth: 55, fontSize: '0.75rem' }}>Last</TableCell>
+                      <TableCell sx={{ width: '10%', minWidth: 50, fontSize: '0.75rem' }}>Delta</TableCell>
+                      <TableCell sx={{ width: '10%', minWidth: 50, fontSize: '0.75rem' }}>Volume</TableCell>
+                      <TableCell sx={{ width: '10%', minWidth: 50, fontSize: '0.75rem' }}>OI</TableCell>
+                      <TableCell sx={{ width: '10%', minWidth: 50, fontSize: '0.75rem' }}>IV</TableCell>
+                      <TableCell sx={{ width: '9%', minWidth: 45, fontSize: '0.75rem' }}>Status</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {optionQuotes.map((option) => {
+                      const isSelected = selectedOption?.symbol === option.symbol
+                      const moneyness = underlyingQuote ? getMoneyness(option.strike, underlyingQuote.last, option.option_type) : null
+                      const isRecommended = Math.abs(option.strike - recommendation.strike) < 0.01
+                      
+                      return (
+                        <TableRow
+                          key={option.symbol}
+                          ref={isRecommended ? recommendedOptionRef : undefined}
+                          hover
+                          selected={isSelected}
+                          onClick={() => handleOptionSelect(option)}
+                          sx={{ 
+                            cursor: 'pointer',
+                            backgroundColor: isRecommended ? 'primary.50' : undefined,
+                            borderLeft: isRecommended ? '4px solid' : undefined,
+                            borderLeftColor: isRecommended ? 'primary.main' : undefined,
+                            '&:hover': {
+                              backgroundColor: isRecommended ? 'primary.100' : 'action.hover'
+                            }
+                          }}
+                        >
+                          <TableCell sx={{ fontSize: '0.75rem' }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              {isRecommended && (
+                                <Box
+                                  sx={{
+                                    width: 8,
+                                    height: 8,
+                                    borderRadius: '50%',
+                                    backgroundColor: 'primary.main',
+                                    flexShrink: 0
+                                  }}
+                                />
                               )}
-                            </TableCell>
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
-            </Paper>
-          </Grid>
+                              <Typography variant="body2" fontWeight={isRecommended ? 'bold' : 'normal'} sx={{ fontSize: '0.75rem' }}>
+                                ${option.strike}
+                              </Typography>
+                            </Box>
+                          </TableCell>
+                          <TableCell sx={{ fontSize: '0.75rem' }}>${option.bid.toFixed(2)}</TableCell>
+                          <TableCell sx={{ fontSize: '0.75rem' }}>${option.ask.toFixed(2)}</TableCell>
+                          <TableCell sx={{ fontSize: '0.75rem' }}>${option.last.toFixed(2)}</TableCell>
+                          <TableCell sx={{ fontSize: '0.75rem' }}>
+                            {option.greeks.delta ? option.greeks.delta.toFixed(3) : '-'}
+                          </TableCell>
+                          <TableCell sx={{ fontSize: '0.75rem' }}>{option.volume.toLocaleString()}</TableCell>
+                          <TableCell sx={{ fontSize: '0.75rem' }}>{option.open_interest.toLocaleString()}</TableCell>
+                          <TableCell sx={{ fontSize: '0.75rem' }}>
+                            {option.greeks.mid_iv ? formatPercent(option.greeks.mid_iv) : '-'}
+                          </TableCell>
+                          <TableCell sx={{ fontSize: '0.75rem' }}>
+                            {moneyness && (
+                              <Tooltip title={`Strike: $${option.strike} | Underlying: $${underlyingQuote?.last?.toFixed(2)} | Ratio: ${(option.strike / (underlyingQuote?.last || 1)).toFixed(3)}`}>
+                                <Chip label={moneyness.label} size="small" color={moneyness.color} variant="outlined" sx={{ borderRadius: 0 }} />
+                              </Tooltip>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </Paper>
 
           {/* Key Metrics */}
-          <Grid item xs={12} lg={4}>
-            <Paper sx={{ p: 2, borderRadius: 0 }}>
-              <Typography variant="h6" gutterBottom>
-                Key Metrics
-              </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: 200, overflowY: 'auto' }}>
-                {/* ROI */}
-                <Box sx={{ 
-                  display: 'flex', 
-                  flexDirection: 'column',
-                  p: 1.5,
-                  borderRadius: 0,
-                  bgcolor: 'success.50',
-                  border: '1px solid',
-                  borderColor: 'success.200'
-                }}>
-                  <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>
-                    Annualized ROI
-                  </Typography>
-                  <Typography variant="h6" sx={{ color: 'success.main', fontWeight: 'bold' }}>
-                    {recommendation.annualized_roi ? `${recommendation.annualized_roi.toFixed(1)}%` : 'N/A'}
-                  </Typography>
-                </Box>
-                
-                {/* Monte-Carlo Win Probability */}
-                <Box sx={{ 
-                  display: 'flex', 
-                  flexDirection: 'column',
-                  p: 1.5,
-                  borderRadius: 0,
-                  bgcolor: 'info.50',
-                  border: '1px solid',
-                  borderColor: 'info.200'
-                }}>
-                  <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>
-                    Monte-Carlo Win Probability
-                  </Typography>
-                  <Typography variant="h6" sx={{ color: 'info.main', fontWeight: 'bold' }}>
-                    {recommendation.probability_of_profit_monte_carlo ? 
-                      `${(recommendation.probability_of_profit_monte_carlo * 100).toFixed(1)}%` : 'N/A'}
-                  </Typography>
-                </Box>
-                
-                {/* Overall Score */}
-                <Box sx={{ 
-                  display: 'flex', 
-                  flexDirection: 'column',
-                  p: 1.5,
-                  borderRadius: 0,
-                  bgcolor: 'primary.50',
-                  border: '1px solid',
-                  borderColor: 'primary.200'
-                }}>
-                  <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>
-                    Overall Score
-                  </Typography>
-                  <Typography variant="h6" sx={{ color: 'primary.main', fontWeight: 'bold' }}>
-                    {Math.round(recommendation.score * 100)}
-                  </Typography>
-                </Box>
+          <Paper sx={{ p: 1.5, borderRadius: 0, display: 'flex', flexDirection: 'column', height: 280 }}>
+            <Typography variant="h6" gutterBottom sx={{ mb: 1 }}>
+              Key Metrics
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', height: 220, justifyContent: 'space-between' }}>
+              {/* ROI */}
+              <Box sx={{ 
+                display: 'flex', 
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                p: 0.75,
+                borderRadius: 0,
+                bgcolor: 'background.default',
+                border: '1px solid',
+                borderColor: 'divider'
+              }}>
+                <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.8rem' }}>
+                  Annualized ROI
+                </Typography>
+                <Typography variant="h6" sx={{ color: 'success.main', fontWeight: 'bold' }}>
+                  {recommendation.annualized_roi ? `${recommendation.annualized_roi.toFixed(1)}%` : 'N/A'}
+                </Typography>
               </Box>
-            </Paper>
-          </Grid>
-        </Grid>
+              
+              {/* Monte-Carlo Win Probability */}
+              <Box sx={{ 
+                display: 'flex', 
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                p: 0.75,
+                borderRadius: 0,
+                bgcolor: 'background.default',
+                border: '1px solid',
+                borderColor: 'divider'
+              }}>
+                <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.8rem' }}>
+                  Win Probability
+                </Typography>
+                <Typography variant="h6" sx={{ color: 'info.main', fontWeight: 'bold' }}>
+                  {recommendation.probability_of_profit_monte_carlo ? 
+                    `${(recommendation.probability_of_profit_monte_carlo * 100).toFixed(1)}%` : 'N/A'}
+                </Typography>
+              </Box>
+              
+              {/* Earnings Date */}
+              {(() => {
+                const earningsDate = recommendation.next_earnings_date ? new Date(recommendation.next_earnings_date) : null
+                const expiryDate = recommendation.expiry ? new Date(recommendation.expiry) : null
+                const today = new Date()
+                
+                // Check if earnings is between today and expiry
+                const isEarningsWithinExpiry = earningsDate && expiryDate && 
+                  earningsDate >= today && earningsDate <= expiryDate
+                
+                const earningsColor = isEarningsWithinExpiry ? 'error.main' : 'text.secondary'
+                
+                return (
+                  <Box sx={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    p: 0.75,
+                    borderRadius: 0,
+                    bgcolor: 'background.default',
+                    border: '1px solid',
+                    borderColor: 'divider'
+                  }}>
+                    <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.8rem' }}>
+                      Earnings Date
+                    </Typography>
+                    <Typography variant="h6" sx={{ 
+                      color: earningsColor, 
+                      fontWeight: 'bold'
+                    }}>
+                      {earningsDate ? (
+                        isEarningsWithinExpiry ? (
+                          // Show days before expiry when earnings is within expiry
+                          (() => {
+                            const daysBeforeExpiry = Math.ceil((expiryDate.getTime() - earningsDate.getTime()) / (1000 * 60 * 60 * 24));
+                            return `${earningsDate.toLocaleDateString('en-US', { 
+                              month: 'short', 
+                              day: 'numeric' 
+                            })} (${daysBeforeExpiry}d before expiry)`;
+                          })()
+                        ) : (
+                          // Show normal date when earnings is safe
+                          earningsDate.toLocaleDateString('en-US', { 
+                            month: 'short', 
+                            day: 'numeric' 
+                          })
+                        )
+                      ) : 'N/A'}
+                    </Typography>
+                  </Box>
+                )
+              })()}
+              
+              {/* Overall Score */}
+              <Box sx={{ 
+                display: 'flex', 
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                p: 0.75,
+                borderRadius: 0,
+                bgcolor: 'background.default',
+                border: '1px solid',
+                borderColor: 'divider'
+              }}>
+                <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.8rem' }}>
+                  Overall Score
+                </Typography>
+                <Typography variant="h6" sx={{ color: 'primary.main', fontWeight: 'bold' }}>
+                  {Math.round(recommendation.score * 100)}
+                </Typography>
+              </Box>
+            </Box>
+          </Paper>
+        </Box>
 
         {/* Order Entry and Trade Summary - Moved below option chains */}
-        <Grid container spacing={3} sx={{ mt: 2 }}>
+        <Grid container spacing={2} sx={{ mt: 1 }}>
           {/* Order Entry */}
           <Grid item xs={12} lg={6}>
             <Paper sx={{ p: 1.5, borderRadius: 0 }}>
@@ -607,76 +659,111 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
           {/* Trade Summary */}
           <Grid item xs={12} lg={6}>
             <Paper sx={{ p: 1.5, borderRadius: 0 }}>
-              <Typography variant="h6" gutterBottom sx={{ mb: 1.5 }}>
+              <Typography variant="h6" gutterBottom sx={{ mb: 1 }}>
                 Trade Summary
               </Typography>
 
-              <Grid container spacing={1.5}>
+              <Grid container spacing={1}>
                 <Grid item xs={6}>
-                  <Card variant="outlined" sx={{ borderColor: 'success.main', bgcolor: 'success.50', borderRadius: 0 }}>
-                    <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
-                      <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>
-                        Total Credit
-                      </Typography>
-                      <Typography variant="h6" color="success.main" sx={{ fontSize: '1rem', mt: 0.5 }}>
-                        {formatCurrency(totalCredit)}
-                      </Typography>
-                    </CardContent>
-                  </Card>
+                  <Box sx={{ 
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    p: 0.75,
+                    borderRadius: 0,
+                    bgcolor: 'background.default',
+                    border: '1px solid',
+                    borderColor: 'divider'
+                  }}>
+                    <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.8rem' }}>
+                      Total Credit
+                    </Typography>
+                    <Typography variant="h6" sx={{ color: 'success.main', fontWeight: 'bold' }}>
+                      {formatCurrency(totalCredit)}
+                    </Typography>
+                  </Box>
                 </Grid>
                 <Grid item xs={6}>
-                  <Card variant="outlined" sx={{ borderColor: 'warning.main', bgcolor: 'warning.50', borderRadius: 0 }}>
-                    <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
-                      <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>
-                        Collateral Required
-                      </Typography>
-                      <Typography variant="h6" color="warning.main" sx={{ fontSize: '1rem', mt: 0.5 }}>
-                        {formatCurrency(collateralRequired)}
-                      </Typography>
-                    </CardContent>
-                  </Card>
+                  <Box sx={{ 
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    p: 0.75,
+                    borderRadius: 0,
+                    bgcolor: 'background.default',
+                    border: '1px solid',
+                    borderColor: 'divider'
+                  }}>
+                    <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.8rem' }}>
+                      Collateral Required
+                    </Typography>
+                    <Typography variant="h6" sx={{ color: 'warning.main', fontWeight: 'bold' }}>
+                      {formatCurrency(collateralRequired)}
+                    </Typography>
+                  </Box>
                 </Grid>
-                <Grid item xs={6}>
-                  <Card variant="outlined" sx={{ borderRadius: 0 }}>
-                    <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
-                      <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>
-                        Max Profit
-                      </Typography>
-                      <Typography variant="h6" color="success.main" sx={{ fontSize: '1rem', mt: 0.5 }}>
-                        {formatCurrency(maxProfit)}
-                      </Typography>
-                    </CardContent>
-                  </Card>
+                <Grid item xs={4}>
+                  <Box sx={{ 
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    p: 0.75,
+                    borderRadius: 0,
+                    bgcolor: 'background.default',
+                    border: '1px solid',
+                    borderColor: 'divider'
+                  }}>
+                    <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.8rem' }}>
+                      Max Profit
+                    </Typography>
+                    <Typography variant="h6" sx={{ color: 'success.main', fontWeight: 'bold' }}>
+                      {formatCurrency(maxProfit)}
+                    </Typography>
+                  </Box>
                 </Grid>
-                <Grid item xs={6}>
-                  <Card variant="outlined" sx={{ borderRadius: 0 }}>
-                    <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
-                      <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>
-                        Max Loss
-                      </Typography>
-                      <Typography variant="h6" color="error.main" sx={{ fontSize: '1rem', mt: 0.5 }}>
-                        {formatCurrency(maxLoss)}
-                      </Typography>
-                    </CardContent>
-                  </Card>
+                <Grid item xs={4}>
+                  <Box sx={{ 
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    p: 0.75,
+                    borderRadius: 0,
+                    bgcolor: 'background.default',
+                    border: '1px solid',
+                    borderColor: 'divider'
+                  }}>
+                    <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.8rem' }}>
+                      Max Loss
+                    </Typography>
+                    <Typography variant="h6" sx={{ color: 'error.main', fontWeight: 'bold' }}>
+                      {formatCurrency(maxLoss)}
+                    </Typography>
+                  </Box>
                 </Grid>
-                <Grid item xs={12}>
-                  <Card variant="outlined" sx={{ borderRadius: 0 }}>
-                    <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
-                      <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>
-                        Breakeven Point
-                      </Typography>
-                      <Typography variant="h6" sx={{ fontSize: '1rem', mt: 0.5 }}>
-                        ${breakeven.toFixed(2)}
-                      </Typography>
-                    </CardContent>
-                  </Card>
+                <Grid item xs={4}>
+                  <Box sx={{ 
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    p: 0.75,
+                    borderRadius: 0,
+                    bgcolor: 'background.default',
+                    border: '1px solid',
+                    borderColor: 'divider'
+                  }}>
+                    <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.8rem' }}>
+                      Breakeven
+                    </Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+                      ${breakeven.toFixed(2)}
+                    </Typography>
+                  </Box>
                 </Grid>
               </Grid>
 
               {selectedOption && (
-                <Alert severity="info" sx={{ mt: 2, borderRadius: 0 }}>
-                  <Typography variant="caption">
+                <Alert severity="info" sx={{ mt: 1, borderRadius: 0 }}>
+                  <Typography variant="caption" sx={{ fontSize: '0.75rem' }}>
                     <strong>Strategy:</strong> Sell {quantity} {selectedOption.option_type.toUpperCase()} option{quantity > 1 ? 's' : ''} 
                     at ${selectedOption.strike} strike. Profit if {recommendation.symbol} stays above ${breakeven.toFixed(2)} at expiration.
                   </Typography>
