@@ -692,34 +692,13 @@ const RecommendationsPanel = forwardRef<any, RecommendationsPanelProps>(({
                   ROI {getSortIcon('annualized_roi')}
                 </TableCell>
 
-                <TableCell 
-                  sx={{ 
-                    fontWeight: 600, 
-                    fontSize: '0.875rem',
-                    color: 'text.primary',
-                    borderBottom: 'none',
-                    py: 1.5,
-                    cursor: 'pointer',
-                    '&:hover': { backgroundColor: 'action.hover' }
-                  }}
-                  onClick={() => handleSortChange('put_call_ratio')}
-                >
-                  P/C Ratio {getSortIcon('put_call_ratio')}
-                </TableCell>
-                <TableCell 
-                  sx={{ 
-                    fontWeight: 600, 
-                    fontSize: '0.875rem',
-                    color: 'text.primary',
-                    borderBottom: 'none',
-                    py: 1.5,
-                    cursor: 'pointer',
-                    '&:hover': { backgroundColor: 'action.hover' }
-                  }}
-                  onClick={() => handleSortChange('volume')}
-                >
-                  Volume {getSortIcon('volume')}
-                </TableCell>
+                <TableCell sx={{ 
+                  fontWeight: 600, 
+                  fontSize: '0.875rem',
+                  color: 'text.primary',
+                  borderBottom: 'none',
+                  py: 1.5
+                }}>Win Prob</TableCell>
                 <TableCell 
                   sx={{ 
                     fontWeight: 600, 
@@ -844,17 +823,11 @@ const RecommendationsPanel = forwardRef<any, RecommendationsPanelProps>(({
                       </Typography>
                     </TableCell>
 
-                    {/* P/C Ratio */}
+                    {/* Win Probability */}
                     <TableCell>
-                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                        {recommendation.put_call_ratio ? recommendation.put_call_ratio.toFixed(2) : 'N/A'}
-                      </Typography>
-                    </TableCell>
-
-                    {/* Volume */}
-                    <TableCell>
-                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                        {recommendation.volume ? recommendation.volume.toLocaleString() : 'N/A'}
+                      <Typography variant="body2" sx={{ color: 'info.main', fontWeight: 500 }}>
+                        {recommendation.probability_of_profit_monte_carlo ? 
+                          `${(recommendation.probability_of_profit_monte_carlo * 100).toFixed(1)}%` : 'N/A'}
                       </Typography>
                     </TableCell>
 
@@ -903,7 +876,7 @@ const RecommendationsPanel = forwardRef<any, RecommendationsPanelProps>(({
                   {/* Expanded Card View */}
                   {expandedRows[recommendation.id] && (
                     <TableRow>
-                      <TableCell colSpan={14} sx={{ p: 0, border: 0 }}>
+                      <TableCell colSpan={12} sx={{ p: 0, border: 0 }}>
                         <Card variant="outlined" sx={{ m: 0.5, borderRadius: 0 }}>
                           <CardContent sx={{ p: 1.5 }}>
                             <Grid container spacing={1.5}>
@@ -958,7 +931,11 @@ const RecommendationsPanel = forwardRef<any, RecommendationsPanelProps>(({
                                   </Typography>
                                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
                                     {Object.entries(recommendation.score_breakdown)
-                                      .filter(([key]) => !key.toLowerCase().includes('overall'))
+                                      .filter(([key]) => 
+                                        key.toLowerCase().includes('roi') || 
+                                        key.toLowerCase().includes('monte-carlo') ||
+                                        key.toLowerCase().includes('overall')
+                                      )
                                       .map(([key, value]) => {
                                         const numericValue = parseFloat(value.toString().replace('%', '').replace('$', '').replace(',', ''));
                                         let color = 'text.primary';

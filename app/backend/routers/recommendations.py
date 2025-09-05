@@ -174,15 +174,10 @@ async def build_recommendation_response(db: AsyncSession, recommendation: Recomm
             total_credit, collateral, recommendation.dte or 0
         )
     
-    # Build score breakdown in human readable format
+    # Build simplified score breakdown with ROI and Monte-Carlo probability only
     score_breakdown = {
-        "Annualized Yield": f"{recommendation.annualized_yield:.1f}%" if recommendation.annualized_yield else "N/A",
-        "Proximity Score": f"{recommendation.proximity_score:.2f}" if recommendation.proximity_score else "N/A",
-        "Liquidity Score": f"{recommendation.liquidity_score:.2f}" if recommendation.liquidity_score else "N/A", 
-        "Risk Adjustment": f"{recommendation.risk_adjustment:.2f}" if recommendation.risk_adjustment else "N/A",
-        "Qualitative Score": f"{recommendation.qualitative_score:.2f}" if recommendation.qualitative_score else "N/A",
-        "Probability of Profit (Black-Scholes)": f"{recommendation.probability_of_profit_black_scholes:.1%}" if recommendation.probability_of_profit_black_scholes else "N/A",
-        "Probability of Profit (Monte Carlo)": f"{recommendation.probability_of_profit_monte_carlo:.1%}" if recommendation.probability_of_profit_monte_carlo else "N/A",
+        "Annualized ROI": f"{annualized_roi:.1f}%" if annualized_roi else "N/A",
+        "Monte-Carlo Win Probability": f"{recommendation.probability_of_profit_monte_carlo:.1%}" if recommendation.probability_of_profit_monte_carlo else "N/A",
         "Overall Score": f"{recommendation.score:.2f}"
     }
     

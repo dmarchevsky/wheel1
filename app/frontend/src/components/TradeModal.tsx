@@ -446,35 +446,67 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
             </Paper>
           </Grid>
 
-          {/* Score Breakdown */}
+          {/* Key Metrics */}
           <Grid item xs={12} lg={4}>
             <Paper sx={{ p: 2, borderRadius: 0 }}>
               <Typography variant="h6" gutterBottom>
-                Score Breakdown
+                Key Metrics
               </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0, height: 200, overflowY: 'auto' }}>
-                {Object.entries(recommendation.score_breakdown).map(([key, value]) => (
-                  <Box 
-                    key={key} 
-                    sx={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      alignItems: 'center',
-                      py: 0.5,
-                      px: 1,
-                      borderBottom: '1px solid',
-                      borderColor: 'divider',
-                      '&:last-child': { borderBottom: 'none' }
-                    }}
-                  >
-                    <Typography variant="body2" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>
-                      {key}
-                    </Typography>
-                    <Typography variant="body2" fontWeight="bold" sx={{ fontSize: '0.75rem' }}>
-                      {value}
-                    </Typography>
-                  </Box>
-                ))}
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: 200, overflowY: 'auto' }}>
+                {/* ROI */}
+                <Box sx={{ 
+                  display: 'flex', 
+                  flexDirection: 'column',
+                  p: 1.5,
+                  borderRadius: 0,
+                  bgcolor: 'success.50',
+                  border: '1px solid',
+                  borderColor: 'success.200'
+                }}>
+                  <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>
+                    Annualized ROI
+                  </Typography>
+                  <Typography variant="h6" sx={{ color: 'success.main', fontWeight: 'bold' }}>
+                    {recommendation.annualized_roi ? `${recommendation.annualized_roi.toFixed(1)}%` : 'N/A'}
+                  </Typography>
+                </Box>
+                
+                {/* Monte-Carlo Win Probability */}
+                <Box sx={{ 
+                  display: 'flex', 
+                  flexDirection: 'column',
+                  p: 1.5,
+                  borderRadius: 0,
+                  bgcolor: 'info.50',
+                  border: '1px solid',
+                  borderColor: 'info.200'
+                }}>
+                  <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>
+                    Monte-Carlo Win Probability
+                  </Typography>
+                  <Typography variant="h6" sx={{ color: 'info.main', fontWeight: 'bold' }}>
+                    {recommendation.probability_of_profit_monte_carlo ? 
+                      `${(recommendation.probability_of_profit_monte_carlo * 100).toFixed(1)}%` : 'N/A'}
+                  </Typography>
+                </Box>
+                
+                {/* Overall Score */}
+                <Box sx={{ 
+                  display: 'flex', 
+                  flexDirection: 'column',
+                  p: 1.5,
+                  borderRadius: 0,
+                  bgcolor: 'primary.50',
+                  border: '1px solid',
+                  borderColor: 'primary.200'
+                }}>
+                  <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.7rem' }}>
+                    Overall Score
+                  </Typography>
+                  <Typography variant="h6" sx={{ color: 'primary.main', fontWeight: 'bold' }}>
+                    {Math.round(recommendation.score * 100)}
+                  </Typography>
+                </Box>
               </Box>
             </Paper>
           </Grid>

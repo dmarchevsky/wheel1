@@ -219,21 +219,19 @@ class ScoringEngine:
         # Ensure score is between 0 and 1
         return max(0.0, min(1.0, gpt_score))
     
-    def calculate_composite_score(self, annualized_yield: float, proximity_score: float,
-                                liquidity_score: float, risk_adjustment: float,
-                                qualitative_score: float, probability_of_profit: float = 0.5) -> float:
-        """Calculate composite score using weighted components."""
-        # Normalize annualized yield (assume 20%+ is excellent)
-        normalized_yield = min(1.0, annualized_yield / 20.0)
+    def calculate_composite_score(self, annualized_roi: float, monte_carlo_probability: float,
+                                **kwargs) -> float:
+        """Calculate composite score using ROI and Monte-Carlo winning probability."""
+        # Normalize ROI (assume 30%+ is excellent for annual ROI)
+        normalized_roi = min(1.0, annualized_roi / 30.0) if annualized_roi > 0 else 0.0
         
-        # Weighted composite score (adjusted weights to include probability of profit)
+        # Monte-Carlo probability is already between 0-1
+        normalized_probability = max(0.0, min(1.0, monte_carlo_probability))
+        
+        # Simple weighted composite score: 60% ROI, 40% winning probability
         composite_score = (
-            0.30 * normalized_yield +
-            0.20 * proximity_score +
-            0.15 * liquidity_score +
-            0.15 * risk_adjustment +
-            0.10 * qualitative_score +
-            0.10 * probability_of_profit  # New component
+            0.6 * normalized_roi +
+            0.4 * normalized_probability
         )
         
         return composite_score
@@ -436,16 +434,16 @@ class ScoringEngine:
         # Use Black-Scholes for scoring (more stable)
         probability_of_profit = black_scholes_prob
         
-        # Composite score
-        composite_score = self.calculate_composite_score(
-            annualized_yield, proximity_score, liquidity_score, 
-            risk_adjustment, qualitative_score, probability_of_profit
-        )
-        
-        # Calculate additional financial metrics
+        # Calculate additional financial metrics first
         total_credit = self.calculate_total_credit(mid_price)
         collateral_required = self.calculate_collateral_required(option.strike)
         annualized_roi = self.calculate_annualized_roi(total_credit, collateral_required, dte)
+        
+        # Composite score using ROI and Monte-Carlo probability
+        composite_score = self.calculate_composite_score(
+            annualized_roi=annualized_roi,
+            monte_carlo_probability=monte_carlo_prob
+        )
         
         # Build rationale
         rationale = {
