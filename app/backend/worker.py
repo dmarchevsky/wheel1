@@ -19,6 +19,7 @@ from services.alert_service import AlertService
 from services.telegram_service import TelegramService
 from services.trade_executor import TradeExecutor
 from services.market_data_service import MarketDataService
+from services.order_sync_service import OrderSyncService
 from datetime import datetime, timezone
 
 
@@ -40,6 +41,7 @@ class Worker:
         self.position_service = PositionService()
         self.alert_service = AlertService()
         self.trade_executor = TradeExecutor()
+        self.order_sync_service = OrderSyncService()
         self.market_data_service = None  # Will be initialized with DB session
         self.running = False
         self.recommendation_generation_lock = asyncio.Lock()  # Prevent concurrent recommendation generation
@@ -175,6 +177,18 @@ class Worker:
             timezone=market_calendar.timezone
         )
         
+        # Order sync job - runs every minute to monitor pending orders
+        self.scheduler.add_job(
+            self._run_order_sync_job,
+            trigger=IntervalTrigger(minutes=1),
+            id="order_sync_job",
+            name="Sync pending orders",
+            coalesce=True,
+            max_instances=1,
+            timezone=market_calendar.timezone,
+            misfire_grace_time=30  # 30 seconds grace time
+        )
+        
         # Cache cleanup job - runs daily
         self.scheduler.add_job(
             self._run_cache_cleanup_job,
@@ -306,6 +320,24 @@ class Worker:
                 
         except Exception as e:
             logger.error(f"Error in alert check job: {e}")
+    
+    async def _run_order_sync_job(self):
+        """Run the order sync job to monitor pending orders."""
+        try:
+            logger.debug("Running order sync job...")
+            
+            # Get database session
+            async with AsyncSessionLocal() as db:
+                # Sync all pending orders
+                stats = await self.order_sync_service.sync_pending_orders(db)
+                
+                if stats.get("synced", 0) > 0:
+                    logger.info(f"Order sync completed: {stats}")
+                else:
+                    logger.debug("No pending orders to sync")
+                
+        except Exception as e:
+            logger.error(f"Error in order sync job: {e}")
     
     async def _run_cache_cleanup_job(self):
         """Run the cache cleanup job."""

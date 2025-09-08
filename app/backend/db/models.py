@@ -202,19 +202,50 @@ class Trade(Base):
     option_symbol = Column(String, nullable=True)
     side = Column(String, nullable=False)  # 'sell_to_open', 'buy_to_close', etc.
     quantity = Column(Integer, nullable=False)
-    price = Column(Float, nullable=False)
+    price = Column(Float, nullable=False)  # Limit price or 0 for market orders
     order_id = Column(String, nullable=True)  # External order ID from broker
     status = Column(String, default="pending")  # 'pending', 'filled', 'cancelled', 'rejected'
+    
+    # Extended order details
+    order_type = Column(String, nullable=True)  # 'limit', 'market'
+    duration = Column(String, nullable=True)  # 'day', 'gtc'
+    class_type = Column(String, nullable=True)  # 'equity', 'option'
+    filled_quantity = Column(Integer, nullable=True, default=0)  # How much was filled
+    avg_fill_price = Column(Float, nullable=True)  # Average price filled at
+    remaining_quantity = Column(Integer, nullable=True)  # Remaining unfilled quantity
+    
+    # Trading environment tracking
+    environment = Column(String, nullable=True)  # 'production', 'sandbox'
+    
+    # Additional metadata from Tradier
+    tradier_data = Column(JSONB, nullable=True)  # Store complete Tradier order response
+    
+    # Strike and expiry for options (denormalized for easier querying)
+    strike = Column(Float, nullable=True)  # Strike price for options
+    expiry = Column(DateTime(timezone=True), nullable=True)  # Expiry date for options
+    option_type = Column(String, nullable=True)  # 'put', 'call'
+    
+    # Expiration and closing tracking
+    expiration_outcome = Column(String, nullable=True)  # 'expired_profitable', 'expired_loss', 'assigned', 'exercised', 'closed_early'
+    final_pnl = Column(Float, nullable=True)  # Final P&L when position closed/expired
+    closed_at = Column(DateTime(timezone=True), nullable=True)  # When position was closed/expired
+    
+    # Timestamps
     created_at = Column(DateTime(timezone=True), default=pacific_now)
     updated_at = Column(DateTime(timezone=True), nullable=True)
+    filled_at = Column(DateTime(timezone=True), nullable=True)  # When order was filled
     
     # Relationships
     recommendation = relationship("Recommendation", back_populates="trades")
+    option_events = relationship("OptionEvent", back_populates="trade")
     
     # Indexes
     __table_args__ = (
         Index('idx_trades_symbol_time', 'symbol', 'created_at'),
         Index('idx_trades_status_time', 'status', 'created_at'),
+        Index('idx_trades_order_id', 'order_id'),
+        Index('idx_trades_environment', 'environment'),
+        Index('idx_trades_expiry', 'expiry'),
     )
 
 
@@ -285,4 +316,58 @@ class ChatGPTCache(Base):
     # Indexes
     __table_args__ = (
         Index('idx_ttl', 'ttl'),
+    )
+
+
+class PositionSnapshot(Base):
+    """Position snapshots for tracking position changes over time."""
+    __tablename__ = "position_snapshots"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String, nullable=False)
+    contract_symbol = Column(String, nullable=True)  # For options
+    environment = Column(String, nullable=False)  # 'production' or 'sandbox'
+    quantity = Column(Float, nullable=False)
+    cost_basis = Column(Float, nullable=True)
+    current_price = Column(Float, nullable=True)
+    market_value = Column(Float, nullable=True)
+    pnl = Column(Float, nullable=True)
+    pnl_percent = Column(Float, nullable=True)
+    snapshot_date = Column(DateTime(timezone=True), nullable=False)
+    tradier_data = Column(JSONB, nullable=True)  # Complete Tradier position response
+    created_at = Column(DateTime(timezone=True), default=pacific_now)
+    
+    # Indexes
+    __table_args__ = (
+        Index('idx_position_snapshots_symbol_date', 'symbol', 'snapshot_date'),
+        Index('idx_position_snapshots_env_date', 'environment', 'snapshot_date'),
+        Index('idx_position_snapshots_contract', 'contract_symbol'),
+    )
+
+
+class OptionEvent(Base):
+    """Option lifecycle events (expiration, assignment, exercise, etc.)."""
+    __tablename__ = "option_events"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    trade_id = Column(Integer, ForeignKey("trades.id"), nullable=True)  # Link to originating trade
+    symbol = Column(String, nullable=False)  # Underlying symbol
+    contract_symbol = Column(String, nullable=False)  # Option contract symbol
+    event_type = Column(String, nullable=False)  # 'expiration', 'assignment', 'exercise', 'early_close'
+    event_date = Column(DateTime(timezone=True), nullable=False)
+    final_price = Column(Float, nullable=True)
+    final_pnl = Column(Float, nullable=True)
+    environment = Column(String, nullable=False)
+    tradier_data = Column(JSONB, nullable=True)  # Any Tradier API response data
+    created_at = Column(DateTime(timezone=True), default=pacific_now)
+    
+    # Relationships
+    trade = relationship("Trade", back_populates="option_events")
+    
+    # Indexes
+    __table_args__ = (
+        Index('idx_option_events_trade_id', 'trade_id'),
+        Index('idx_option_events_event_date', 'event_date'),
+        Index('idx_option_events_symbol_type', 'symbol', 'event_type'),
+        Index('idx_option_events_contract', 'contract_symbol'),
     )

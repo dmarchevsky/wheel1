@@ -268,7 +268,8 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
         order_type: orderType,
         price: orderType === 'limit' ? parseFloat(limitPrice) : undefined,
         duration,
-        option_symbol: selectedOption.symbol
+        option_symbol: selectedOption.symbol,
+        recommendation_id: recommendation?.id || null // Include recommendation ID for tracking
       }
 
       const response = await accountApi.submitOrder(orderData)

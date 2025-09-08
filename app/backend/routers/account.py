@@ -11,6 +11,7 @@ import hashlib
 from db.session import get_async_db
 from clients.tradier import TradierClient
 from services.trading_environment_service import trading_env, TradingEnvironment
+from services.order_sync_service import OrderSyncService
 from utils.timezone import pacific_now
 
 logger = logging.getLogger(__name__)
@@ -88,6 +89,22 @@ class AccountBalancesResponse(BaseModel):
     last_updated: str
 
 
+class TradeInfo(BaseModel):
+    """Trade information for positions."""
+    trade_id: int
+    order_id: str
+    side: str
+    quantity: int
+    price: float
+    status: str
+    order_type: Optional[str] = None
+    filled_quantity: Optional[int] = None
+    avg_fill_price: Optional[float] = None
+    environment: Optional[str] = None
+    created_at: str
+    filled_at: Optional[str] = None
+
+
 class PositionResponse(BaseModel):
     """Position response (equity or option)."""
     symbol: str
@@ -107,6 +124,36 @@ class PositionResponse(BaseModel):
     side: Optional[str] = None  # "long" or "short"
 
 
+class EnhancedPositionResponse(BaseModel):
+    """Enhanced position response with trade history."""
+    symbol: str
+    instrument_type: str  # "equity" or "option"
+    quantity: float
+    cost_basis: float
+    current_price: float
+    market_value: float
+    pnl: float
+    pnl_percent: float
+    
+    # Option-specific fields (null for equity)
+    contract_symbol: Optional[str] = None
+    option_type: Optional[str] = None
+    strike: Optional[float] = None
+    expiration: Optional[str] = None
+    side: Optional[str] = None  # "long" or "short"
+    
+    # Trade history for this position
+    opening_trades: List[TradeInfo] = []
+    closing_trades: List[TradeInfo] = []
+    total_trades: int = 0
+    
+    # Enhanced metrics from trades
+    total_premium_collected: Optional[float] = None  # For options positions
+    days_held: Optional[int] = None
+    original_entry_date: Optional[str] = None
+    average_entry_price: Optional[float] = None
+
+
 class OrderResponse(BaseModel):
     """Order response."""
     order_id: str
@@ -122,6 +169,43 @@ class OrderResponse(BaseModel):
     avg_fill_price: Optional[float] = None
 
 
+class EnhancedOrderResponse(BaseModel):
+    """Enhanced order response with trade data and complete information."""
+    # Tradier API data (master source)
+    order_id: str
+    symbol: str
+    side: str
+    quantity: int
+    order_type: str
+    price: Optional[float]
+    status: str
+    duration: str
+    created_at: str
+    filled_quantity: Optional[int] = None
+    avg_fill_price: Optional[float] = None
+    
+    # Enhanced fields
+    instrument_type: str  # "equity" or "option"
+    underlying_symbol: Optional[str] = None  # For options
+    option_symbol: Optional[str] = None
+    strike: Optional[float] = None
+    expiration: Optional[str] = None
+    option_type: Optional[str] = None  # "put" or "call"
+    
+    # Database sync info
+    trade_id: Optional[int] = None
+    database_synced: bool = False
+    environment: str
+    
+    # Financial calculations
+    total_value: Optional[float] = None  # quantity * avg_fill_price
+    remaining_quantity: Optional[int] = None
+    commission: Optional[float] = None
+    
+    # Complete Tradier data for audit
+    tradier_data: Optional[Dict[str, Any]] = None
+
+
 class OrderSubmissionRequest(BaseModel):
     """Order submission request."""
     symbol: str
@@ -133,6 +217,9 @@ class OrderSubmissionRequest(BaseModel):
     
     # Option-specific fields
     option_symbol: Optional[str] = None
+    
+    # Recommendation tracking
+    recommendation_id: Optional[int] = None
 
 
 class ActivityResponse(BaseModel):
@@ -371,65 +458,561 @@ async def get_positions(request: Request):
         raise HTTPException(status_code=500, detail=f"Failed to get positions: {str(e)}")
 
 
-@router.get("/orders", response_model=List[OrderResponse])
-async def get_orders(request: Request):
-    """Get current orders."""
+@router.get("/positions/enhanced", response_model=List[EnhancedPositionResponse])
+async def get_enhanced_positions(request: Request, db: AsyncSession = Depends(get_async_db)):
+    """Get all account positions with associated trade history."""
     try:
         session_id = get_session_id(request)
         current_env = trading_env.get_session_environment(session_id)
         
+        # Get positions from Tradier (live data)
         async with TradierClient(environment=current_env) as client:
-            orders = await client.get_account_orders()
-            logger.info(f"DEBUG: Orders response type: {type(orders)}, content: {orders}")
-            
-            # Handle case where orders might be empty or not a list
-            if not orders or not isinstance(orders, list):
-                logger.info(f"DEBUG: Returning empty list - orders is not a valid list")
-                return []
-            
-            order_responses = []
-            
-            for order in orders:
-                # Skip if order is not a dictionary
-                if not isinstance(order, dict):
-                    logger.warning(f"Skipping non-dict order: {order}")
-                    continue
-                    
-                try:
-                    # Handle nested instrument structure
-                    instrument = order.get("instrument", {})
-                    if isinstance(instrument, dict):
-                        symbol = instrument.get("symbol", "")
+            positions = await client.get_account_positions()
+        
+        # Get trade data from database
+        from db.models import Trade
+        from sqlalchemy import desc, and_, or_, select
+        
+        trade_query = select(Trade).where(
+            and_(
+                Trade.environment == current_env,
+                Trade.status == "filled"  # Only filled trades affect positions
+            )
+        ).order_by(desc(Trade.filled_at))
+        
+        result = await db.execute(trade_query)
+        trades = result.scalars().all()
+        
+        # Group trades by symbol/contract
+        trades_by_symbol = {}
+        for trade in trades:
+            # Use option_symbol for options, symbol for equities
+            key = trade.option_symbol if trade.option_symbol else trade.symbol
+            if key not in trades_by_symbol:
+                trades_by_symbol[key] = []
+            trades_by_symbol[key].append(trade)
+        
+        enhanced_positions = []
+        
+        for pos in positions:
+            try:
+                symbol = pos["symbol"]
+                instrument_type = pos.get("instrument", "equity")
+                
+                # Detect instrument type if not provided
+                if not instrument_type or instrument_type == "equity":
+                    if len(symbol) > 10 and any(c in symbol for c in ['P', 'C']) and any(c.isdigit() for c in symbol):
+                        instrument_type = "option"
                     else:
-                        symbol = order.get("symbol", "")
+                        instrument_type = "equity"
+                
+                # Get current quote
+                try:
+                    current_quote = await client.get_quote(symbol)
+                    current_price = current_quote.get("last", 0.0) if current_quote else 0.0
+                except Exception as quote_error:
+                    logger.warning(f"Failed to get quote for {symbol}: {quote_error}")
+                    current_price = 0.0
+                
+                quantity = float(pos.get("quantity", 0))
+                cost_basis = float(pos.get("cost_basis", 0))
+                
+                # Get related trades for this position
+                position_trades = trades_by_symbol.get(symbol, [])
+                
+                # Separate opening and closing trades
+                opening_trades = []
+                closing_trades = []
+                
+                for trade in position_trades:
+                    trade_info = TradeInfo(
+                        trade_id=trade.id,
+                        order_id=trade.order_id,
+                        side=trade.side,
+                        quantity=trade.quantity,
+                        price=trade.price,
+                        status=trade.status,
+                        order_type=trade.order_type,
+                        filled_quantity=trade.filled_quantity,
+                        avg_fill_price=trade.avg_fill_price,
+                        environment=trade.environment,
+                        created_at=trade.created_at.isoformat(),
+                        filled_at=trade.filled_at.isoformat() if trade.filled_at else None
+                    )
                     
-                    order_responses.append(OrderResponse(
-                        order_id=str(order.get("id", "")),
+                    # Classify as opening or closing trade
+                    if trade.side in ["buy", "buy_to_open", "sell_to_open"]:
+                        opening_trades.append(trade_info)
+                    else:  # buy_to_close, sell_to_close, sell
+                        closing_trades.append(trade_info)
+                
+                # Calculate enhanced metrics
+                total_premium_collected = None
+                days_held = None
+                original_entry_date = None
+                average_entry_price = None
+                
+                if opening_trades:
+                    # Find earliest trade
+                    earliest_trade = min(position_trades, key=lambda t: t.created_at if t.created_at else pacific_now())
+                    original_entry_date = earliest_trade.created_at.isoformat()
+                    
+                    # Calculate days held
+                    days_held = (pacific_now() - earliest_trade.created_at).days
+                    
+                    # Calculate average entry price for opening trades
+                    total_quantity = sum(t.filled_quantity or t.quantity for t in position_trades if t.side in ["buy", "buy_to_open", "sell_to_open"])
+                    if total_quantity > 0:
+                        weighted_price = sum((t.avg_fill_price or t.price) * (t.filled_quantity or t.quantity) 
+                                           for t in position_trades if t.side in ["buy", "buy_to_open", "sell_to_open"])
+                        average_entry_price = weighted_price / total_quantity
+                    
+                    # For options, calculate total premium collected (for short positions)
+                    if instrument_type == "option":
+                        premium_trades = [t for t in position_trades if t.side == "sell_to_open"]
+                        if premium_trades:
+                            total_premium_collected = sum((t.avg_fill_price or t.price) * (t.filled_quantity or t.quantity) 
+                                                        for t in premium_trades)
+                
+                # Calculate P&L
+                if instrument_type == "equity":
+                    market_value = current_price * quantity
+                    avg_price = cost_basis / quantity if quantity != 0 else 0.0
+                    pnl = (current_price - avg_price) * quantity
+                    pnl_percent = ((current_price - avg_price) / avg_price * 100) if avg_price > 0 else 0.0
+                    
+                    enhanced_positions.append(EnhancedPositionResponse(
                         symbol=symbol,
-                        side=order.get("side", ""),
-                        quantity=float(order.get("quantity", 0)),
-                        order_type=order.get("type", ""),
-                        price=float(order.get("price", 0)) if order.get("price") else None,
-                        status=order.get("status", ""),
-                        duration=order.get("duration", ""),
-                        created_at=order.get("create_date", ""),
-                        filled_quantity=float(order.get("exec_quantity", 0)) if order.get("exec_quantity") else None,
-                        avg_fill_price=float(order.get("avg_price", 0)) if order.get("avg_price") else None
+                        instrument_type="equity",
+                        quantity=quantity,
+                        cost_basis=cost_basis,
+                        current_price=current_price,
+                        market_value=market_value,
+                        pnl=pnl,
+                        pnl_percent=pnl_percent,
+                        opening_trades=opening_trades,
+                        closing_trades=closing_trades,
+                        total_trades=len(position_trades),
+                        days_held=days_held,
+                        original_entry_date=original_entry_date,
+                        average_entry_price=average_entry_price
                     ))
-                except Exception as order_error:
-                    logger.warning(f"Error processing order {order.get('id', 'unknown') if isinstance(order, dict) else 'unknown'}: {order_error}")
-                    continue
+                    
+                elif instrument_type == "option":
+                    contracts = abs(quantity)
+                    market_value = current_price * contracts * 100
+                    avg_price = cost_basis / (contracts * 100) if contracts != 0 else 0.0
+                    pnl = (current_price - avg_price) * contracts * 100
+                    pnl_percent = ((current_price - avg_price) / avg_price * 100) if avg_price > 0 else 0.0
+                    
+                    # Extract underlying symbol and option details
+                    underlying_symbol = symbol[:3] if len(symbol) > 10 else symbol
+                    
+                    # Parse option details from symbol
+                    option_type = None
+                    strike = None
+                    expiration = None
+                    
+                    if len(symbol) > 10:
+                        try:
+                            if 'P' in symbol:
+                                option_type = 'put'
+                                strike_pos = symbol.find('P')
+                            elif 'C' in symbol:
+                                option_type = 'call'
+                                strike_pos = symbol.find('C')
+                            
+                            if strike_pos > 0:
+                                strike_str = symbol[strike_pos+1:]
+                                if strike_str.isdigit() and len(strike_str) >= 5:
+                                    strike = float(strike_str) / 1000.0
+                                
+                                # Extract expiration date (YYMMDD format)
+                                date_part = symbol[len(underlying_symbol):strike_pos]
+                                if len(date_part) == 6 and date_part.isdigit():
+                                    year = 2000 + int(date_part[:2])
+                                    month = int(date_part[2:4])
+                                    day = int(date_part[4:6])
+                                    expiration = f"{year}-{month:02d}-{day:02d}"
+                        except Exception:
+                            pass  # Use defaults if parsing fails
+                    
+                    enhanced_positions.append(EnhancedPositionResponse(
+                        symbol=underlying_symbol,
+                        instrument_type="option",
+                        quantity=quantity,
+                        cost_basis=cost_basis,
+                        current_price=current_price,
+                        market_value=market_value,
+                        pnl=pnl,
+                        pnl_percent=pnl_percent,
+                        contract_symbol=symbol,
+                        option_type=option_type,
+                        strike=strike,
+                        expiration=expiration,
+                        side="long" if quantity > 0 else "short",
+                        opening_trades=opening_trades,
+                        closing_trades=closing_trades,
+                        total_trades=len(position_trades),
+                        total_premium_collected=total_premium_collected,
+                        days_held=days_held,
+                        original_entry_date=original_entry_date,
+                        average_entry_price=average_entry_price
+                    ))
+                    
+            except Exception as pos_error:
+                logger.warning(f"Error processing enhanced position {pos.get('symbol', 'unknown')}: {pos_error}")
+                continue
+        
+        return enhanced_positions
+        
+    except Exception as e:
+        logger.error(f"Error getting enhanced positions: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get enhanced positions: {str(e)}")
+
+
+@router.get("/positions/summary")
+async def get_positions_summary(request: Request, db: AsyncSession = Depends(get_async_db)):
+    """Get positions summary with key trade metrics."""
+    try:
+        session_id = get_session_id(request)
+        current_env = trading_env.get_session_environment(session_id)
+        
+        # Get positions from Tradier
+        async with TradierClient(environment=current_env) as client:
+            positions = await client.get_account_positions()
+        
+        # Get trade statistics
+        from db.models import Trade
+        from sqlalchemy import func, desc, case
+        
+        # Get trade counts and metrics per symbol
+        trade_stats_query = select(
+            Trade.symbol,
+            Trade.option_symbol,
+            func.count(Trade.id).label('total_trades'),
+            func.sum(Trade.filled_quantity).label('total_quantity'),
+            func.avg(Trade.avg_fill_price).label('avg_price'),
+            func.min(Trade.created_at).label('first_trade'),
+            func.max(Trade.filled_at).label('last_trade'),
+            func.sum(
+                case(
+                    (Trade.side == 'sell_to_open', Trade.avg_fill_price * Trade.filled_quantity),
+                    else_=0
+                )
+            ).label('premium_collected')
+        ).where(
+            and_(
+                Trade.environment == current_env,
+                Trade.status == "filled"
+            )
+        ).group_by(Trade.symbol, Trade.option_symbol)
+        
+        result = await db.execute(trade_stats_query)
+        trade_stats = result.all()
+        
+        # Create lookup dict for trade stats
+        stats_lookup = {}
+        for stat in trade_stats:
+            key = stat.option_symbol if stat.option_symbol else stat.symbol
+            stats_lookup[key] = {
+                'total_trades': stat.total_trades,
+                'total_quantity': stat.total_quantity,
+                'avg_price': stat.avg_price,
+                'first_trade': stat.first_trade.isoformat() if stat.first_trade else None,
+                'last_trade': stat.last_trade.isoformat() if stat.last_trade else None,
+                'premium_collected': float(stat.premium_collected) if stat.premium_collected else 0.0,
+                'days_held': (pacific_now() - stat.first_trade).days if stat.first_trade else None
+            }
+        
+        summary_positions = []
+        
+        for pos in positions:
+            try:
+                symbol = pos["symbol"]
+                quantity = float(pos.get("quantity", 0))
+                cost_basis = float(pos.get("cost_basis", 0))
+                
+                # Get current quote
+                try:
+                    current_quote = await client.get_quote(symbol)
+                    current_price = current_quote.get("last", 0.0) if current_quote else 0.0
+                except Exception:
+                    current_price = 0.0
+                
+                # Get trade stats for this position
+                trade_info = stats_lookup.get(symbol, {})
+                
+                # Determine instrument type
+                instrument_type = "option" if (len(symbol) > 10 and any(c in symbol for c in ['P', 'C'])) else "equity"
+                
+                # Calculate basic metrics
+                if instrument_type == "equity":
+                    market_value = current_price * quantity
+                    avg_price = cost_basis / quantity if quantity != 0 else 0.0
+                    pnl = (current_price - avg_price) * quantity
+                    pnl_percent = ((current_price - avg_price) / avg_price * 100) if avg_price > 0 else 0.0
+                else:
+                    contracts = abs(quantity)
+                    market_value = current_price * contracts * 100
+                    avg_price = cost_basis / (contracts * 100) if contracts != 0 else 0.0
+                    pnl = (current_price - avg_price) * contracts * 100
+                    pnl_percent = ((current_price - avg_price) / avg_price * 100) if avg_price > 0 else 0.0
+                
+                position_summary = {
+                    "symbol": symbol,
+                    "instrument_type": instrument_type,
+                    "quantity": quantity,
+                    "cost_basis": cost_basis,
+                    "current_price": current_price,
+                    "market_value": market_value,
+                    "pnl": pnl,
+                    "pnl_percent": pnl_percent,
+                    "trade_metrics": trade_info
+                }
+                
+                summary_positions.append(position_summary)
+                
+            except Exception as pos_error:
+                logger.warning(f"Error processing position summary {pos.get('symbol', 'unknown')}: {pos_error}")
+                continue
+        
+        # Calculate portfolio totals
+        total_market_value = sum(p["market_value"] for p in summary_positions)
+        total_pnl = sum(p["pnl"] for p in summary_positions)
+        total_trades = sum(p["trade_metrics"].get("total_trades", 0) for p in summary_positions)
+        total_premium_collected = sum(p["trade_metrics"].get("premium_collected", 0) for p in summary_positions)
+        
+        return {
+            "positions": summary_positions,
+            "totals": {
+                "total_positions": len(summary_positions),
+                "total_market_value": total_market_value,
+                "total_pnl": total_pnl,
+                "total_pnl_percent": (total_pnl / (total_market_value - total_pnl) * 100) if (total_market_value - total_pnl) > 0 else 0.0,
+                "total_trades": total_trades,
+                "total_premium_collected": total_premium_collected
+            },
+            "environment": current_env
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting positions summary: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get positions summary: {str(e)}")
+
+
+@router.get("/orders")
+async def get_orders(
+    request: Request, 
+    db: AsyncSession = Depends(get_async_db),
+    days_back: int = Query(30, ge=1, le=90, description="Days back to fetch orders"),
+    status_filter: Optional[str] = Query(None, description="Filter by order status")
+):
+    """Get enhanced orders view with Tradier API as master source, fallback to database for Sandbox."""
+    try:
+        session_id = get_session_id(request)
+        current_env = trading_env.get_session_environment(session_id)
+        
+        from services.orders_view_service import OrdersViewService
+        
+        orders_service = OrdersViewService()
+        enhanced_orders = await orders_service.get_enhanced_orders(
+            db=db,
+            environment=current_env,
+            days_back=days_back,
+            status_filter=status_filter
+        )
+        
+        # Fallback for Sandbox API limitation: if no orders from Tradier, get from database
+        if not enhanced_orders and current_env == "sandbox":
+            logger.info("No orders from Tradier API (Sandbox limitation), falling back to database trades")
             
-            return order_responses
+            from db.models import Trade
+            from sqlalchemy import desc, select, and_
+            from datetime import timedelta
+            
+            # Get recent trades from database
+            cutoff_date = pacific_now() - timedelta(days=days_back)
+            query = select(Trade).where(
+                and_(
+                    Trade.environment == current_env,
+                    Trade.created_at >= cutoff_date
+                )
+            )
+            
+            if status_filter:
+                query = query.where(Trade.status == status_filter)
+            
+            query = query.order_by(desc(Trade.created_at))
+            result = await db.execute(query)
+            trades = result.scalars().all()
+            
+            # Convert trades to order format for UI compatibility
+            enhanced_orders = []
+            for trade in trades:
+                enhanced_order = {
+                    "order_id": trade.order_id,
+                    "symbol": trade.symbol,
+                    "side": trade.side,
+                    "quantity": trade.quantity,
+                    "order_type": trade.order_type or "unknown",
+                    "price": trade.price,
+                    "status": trade.status,
+                    "duration": trade.duration or "day",
+                    "created_at": trade.created_at.isoformat() if trade.created_at else "",
+                    "filled_quantity": trade.filled_quantity,
+                    "avg_fill_price": trade.avg_fill_price,
+                    "instrument_type": trade.class_type or "equity",
+                    "underlying_symbol": trade.symbol,
+                    "option_symbol": trade.option_symbol,
+                    "strike": trade.strike,
+                    "expiration": trade.expiry.isoformat() if trade.expiry else None,
+                    "option_type": trade.option_type,
+                    "trade_id": trade.id,
+                    "database_synced": True,
+                    "environment": trade.environment,
+                    "total_value": (trade.avg_fill_price or trade.price) * trade.quantity if trade.avg_fill_price or trade.price else None,
+                    "remaining_quantity": trade.remaining_quantity,
+                    "commission": 0,
+                    "tradier_data": trade.tradier_data
+                }
+                enhanced_orders.append(enhanced_order)
+            
+            logger.info(f"Fallback: returning {len(enhanced_orders)} orders from database")
+        
+        return enhanced_orders
             
     except Exception as e:
         logger.error(f"Error getting orders: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get orders: {str(e)}")
 
 
+@router.get("/trading/comprehensive")
+async def get_comprehensive_trading_view(
+    request: Request, 
+    db: AsyncSession = Depends(get_async_db),
+    include_positions: bool = Query(True, description="Include current positions"),
+    include_reconciliation: bool = Query(True, description="Run position reconciliation")
+):
+    """Get comprehensive view of all trading activity including orders, trades, positions, and reconciliation."""
+    try:
+        session_id = get_session_id(request)
+        current_env = trading_env.get_session_environment(session_id)
+        
+        from services.orders_view_service import OrdersViewService
+        
+        orders_service = OrdersViewService()
+        comprehensive_view = await orders_service.get_comprehensive_trading_view(
+            db=db,
+            environment=current_env,
+            include_positions=include_positions,
+            include_reconciliation=include_reconciliation
+        )
+        
+        return comprehensive_view
+        
+    except Exception as e:
+        logger.error(f"Error getting comprehensive trading view: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get comprehensive trading view: {str(e)}")
+
+
+@router.post("/positions/reconcile")
+async def reconcile_positions(
+    request: Request, 
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Run position reconciliation to detect position changes and create missing trade records."""
+    try:
+        session_id = get_session_id(request)
+        current_env = trading_env.get_session_environment(session_id)
+        
+        from services.position_reconciliation_service import PositionReconciliationService
+        
+        reconciliation_service = PositionReconciliationService()
+        results = await reconciliation_service.run_full_reconciliation(db, current_env)
+        
+        return results
+        
+    except Exception as e:
+        logger.error(f"Error running position reconciliation: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to run position reconciliation: {str(e)}")
+
+
+@router.post("/options/check-expirations")
+async def check_option_expirations(
+    request: Request, 
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Check for expired options and handle them."""
+    try:
+        session_id = get_session_id(request)
+        current_env = trading_env.get_session_environment(session_id)
+        
+        from services.option_expiration_service import OptionExpirationService
+        
+        expiration_service = OptionExpirationService()
+        results = await expiration_service.run_daily_expiration_check(db, current_env)
+        
+        return results
+        
+    except Exception as e:
+        logger.error(f"Error checking option expirations: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to check option expirations: {str(e)}")
+
+
+@router.get("/options/expiration-summary")
+async def get_expiration_summary(
+    request: Request, 
+    db: AsyncSession = Depends(get_async_db),
+    days_back: int = Query(30, ge=1, le=90, description="Days back to include in summary")
+):
+    """Get summary of option expirations and events."""
+    try:
+        session_id = get_session_id(request)
+        current_env = trading_env.get_session_environment(session_id)
+        
+        from services.option_expiration_service import OptionExpirationService
+        
+        expiration_service = OptionExpirationService()
+        summary = await expiration_service.get_expiration_summary(db, current_env, days_back)
+        
+        return summary
+        
+    except Exception as e:
+        logger.error(f"Error getting expiration summary: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get expiration summary: {str(e)}")
+
+
+@router.get("/options/upcoming-expirations")
+async def get_upcoming_expirations(
+    request: Request, 
+    db: AsyncSession = Depends(get_async_db),
+    days_ahead: int = Query(7, ge=1, le=30, description="Days ahead to look for expirations")
+):
+    """Get upcoming option expirations."""
+    try:
+        session_id = get_session_id(request)
+        current_env = trading_env.get_session_environment(session_id)
+        
+        from services.option_expiration_service import OptionExpirationService
+        
+        expiration_service = OptionExpirationService()
+        upcoming = await expiration_service.monitor_upcoming_expirations(db, days_ahead)
+        
+        return {
+            "environment": current_env,
+            "days_ahead": days_ahead,
+            "upcoming_expirations": upcoming
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting upcoming expirations: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get upcoming expirations: {str(e)}")
+
+
 @router.post("/orders", response_model=Dict[str, Any])
-async def submit_order(order_request: OrderSubmissionRequest, request: Request):
-    """Submit a new order."""
+async def submit_order(order_request: OrderSubmissionRequest, request: Request, db: AsyncSession = Depends(get_async_db)):
+    """Submit a new order and store details in database."""
     try:
         session_id = get_session_id(request)
         current_env = trading_env.get_session_environment(session_id)
@@ -451,9 +1034,11 @@ async def submit_order(order_request: OrderSubmissionRequest, request: Request):
             order_params["price"] = order_request.price
         
         # Add option-specific parameters
+        class_type = "equity"
         if order_request.option_symbol:
             order_params["class"] = "option"
             order_params["option_symbol"] = order_request.option_symbol
+            class_type = "option"
         else:
             order_params["class"] = "equity"
         
@@ -463,10 +1048,75 @@ async def submit_order(order_request: OrderSubmissionRequest, request: Request):
             if not result or not result.get("id"):
                 raise HTTPException(status_code=400, detail="Failed to submit order")
             
+            # Extract option details if this is an option order
+            strike_price = None
+            expiry_date = None
+            option_type = None
+            
+            if order_request.option_symbol:
+                try:
+                    # Parse option symbol to extract details (e.g., AAPL240119P00150000)
+                    # This is a simplified parser - you might want to use a more robust one
+                    option_sym = order_request.option_symbol
+                    if len(option_sym) > 10:
+                        # Extract option type (P or C)
+                        if 'P' in option_sym:
+                            option_type = 'put'
+                            strike_pos = option_sym.find('P')
+                        elif 'C' in option_sym:
+                            option_type = 'call' 
+                            strike_pos = option_sym.find('C')
+                        
+                        if strike_pos > 0:
+                            # Extract strike (last 8 digits, divide by 1000)
+                            strike_str = option_sym[strike_pos+1:]
+                            if strike_str.isdigit() and len(strike_str) >= 5:
+                                strike_price = float(strike_str) / 1000.0
+                except Exception as parse_error:
+                    logger.warning(f"Could not parse option symbol {order_request.option_symbol}: {parse_error}")
+            
+            # Store order details in database
+            from db.models import Trade
+            trade = Trade(
+                recommendation_id=order_request.recommendation_id,
+                symbol=order_request.symbol,
+                option_symbol=order_request.option_symbol,
+                side=order_request.side,
+                quantity=order_request.quantity,
+                price=order_request.price or 0.0,
+                order_id=str(result["id"]),
+                status="pending",
+                order_type=order_request.order_type,
+                duration=order_request.duration,
+                class_type=class_type,
+                environment=current_env,
+                remaining_quantity=order_request.quantity,  # Initially, all quantity is remaining
+                strike=strike_price,
+                expiry=expiry_date,
+                option_type=option_type,
+                tradier_data=result,  # Store complete Tradier response
+                created_at=pacific_now()
+            )
+            
+            db.add(trade)
+            await db.commit()
+            
+            logger.info(f"Order submitted and stored in database: {result['id']} (trade_id: {trade.id})")
+            
+            # Trigger immediate order sync to start monitoring
+            try:
+                from services.order_sync_service import OrderSyncService
+                order_sync = OrderSyncService()
+                await order_sync.trigger_immediate_sync(db, str(result["id"]), current_env)
+            except Exception as sync_error:
+                logger.warning(f"Failed to trigger immediate sync for order {result['id']}: {sync_error}")
+                # Don't fail the order submission if sync fails
+            
             return {
                 "status": "success",
                 "message": "Order submitted successfully",
                 "order_id": str(result["id"]),
+                "trade_id": trade.id,
                 "environment": current_env
             }
             
@@ -474,6 +1124,7 @@ async def submit_order(order_request: OrderSubmissionRequest, request: Request):
         raise
     except Exception as e:
         logger.error(f"Error submitting order: {e}")
+        await db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to submit order: {str(e)}")
 
 
@@ -675,3 +1326,195 @@ async def get_full_portfolio(request: Request):
     except Exception as e:
         logger.error(f"Error getting full portfolio: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get full portfolio: {str(e)}")
+
+
+@router.post("/orders/sync")
+async def sync_orders(request: Request, db: AsyncSession = Depends(get_async_db)):
+    """Sync pending orders with Tradier to ensure database is up to date."""
+    try:
+        session_id = get_session_id(request)
+        current_env = trading_env.get_session_environment(session_id)
+        
+        sync_service = OrderSyncService()
+        stats = await sync_service.sync_pending_orders(db, environment=current_env)
+        
+        return {
+            "status": "success",
+            "message": f"Order sync completed for {current_env} environment",
+            "environment": current_env,
+            "stats": stats
+        }
+        
+    except Exception as e:
+        logger.error(f"Error syncing orders: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to sync orders: {str(e)}")
+
+
+@router.post("/orders/{order_id}/sync")
+async def sync_specific_order(order_id: str, request: Request, db: AsyncSession = Depends(get_async_db)):
+    """Sync a specific order with Tradier."""
+    try:
+        session_id = get_session_id(request)
+        current_env = trading_env.get_session_environment(session_id)
+        
+        sync_service = OrderSyncService()
+        success = await sync_service.sync_order_by_id(db, order_id, current_env)
+        
+        if success:
+            return {
+                "status": "success",
+                "message": f"Order {order_id} synced successfully",
+                "order_id": order_id,
+                "environment": current_env
+            }
+        else:
+            raise HTTPException(status_code=404, detail=f"Order {order_id} not found or could not be synced")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error syncing order {order_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to sync order: {str(e)}")
+
+
+@router.get("/orders/reconcile")
+async def reconcile_orders(request: Request, db: AsyncSession = Depends(get_async_db)):
+    """Reconcile database orders with Tradier orders to identify discrepancies."""
+    try:
+        session_id = get_session_id(request)
+        current_env = trading_env.get_session_environment(session_id)
+        
+        sync_service = OrderSyncService()
+        report = await sync_service.reconcile_with_tradier(db, current_env)
+        
+        return {
+            "status": "success",
+            "environment": current_env,
+            "reconciliation_report": report
+        }
+        
+    except Exception as e:
+        logger.error(f"Error reconciling orders: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to reconcile orders: {str(e)}")
+
+
+@router.get("/trades")
+async def get_trades(
+    request: Request, 
+    db: AsyncSession = Depends(get_async_db),
+    limit: int = Query(50, ge=1, le=200),
+    status: Optional[str] = Query(None, description="Filter by status")
+):
+    """Get trade history from database."""
+    try:
+        session_id = get_session_id(request)
+        current_env = trading_env.get_session_environment(session_id)
+        
+        from db.models import Trade
+        from sqlalchemy import desc, select
+        
+        query = select(Trade).where(Trade.environment == current_env)
+        
+        if status:
+            query = query.where(Trade.status == status)
+        
+        query = query.order_by(desc(Trade.created_at)).limit(limit)
+        
+        result = await db.execute(query)
+        trades = result.scalars().all()
+        
+        trade_list = []
+        for trade in trades:
+            trade_dict = {
+                "id": trade.id,
+                "order_id": trade.order_id,
+                "symbol": trade.symbol,
+                "option_symbol": trade.option_symbol,
+                "side": trade.side,
+                "quantity": trade.quantity,
+                "price": trade.price,
+                "status": trade.status,
+                "order_type": trade.order_type,
+                "duration": trade.duration,
+                "class_type": trade.class_type,
+                "filled_quantity": trade.filled_quantity,
+                "avg_fill_price": trade.avg_fill_price,
+                "remaining_quantity": trade.remaining_quantity,
+                "environment": trade.environment,
+                "strike": trade.strike,
+                "expiry": trade.expiry.isoformat() if trade.expiry else None,
+                "option_type": trade.option_type,
+                "created_at": trade.created_at.isoformat(),
+                "updated_at": trade.updated_at.isoformat() if trade.updated_at else None,
+                "filled_at": trade.filled_at.isoformat() if trade.filled_at else None
+            }
+            trade_list.append(trade_dict)
+        
+        return {
+            "trades": trade_list,
+            "environment": current_env,
+            "total_count": len(trade_list)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting trades: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get trades: {str(e)}")
+
+
+@router.post("/trades/{trade_id}/link-recommendation/{recommendation_id}")
+async def link_trade_to_recommendation(
+    trade_id: int, 
+    recommendation_id: int, 
+    request: Request, 
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Link an existing trade to a recommendation."""
+    try:
+        session_id = get_session_id(request)
+        current_env = trading_env.get_session_environment(session_id)
+        
+        from db.models import Trade, Recommendation
+        from sqlalchemy import select, and_
+        
+        # Get the trade
+        trade_result = await db.execute(
+            select(Trade).where(
+                and_(Trade.id == trade_id, Trade.environment == current_env)
+            )
+        )
+        trade = trade_result.scalar_one_or_none()
+        
+        if not trade:
+            raise HTTPException(status_code=404, detail="Trade not found")
+        
+        # Get the recommendation to verify it exists
+        rec_result = await db.execute(
+            select(Recommendation).where(Recommendation.id == recommendation_id)
+        )
+        recommendation = rec_result.scalar_one_or_none()
+        
+        if not recommendation:
+            raise HTTPException(status_code=404, detail="Recommendation not found")
+        
+        # Update the trade
+        trade.recommendation_id = recommendation_id
+        trade.updated_at = pacific_now()
+        
+        await db.commit()
+        
+        logger.info(f"Linked trade {trade_id} to recommendation {recommendation_id}")
+        
+        return {
+            "status": "success",
+            "message": f"Trade {trade_id} successfully linked to recommendation {recommendation_id}",
+            "trade_id": trade_id,
+            "recommendation_id": recommendation_id,
+            "environment": current_env
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error linking trade to recommendation: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to link trade: {str(e)}")
+
