@@ -19,6 +19,7 @@ import {
   Alert,
   IconButton,
   Collapse,
+  Tooltip,
 } from '@mui/material';
 import {
   TrendingUp as TrendingUpIcon,
@@ -26,8 +27,10 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   Refresh as RefreshIcon,
+  Info as InfoIcon,
 } from '@mui/icons-material';
 import { accountApi } from '@/lib/api';
+import RecommendationDetailsDialog from '@/components/RecommendationDetailsDialog';
 
 interface Position {
   symbol: string;
@@ -40,6 +43,7 @@ interface Position {
   pnl_percent: number;
   contract_symbol?: string;
   option_type?: string;
+  recommendation_id?: number;
   strike?: number;
   expiration?: string;
   side?: string;
@@ -52,12 +56,20 @@ export default function PositionsTab() {
   const [error, setError] = useState<string | null>(null);
   const [stocksExpanded, setStocksExpanded] = useState(true);
   const [optionsExpanded, setOptionsExpanded] = useState(true);
+  const [recommendationDialog, setRecommendationDialog] = useState<{
+    open: boolean;
+    position: Position | null;
+  }>({ open: false, position: null });
 
   const fetchPositions = async () => {
     try {
       setLoading(true);
       setError(null);
       const response = await accountApi.getPositions();
+      console.log('Positions data:', response.data);
+      // Debug: Check which positions have recommendation_id
+      const positionsWithRec = response.data.filter((p: Position) => p.recommendation_id);
+      console.log('Positions with recommendation_id:', positionsWithRec);
       setPositions(response.data);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to fetch positions');
@@ -78,6 +90,20 @@ export default function PositionsTab() {
     }).format(value);
   };
 
+  const handleShowRecommendation = (position: Position) => {
+    if (!position.recommendation_id) return;
+    
+    setRecommendationDialog({
+      open: true,
+      position
+    });
+  };
+
+  const handleCloseRecommendationDialog = () => {
+    setRecommendationDialog({ open: false, position: null });
+  };
+
+
   const formatPercent = (value: number) => {
     return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
   };
@@ -88,17 +114,18 @@ export default function PositionsTab() {
     return 'text.primary';
   };
 
-  const stockPositions = positions.filter(p => p.instrument_type === 'equity');
-  const optionPositions = positions.filter(p => p.instrument_type === 'option');
+  const stockPositions = positions.filter((p: Position) => p.instrument_type === 'equity');
+  const optionPositions = positions.filter((p: Position) => p.instrument_type === 'option');
 
   const renderStockTable = () => (
-    <TableContainer component={Paper} elevation={0}>
+    <TableContainer component={Paper} elevation={0} sx={{ borderRadius: 0 }}>
       <Table size="small">
         <TableHead>
           <TableRow>
             <TableCell>Symbol</TableCell>
             <TableCell align="right">Quantity</TableCell>
             <TableCell align="right">Avg Cost</TableCell>
+            <TableCell align="right">Cost Basis</TableCell>
             <TableCell align="right">Current Price</TableCell>
             <TableCell align="right">Market Value</TableCell>
             <TableCell align="right">P&L</TableCell>
@@ -106,19 +133,53 @@ export default function PositionsTab() {
           </TableRow>
         </TableHead>
         <TableBody>
-          {stockPositions.map((position, index) => {
+          {stockPositions.map((position: Position, index: number) => {
             const avgCost = position.cost_basis / position.quantity;
             return (
               <TableRow key={index}>
                 <TableCell>
-                  <Typography variant="body2" fontWeight="medium">
-                    {position.symbol}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="body2" fontWeight="medium" sx={{ fontFamily: 'monospace' }}>
+                      {position.symbol}
+                    </Typography>
+                    {position.recommendation_id && (
+                      <Tooltip title="View original recommendation">
+                        <IconButton 
+                          size="small" 
+                          onClick={() => handleShowRecommendation(position)}
+                          sx={{ p: 0.5 }}
+                        >
+                          <InfoIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                  </Box>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                    {position.quantity}
                   </Typography>
                 </TableCell>
-                <TableCell align="right">{position.quantity}</TableCell>
-                <TableCell align="right">{formatCurrency(avgCost)}</TableCell>
-                <TableCell align="right">{formatCurrency(position.current_price)}</TableCell>
-                <TableCell align="right">{formatCurrency(position.market_value)}</TableCell>
+                <TableCell align="right">
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                    {formatCurrency(avgCost)}
+                  </Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                    {formatCurrency(position.cost_basis)}
+                  </Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                    {formatCurrency(position.current_price)}
+                  </Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                    {formatCurrency(position.market_value)}
+                  </Typography>
+                </TableCell>
                 <TableCell align="right">
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5 }}>
                     {position.pnl > 0 ? <TrendingUpIcon fontSize="small" color="success" /> :
@@ -138,7 +199,7 @@ export default function PositionsTab() {
           })}
           {stockPositions.length === 0 && (
             <TableRow>
-              <TableCell colSpan={7} align="center">
+              <TableCell colSpan={8} align="center">
                 <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
                   No stock positions found
                 </Typography>
@@ -151,15 +212,17 @@ export default function PositionsTab() {
   );
 
   const renderOptionTable = () => (
-    <TableContainer component={Paper} elevation={0}>
+    <TableContainer component={Paper} elevation={0} sx={{ borderRadius: 0 }}>
       <Table size="small">
         <TableHead>
           <TableRow>
             <TableCell>Symbol</TableCell>
             <TableCell>Contract</TableCell>
+            <TableCell>Type</TableCell>
             <TableCell>Side</TableCell>
             <TableCell align="right">Quantity</TableCell>
             <TableCell align="right">Avg Cost</TableCell>
+            <TableCell align="right">Cost Basis</TableCell>
             <TableCell align="right">Current Price</TableCell>
             <TableCell align="right">Market Value</TableCell>
             <TableCell align="right">P&L</TableCell>
@@ -167,19 +230,41 @@ export default function PositionsTab() {
           </TableRow>
         </TableHead>
         <TableBody>
-          {optionPositions.map((position, index) => {
+          {optionPositions.map((position: Position, index: number) => {
             const avgCost = position.cost_basis / (Math.abs(position.quantity) * 100);
             return (
               <TableRow key={index}>
                 <TableCell>
-                  <Typography variant="body2" fontWeight="medium">
-                    {position.symbol}
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="body2" fontWeight="medium" sx={{ fontFamily: 'monospace' }}>
+                      {position.symbol}
+                    </Typography>
+                    {position.recommendation_id && (
+                      <Tooltip title="View original recommendation">
+                        <IconButton 
+                          size="small" 
+                          onClick={() => handleShowRecommendation(position)}
+                          sx={{ p: 0.5 }}
+                        >
+                          <InfoIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                  </Box>
                 </TableCell>
                 <TableCell>
                   <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
                     {position.contract_symbol}
                   </Typography>
+                </TableCell>
+                <TableCell>
+                  <Chip
+                    label={position.option_type?.toUpperCase() || 'N/A'}
+                    size="small"
+                    color={position.option_type === 'put' ? 'error' : position.option_type === 'call' ? 'success' : 'default'}
+                    variant="filled"
+                    sx={{ fontWeight: 'medium', fontSize: '0.75rem', minWidth: '50px' }}
+                  />
                 </TableCell>
                 <TableCell>
                   <Chip
@@ -189,10 +274,31 @@ export default function PositionsTab() {
                     variant="outlined"
                   />
                 </TableCell>
-                <TableCell align="right">{Math.abs(position.quantity)}</TableCell>
-                <TableCell align="right">{formatCurrency(avgCost)}</TableCell>
-                <TableCell align="right">{formatCurrency(position.current_price)}</TableCell>
-                <TableCell align="right">{formatCurrency(position.market_value)}</TableCell>
+                <TableCell align="right">
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                    {Math.abs(position.quantity)}
+                  </Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                    {formatCurrency(avgCost)}
+                  </Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                    {formatCurrency(position.cost_basis)}
+                  </Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                    {formatCurrency(position.current_price)}
+                  </Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                    {formatCurrency(position.market_value)}
+                  </Typography>
+                </TableCell>
                 <TableCell align="right">
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5 }}>
                     {position.pnl > 0 ? <TrendingUpIcon fontSize="small" color="success" /> :
@@ -212,7 +318,7 @@ export default function PositionsTab() {
           })}
           {optionPositions.length === 0 && (
             <TableRow>
-              <TableCell colSpan={9} align="center">
+              <TableCell colSpan={11} align="center">
                 <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
                   No option positions found
                 </Typography>
@@ -226,7 +332,7 @@ export default function PositionsTab() {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200, backgroundColor: 'grey.50' }}>
         <CircularProgress />
       </Box>
     );
@@ -241,7 +347,7 @@ export default function PositionsTab() {
       )}
 
       {/* Stock Positions Section */}
-      <Card sx={{ borderRadius: 0 }}>
+      <Card sx={{ borderRadius: 0, backgroundColor: 'background.paper' }}>
         <CardHeader
           title={`Stock Positions (${stockPositions.length})`}
           action={
@@ -256,14 +362,14 @@ export default function PositionsTab() {
           }
         />
         <Collapse in={stocksExpanded}>
-          <CardContent sx={{ pt: 0 }}>
+          <CardContent sx={{ pt: 0, backgroundColor: 'background.default' }}>
             {renderStockTable()}
           </CardContent>
         </Collapse>
       </Card>
 
       {/* Option Positions Section */}
-      <Card sx={{ borderRadius: 0 }}>
+      <Card sx={{ borderRadius: 0, backgroundColor: 'background.paper' }}>
         <CardHeader
           title={`Option Positions (${optionPositions.length})`}
           action={
@@ -273,11 +379,17 @@ export default function PositionsTab() {
           }
         />
         <Collapse in={optionsExpanded}>
-          <CardContent sx={{ pt: 0 }}>
+          <CardContent sx={{ pt: 0, backgroundColor: 'background.default' }}>
             {renderOptionTable()}
           </CardContent>
         </Collapse>
       </Card>
+
+      <RecommendationDetailsDialog 
+        open={recommendationDialog.open} 
+        position={recommendationDialog.position} 
+        onClose={handleCloseRecommendationDialog} 
+      />
     </Box>
   );
 }

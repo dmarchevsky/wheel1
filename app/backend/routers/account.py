@@ -122,6 +122,9 @@ class PositionResponse(BaseModel):
     strike: Optional[float] = None
     expiration: Optional[str] = None
     side: Optional[str] = None  # "long" or "short"
+    
+    # Recommendation tracking
+    recommendation_id: Optional[int] = None
 
 
 class EnhancedPositionResponse(BaseModel):
@@ -141,6 +144,9 @@ class EnhancedPositionResponse(BaseModel):
     strike: Optional[float] = None
     expiration: Optional[str] = None
     side: Optional[str] = None  # "long" or "short"
+    
+    # Recommendation tracking
+    recommendation_id: Optional[int] = None
     
     # Trade history for this position
     opening_trades: List[TradeInfo] = []
@@ -367,7 +373,7 @@ async def get_account_balances(request: Request):
 
 
 @router.get("/positions", response_model=List[PositionResponse])
-async def get_positions(request: Request):
+async def get_positions(request: Request, db: AsyncSession = Depends(get_async_db)):
     """Get all account positions (equity and options)."""
     try:
         session_id = get_session_id(request)
@@ -375,6 +381,29 @@ async def get_positions(request: Request):
         
         async with TradierClient(environment=current_env) as client:
             positions = await client.get_account_positions()
+            
+            # Get recommendation IDs from trades for position linking
+            from db.models import Trade
+            from sqlalchemy import select, and_
+            
+            # Query all trades to get recommendation mappings
+            trade_query = select(Trade.symbol, Trade.option_symbol, Trade.recommendation_id).where(
+                and_(
+                    Trade.environment == current_env,
+                    Trade.recommendation_id.is_not(None)
+                )
+            ).distinct()
+            
+            result = await db.execute(trade_query)
+            trades_with_recommendations = result.fetchall()
+            
+            # Create lookup for recommendation IDs
+            recommendation_lookup = {}
+            for trade in trades_with_recommendations:
+                # For options, use option_symbol; for equity, use symbol
+                key = trade.option_symbol if trade.option_symbol else trade.symbol
+                if key:
+                    recommendation_lookup[key] = trade.recommendation_id
             
             position_responses = []
             
@@ -411,6 +440,9 @@ async def get_positions(request: Request):
                         pnl = (current_price - avg_price) * quantity
                         pnl_percent = ((current_price - avg_price) / avg_price * 100) if avg_price > 0 else 0.0
                         
+                        # Look for recommendation_id
+                        recommendation_id = recommendation_lookup.get(symbol)
+                        
                         position_responses.append(PositionResponse(
                             symbol=symbol,
                             instrument_type="equity",
@@ -419,20 +451,73 @@ async def get_positions(request: Request):
                             current_price=current_price,
                             market_value=market_value,
                             pnl=pnl,
-                            pnl_percent=pnl_percent
+                            pnl_percent=pnl_percent,
+                            recommendation_id=recommendation_id
                         ))
                         
                     elif instrument_type == "option":
-                        # Option position
+                        # Option position - handle shorts correctly
                         contracts = abs(quantity)
-                        market_value = current_price * contracts * 100  # Options are per-share basis
-                        avg_price = cost_basis / (contracts * 100) if contracts != 0 else 0.0
-                        pnl = (current_price - avg_price) * contracts * 100
-                        pnl_percent = ((current_price - avg_price) / avg_price * 100) if avg_price > 0 else 0.0
+                        is_short = quantity < 0
                         
-                        # Extract underlying symbol from option symbol
-                        # NKE251003P00070000 -> NKE
+                        # Market value calculation
+                        market_value = current_price * contracts * 100
+                        
+                        # For short positions, market value should be negative (liability)
+                        if is_short:
+                            market_value = -market_value
+                        
+                        # P&L calculation for options
+                        # For short positions: P&L = cost_basis - current_market_value
+                        # For long positions: P&L = current_market_value - cost_basis
+                        if is_short:
+                            # Short: P&L = Premium received - Current option value
+                            # For short positions: P&L = abs(cost_basis) - abs(market_value)
+                            premium_received = abs(cost_basis)  # $39
+                            current_option_value = abs(market_value)  # $43
+                            pnl = premium_received - current_option_value  # $39 - $43 = -$4
+                        else:
+                            # Long: we paid premium, now own market_value
+                            pnl = market_value - cost_basis
+                        
+                        # P&L percentage calculation
+                        if cost_basis != 0:
+                            pnl_percent = (pnl / abs(cost_basis)) * 100
+                        else:
+                            pnl_percent = 0.0
+                        
+                        # Parse option details from symbol
                         underlying_symbol = symbol[:3] if len(symbol) > 10 else symbol
+                        option_type = None
+                        strike = None
+                        expiration = None
+                        
+                        if len(symbol) > 10:
+                            try:
+                                if 'P' in symbol:
+                                    option_type = 'put'
+                                    strike_pos = symbol.find('P')
+                                elif 'C' in symbol:
+                                    option_type = 'call'
+                                    strike_pos = symbol.find('C')
+                                
+                                if strike_pos > 0:
+                                    strike_str = symbol[strike_pos+1:]
+                                    if strike_str.isdigit() and len(strike_str) >= 5:
+                                        strike = float(strike_str) / 1000.0
+                                    
+                                    # Extract expiration date (YYMMDD format)
+                                    date_part = symbol[len(underlying_symbol):strike_pos]
+                                    if len(date_part) == 6 and date_part.isdigit():
+                                        year = 2000 + int(date_part[:2])
+                                        month = int(date_part[2:4])
+                                        day = int(date_part[4:6])
+                                        expiration = f"{year}-{month:02d}-{day:02d}"
+                            except Exception:
+                                pass  # Use defaults if parsing fails
+                        
+                        # Look for recommendation_id using the full option symbol
+                        recommendation_id = recommendation_lookup.get(symbol)
                         
                         position_responses.append(PositionResponse(
                             symbol=underlying_symbol,
@@ -444,7 +529,11 @@ async def get_positions(request: Request):
                             pnl=pnl,
                             pnl_percent=pnl_percent,
                             contract_symbol=symbol,
-                            side="long" if quantity > 0 else "short"
+                            option_type=option_type,
+                            strike=strike,
+                            expiration=expiration,
+                            side="long" if quantity > 0 else "short",
+                            recommendation_id=recommendation_id
                         ))
                         
                 except Exception as pos_error:
@@ -1055,23 +1144,53 @@ async def submit_order(order_request: OrderSubmissionRequest, request: Request, 
             
             if order_request.option_symbol:
                 try:
-                    # Parse option symbol to extract details (e.g., AAPL240119P00150000)
-                    # This is a simplified parser - you might want to use a more robust one
+                    # Parse option symbol to extract details
+                    # Format: SYMBOL + YYMMDD + P/C + STRIKE(8 digits)
+                    # Example: MRNA251003P00022000 = MRNA + 25/10/03 + P + $22.00
                     option_sym = order_request.option_symbol
-                    if len(option_sym) > 10:
-                        # Extract option type (P or C)
-                        if 'P' in option_sym:
-                            option_type = 'put'
-                            strike_pos = option_sym.find('P')
-                        elif 'C' in option_sym:
-                            option_type = 'call' 
-                            strike_pos = option_sym.find('C')
+                    
+                    if len(option_sym) >= 15:  # Minimum length for valid option symbol
+                        # Find the LAST position of P or C (option type indicator)
+                        # This avoids confusion with symbols like INTC that contain C
+                        put_pos = option_sym.rfind('P')
+                        call_pos = option_sym.rfind('C')
                         
-                        if strike_pos > 0:
-                            # Extract strike (last 8 digits, divide by 1000)
-                            strike_str = option_sym[strike_pos+1:]
-                            if strike_str.isdigit() and len(strike_str) >= 5:
+                        # Determine option type and position - use the rightmost P/C
+                        if put_pos > call_pos and put_pos > 0:
+                            option_type = 'put'
+                            type_pos = put_pos
+                        elif call_pos > put_pos and call_pos > 0:
+                            option_type = 'call'
+                            type_pos = call_pos
+                        else:
+                            raise ValueError("Could not find option type (P/C)")
+                        
+                        # Extract underlying symbol (everything before date)
+                        # Date should be 6 chars before the P/C
+                        if type_pos >= 6:
+                            underlying = option_sym[:type_pos-6]
+                            date_str = option_sym[type_pos-6:type_pos]
+                            strike_str = option_sym[type_pos+1:]
+                            
+                            # Parse expiry date (YYMMDD format)
+                            if len(date_str) == 6 and date_str.isdigit():
+                                year = int('20' + date_str[:2])  # Convert YY to 20YY
+                                month = int(date_str[2:4])
+                                day = int(date_str[4:6])
+                                
+                                from datetime import datetime
+                                expiry_date = datetime(year, month, day)
+                                logger.info(f"Parsed expiry date: {expiry_date} from {date_str}")
+                            
+                            # Parse strike price (8 digits, divide by 1000)
+                            if len(strike_str) == 8 and strike_str.isdigit():
                                 strike_price = float(strike_str) / 1000.0
+                                logger.info(f"Parsed strike price: ${strike_price} from {strike_str}")
+                            
+                            logger.info(f"Parsed option: {underlying} {option_type} ${strike_price} exp {expiry_date}")
+                        else:
+                            logger.warning(f"Option symbol too short before type indicator: {option_sym}")
+                            
                 except Exception as parse_error:
                     logger.warning(f"Could not parse option symbol {order_request.option_symbol}: {parse_error}")
             
@@ -1517,4 +1636,146 @@ async def link_trade_to_recommendation(
     except Exception as e:
         logger.error(f"Error linking trade to recommendation: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to link trade: {str(e)}")
+
+
+@router.post("/trades/fix-expiry-dates")
+async def fix_expiry_dates(
+    request: Request, 
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Fix expiry dates for existing trades with null expiry."""
+    try:
+        session_id = get_session_id(request)
+        current_env = trading_env.get_session_environment(session_id)
+        
+        from db.models import Trade
+        from sqlalchemy import select, and_
+        from datetime import datetime
+        
+        # Get all trades with null expiry but have option_symbol
+        result = await db.execute(
+            select(Trade).where(
+                and_(
+                    Trade.environment == current_env,
+                    Trade.expiry.is_(None),
+                    Trade.option_symbol.is_not(None)
+                )
+            )
+        )
+        trades = result.scalars().all()
+        
+        updated_count = 0
+        
+        for trade in trades:
+            try:
+                if trade.option_symbol and len(trade.option_symbol) >= 15:
+                    # Parse option symbol to extract expiry date
+                    option_sym = trade.option_symbol
+                    
+                    # Find LAST P or C position (to avoid symbols like INTC)
+                    put_pos = option_sym.rfind('P')
+                    call_pos = option_sym.rfind('C')
+                    
+                    type_pos = None
+                    if put_pos > call_pos and put_pos > 0:
+                        type_pos = put_pos
+                    elif call_pos > put_pos and call_pos > 0:
+                        type_pos = call_pos
+                    
+                    if type_pos and type_pos >= 6:
+                        # Extract date string (6 chars before P/C)
+                        date_str = option_sym[type_pos-6:type_pos]
+                        
+                        if len(date_str) == 6 and date_str.isdigit():
+                            year = int('20' + date_str[:2])
+                            month = int(date_str[2:4])
+                            day = int(date_str[4:6])
+                            
+                            expiry_date = datetime(year, month, day)
+                            trade.expiry = expiry_date
+                            trade.updated_at = pacific_now()
+                            updated_count += 1
+                            
+                            logger.info(f"Updated trade {trade.id}: {trade.option_symbol} -> expiry {expiry_date}")
+                            
+            except Exception as trade_error:
+                logger.warning(f"Failed to parse expiry for trade {trade.id} ({trade.option_symbol}): {trade_error}")
+                continue
+        
+        await db.commit()
+        
+        return {
+            "status": "success",
+            "message": f"Updated expiry dates for {updated_count} trades",
+            "updated_count": updated_count,
+            "environment": current_env
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fixing expiry dates: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fix expiry dates: {str(e)}")
+
+
+@router.get("/debug/parse-option/{option_symbol}")
+async def debug_option_parsing(option_symbol: str):
+    """Debug option symbol parsing."""
+    try:
+        from datetime import datetime
+        
+        result = {
+            "option_symbol": option_symbol,
+            "length": len(option_symbol),
+            "parsed": {}
+        }
+        
+        if len(option_symbol) >= 15:
+            # Find LAST P or C position (to avoid symbols like INTC)
+            put_pos = option_symbol.rfind('P')
+            call_pos = option_symbol.rfind('C')
+            
+            result["put_pos"] = put_pos
+            result["call_pos"] = call_pos
+            
+            type_pos = None
+            option_type = None
+            if put_pos > call_pos and put_pos > 0:
+                option_type = 'put'
+                type_pos = put_pos
+            elif call_pos > put_pos and call_pos > 0:
+                option_type = 'call'
+                type_pos = call_pos
+            
+            result["parsed"]["option_type"] = option_type
+            result["parsed"]["type_pos"] = type_pos
+            
+            if type_pos and type_pos >= 6:
+                underlying = option_symbol[:type_pos-6]
+                date_str = option_symbol[type_pos-6:type_pos]
+                strike_str = option_symbol[type_pos+1:]
+                
+                result["parsed"]["underlying"] = underlying
+                result["parsed"]["date_str"] = date_str
+                result["parsed"]["strike_str"] = strike_str
+                
+                # Parse date
+                if len(date_str) == 6 and date_str.isdigit():
+                    year = int('20' + date_str[:2])
+                    month = int(date_str[2:4])
+                    day = int(date_str[4:6])
+                    
+                    expiry_date = datetime(year, month, day)
+                    result["parsed"]["expiry_date"] = expiry_date.isoformat()
+                    result["parsed"]["year"] = year
+                    result["parsed"]["month"] = month  
+                    result["parsed"]["day"] = day
+                
+                # Parse strike
+                if len(strike_str) == 8 and strike_str.isdigit():
+                    strike_price = float(strike_str) / 1000.0
+                    result["parsed"]["strike_price"] = strike_price
+        
+        return result
+        
+    except Exception as e:
+        return {"error": str(e), "option_symbol": option_symbol}
 

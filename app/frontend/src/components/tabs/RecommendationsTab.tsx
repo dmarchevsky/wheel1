@@ -286,7 +286,7 @@ export default function RecommendationsTab() {
                   
                   {/* Detailed Progress for Running Status */}
                   {generationStatus === 'running' && generationProgress && (
-                    <Box sx={{ mt: 1, p: 1, bgcolor: 'rgba(0,0,0,0.05)', borderRadius: 1 }}>
+                    <Box sx={{ mt: 1, p: 1, bgcolor: 'rgba(0,0,0,0.05)', borderRadius: 0 }}>
                       <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
                         <Box>
                           <Typography variant="caption" color="textSecondary">Total Tickers</Typography>

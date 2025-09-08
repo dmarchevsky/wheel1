@@ -1,1 +1,2 @@
 - Application runs in docker containers with auto refresh. Do not try to build app locally or restart the container after backend or frontend code changes
+- do not use docker commands directly. review justfile and use appropriate just commands
