@@ -59,11 +59,12 @@ export default function PositionsTab() {
     try {
       setLoading(true);
       setError(null);
+      
+      // Fetch latest positions data
       const response = await accountApi.getPositions();
       const positionsData = response.data;
-      setPositions(positionsData);
-
-      // Fetch ticker quotes for unique symbols
+      
+      // Fetch live ticker quotes for unique symbols
       if (positionsData.length > 0) {
         const uniqueSymbols = [...new Set(positionsData.map((p: Position) => p.symbol))];
         try {
@@ -74,9 +75,34 @@ export default function PositionsTab() {
             quotesMap[quote.symbol] = quote.last;
           });
           setTickerQuotes(quotesMap);
+          
+          // Update positions with fresh market data and recalculate P&L if needed
+          const updatedPositions = positionsData.map((position: Position) => {
+            const livePrice = quotesMap[position.symbol];
+            if (livePrice && position.instrument_type === 'equity') {
+              // For stocks, we can recalculate market value and P&L with live price
+              const marketValue = position.quantity * livePrice;
+              const pnl = marketValue - (position.quantity * position.cost_basis);
+              const pnlPercent = position.cost_basis !== 0 ? (pnl / (position.quantity * position.cost_basis)) * 100 : 0;
+              
+              return {
+                ...position,
+                current_price: livePrice,
+                market_value: marketValue,
+                pnl,
+                pnl_percent: pnlPercent
+              };
+            }
+            return position;
+          });
+          
+          setPositions(updatedPositions);
         } catch (quotesErr) {
           console.warn('Failed to fetch ticker quotes:', quotesErr);
+          setPositions(positionsData);
         }
+      } else {
+        setPositions(positionsData);
       }
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to fetch positions');
@@ -426,6 +452,18 @@ export default function PositionsTab() {
       {/* Option Positions Section */}
       <ExpandableCard
         title={`Option Positions (${optionPositions.length})`}
+        action={
+          <ActionButton 
+            onClick={fetchPositions} 
+            disabled={loading}
+            loading={loading}
+            size="small"
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+          >
+            Refresh
+          </ActionButton>
+        }
         defaultExpanded={optionsExpanded}
         onExpandChange={setOptionsExpanded}
       >

@@ -1,20 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Typography,
-  Box,
-  Button,
-  IconButton,
-  Chip,
-  CircularProgress,
-  Paper,
-} from '@mui/material';
-import { Close as CloseIcon } from '@mui/icons-material';
+import { Dialog, Typography, Box, Button, Chip, Divider, CircularProgress } from '@mui/material';
 import { recommendationsApi } from '@/lib/api';
 
 interface Position {
@@ -60,13 +47,12 @@ export default function RecommendationDetailsDialog({
           const response = await recommendationsApi.getById(String(position.recommendation_id));
           setData(response.data);
         } catch (err) {
-          setError('Failed to load recommendation details');
+          setError('Failed to load details');
           console.error('Error fetching recommendation:', err);
         } finally {
           setLoading(false);
         }
       };
-      
       fetchData();
     } else {
       setData(null);
@@ -74,164 +60,130 @@ export default function RecommendationDetailsDialog({
     }
   }, [open, position?.recommendation_id]);
 
-  const handleClose = () => {
-    setData(null);
-    setError(null);
-    onClose();
+  const DataRow = ({ label, value }: { label: string; value: any }) => (
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.25 }}>
+      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>{label}:</Typography>
+      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 500, fontSize: '0.8rem' }}>
+        {value}
+      </Typography>
+    </Box>
+  );
+
+  const formatLabel = (key: string) => {
+    return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   };
 
   return (
     <Dialog 
       open={open} 
-      onClose={handleClose}
-      maxWidth="md"
-      fullWidth
-      PaperProps={{
-        sx: { borderRadius: 0, backgroundColor: 'background.paper' }
-      }}
+      onClose={onClose} 
+      maxWidth="sm" 
+      PaperProps={{ sx: { borderRadius: 1, minWidth: 400 } }}
     >
-      <DialogTitle sx={{ pb: 1, backgroundColor: 'background.paper' }}>
-        <Box>
-          <Typography variant="h6" component="div" sx={{ mb: 1 }}>
-            Recommendation Details
-          </Typography>
-          {position && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Chip
-                label={position.symbol}
+      <Box sx={{ p: 2 }}>
+        {/* Header */}
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography variant="h6" fontWeight={600}>
+              Recommendation Details
+            </Typography>
+            {position && (
+              <Chip 
+                label={position.symbol} 
+                size="small" 
+                color="primary" 
                 variant="outlined"
-                size="small"
-                sx={{ fontWeight: 'bold', fontFamily: 'monospace', borderRadius: 0 }}
+                sx={{ fontWeight: 600, fontFamily: 'monospace' }}
               />
-              {position.instrument_type === 'option' && (
-                <Chip
-                  label={position.contract_symbol || 'Option'}
-                  variant="outlined"
-                  size="small"
-                  sx={{ fontFamily: 'monospace', fontSize: '0.75rem', borderRadius: 0 }}
-                />
-              )}
-            </Box>
-          )}
+            )}
+            {position?.contract_symbol && (
+              <Chip 
+                label={position.contract_symbol} 
+                size="small" 
+                variant="outlined"
+                sx={{ fontSize: '0.7rem' }}
+              />
+            )}
+          </Box>
+          <Button onClick={onClose} size="small" variant="outlined" sx={{ minWidth: 'auto', px: 1 }}>
+            Close
+          </Button>
         </Box>
-      </DialogTitle>
-      
-      <DialogContent sx={{ pt: 0, backgroundColor: 'background.default' }}>
+
         {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4, backgroundColor: 'grey.50' }}>
-            <CircularProgress />
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+            <CircularProgress size={24} />
           </Box>
         ) : error ? (
           <Typography color="error" variant="body2" sx={{ py: 2 }}>{error}</Typography>
         ) : data ? (
           <Box>
-            {/* Key Metrics Section */}
-            <Box sx={{ mb: 2 }}>
-              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2 }}>
-                <Paper sx={{ p: 2, backgroundColor: 'primary.50', textAlign: 'center', borderRadius: 0 }}>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold', mb: 1 }}>
-                    Score
-                  </Typography>
-                  <Typography variant="h6" color="primary" sx={{ fontWeight: 'bold', fontFamily: 'monospace' }}>
-                    {data.score?.toFixed(1) || 'N/A'}
-                  </Typography>
-                </Paper>
-                <Paper sx={{ p: 2, backgroundColor: 'success.50', textAlign: 'center', borderRadius: 0 }}>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold', mb: 1 }}>
-                    Annualized ROI
-                  </Typography>
-                  <Typography variant="h6" color="success.main" sx={{ fontWeight: 'bold', fontFamily: 'monospace' }}>
-                    {data.annualized_roi?.toFixed(1) || 'N/A'}%
-                  </Typography>
-                </Paper>
-                <Paper sx={{ p: 2, backgroundColor: 'warning.50', textAlign: 'center', borderRadius: 0 }}>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold', mb: 1 }}>
-                    Strike Price
-                  </Typography>
-                  <Typography variant="h6" color="warning.main" sx={{ fontWeight: 'bold', fontFamily: 'monospace' }}>
-                    ${data.strike?.toFixed(2) || 'N/A'}
-                  </Typography>
-                </Paper>
-              </Box>
-            </Box>
-            
-            {/* Option Details Section */}
-            <Box sx={{ mb: 2 }}>
-              <Typography variant="h6" sx={{ mb: 2 }}>
-                Option Details
-              </Typography>
-              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2 }}>
-                <Paper sx={{ p: 2, backgroundColor: 'grey.100', textAlign: 'center', borderRadius: 0 }}>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold', mb: 1 }}>
-                    Option Type
-                  </Typography>
-                  <Chip
-                    label={data.option_type?.toUpperCase() || 'N/A'}
-                    color={data.option_type === 'put' ? 'error' : data.option_type === 'call' ? 'success' : 'default'}
-                    variant="filled"
-                    sx={{ fontWeight: 'bold', borderRadius: 0 }}
-                  />
-                </Paper>
-                <Paper sx={{ p: 2, backgroundColor: 'grey.100', textAlign: 'center', borderRadius: 0 }}>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold', mb: 1 }}>
-                    Expiry Date
-                  </Typography>
-                  <Typography variant="body1" sx={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
-                    {data.expiry || 'N/A'}
-                  </Typography>
-                </Paper>
-                <Paper sx={{ p: 2, backgroundColor: 'grey.100', textAlign: 'center', borderRadius: 0 }}>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold', mb: 1 }}>
-                    Created At
-                  </Typography>
-                  <Typography variant="body1" sx={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
-                    {new Date(data.created_at).toLocaleDateString()}
-                  </Typography>
-                </Paper>
-              </Box>
-            </Box>
-            
-            {/* Analysis Details Section */}
-            {data.rationale && (
-              <Box>
-                <Typography variant="h6" sx={{ mb: 2 }}>
-                  Analysis Details
+            {/* Key Metrics */}
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2, mb: 2 }}>
+              <Box sx={{ textAlign: 'center', border: '1px solid', borderColor: 'divider', p: 1, borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary" display="block">Score</Typography>
+                <Typography variant="h6" color="primary.main" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                  {data.score?.toFixed(1) || 'N/A'}
                 </Typography>
-                <Paper sx={{ p: 2, backgroundColor: 'grey.50', borderRadius: 0 }}>
-                  {typeof data.rationale === 'string' ? (
-                    <Typography variant="body2" sx={{ fontStyle: 'italic' }}>
-                      {data.rationale}
-                    </Typography>
-                  ) : (
-                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
-                      {Object.entries(data.rationale).map(([key, value]) => (
-                        <Box key={key} sx={{ p: 1.5, backgroundColor: 'grey.200', border: '1px solid', borderColor: 'grey.300', borderRadius: 0 }}>
-                          <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
-                            {key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                          </Typography>
-                          <Typography variant="body1" fontWeight="bold" sx={{ fontFamily: 'monospace' }}>
-                            {typeof value === 'number' ? value.toFixed(2) : String(value)}
-                          </Typography>
-                        </Box>
-                      ))}
-                    </Box>
-                  )}
-                </Paper>
               </Box>
+              <Box sx={{ textAlign: 'center', border: '1px solid', borderColor: 'divider', p: 1, borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary" display="block">Annualized ROI</Typography>
+                <Typography variant="h6" color="success.main" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                  {data.annualized_roi?.toFixed(1) || 'N/A'}%
+                </Typography>
+              </Box>
+              <Box sx={{ textAlign: 'center', border: '1px solid', borderColor: 'divider', p: 1, borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary" display="block">Strike Price</Typography>
+                <Typography variant="h6" color="warning.main" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                  ${data.strike?.toFixed(2) || 'N/A'}
+                </Typography>
+              </Box>
+            </Box>
+
+            <Divider sx={{ my: 1.5 }} />
+
+            {/* Option Details */}
+            <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>Option Details</Typography>
+            <Box sx={{ mb: 2 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 0.25 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>Type:</Typography>
+                <Chip
+                  label={data.option_type?.toUpperCase() || 'N/A'}
+                  size="small"
+                  color={data.option_type === 'put' ? 'error' : data.option_type === 'call' ? 'success' : 'default'}
+                  sx={{ fontSize: '0.7rem', height: 20 }}
+                />
+              </Box>
+              <DataRow label="Expiry Date" value={data.expiry || 'N/A'} />
+              <DataRow label="Created At" value={new Date(data.created_at).toLocaleDateString()} />
+              <DataRow label="Recommendation ID" value={data.id} />
+            </Box>
+
+            {/* Analysis Details */}
+            {data.rationale && (
+              <>
+                <Divider sx={{ my: 1.5 }} />
+                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>Analysis Details</Typography>
+                {typeof data.rationale === 'string' ? (
+                  <Typography variant="body2" sx={{ fontStyle: 'italic', p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                    {data.rationale}
+                  </Typography>
+                ) : (
+                  <Box>
+                    {Object.entries(data.rationale).map(([key, value]) => (
+                      <DataRow
+                        key={key}
+                        label={formatLabel(key)}
+                        value={typeof value === 'number' ? value.toFixed(2) : String(value)}
+                      />
+                    ))}
+                  </Box>
+                )}
+              </>
             )}
           </Box>
         ) : null}
-      </DialogContent>
-      
-      <DialogActions sx={{ p: 2, backgroundColor: 'background.paper' }}>
-        <Button 
-          onClick={handleClose}
-          variant="contained"
-          sx={{ borderRadius: 0 }}
-        >
-          Close
-        </Button>
-      </DialogActions>
+      </Box>
     </Dialog>
   );
 }
