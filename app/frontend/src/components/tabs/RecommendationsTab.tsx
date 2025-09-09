@@ -3,14 +3,7 @@
 import React, { useState, useRef } from 'react'
 import {
   Box,
-  Card,
-  CardHeader,
-  CardContent,
   Typography,
-  IconButton,
-  Collapse,
-  Button,
-  CircularProgress,
   Alert,
   Switch,
   FormControlLabel,
@@ -20,12 +13,11 @@ import {
   MenuItem,
 } from '@mui/material'
 import {
-  ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
   Refresh as RefreshIcon,
   FilterList as FilterIcon,
   AutoAwesome as AutoAwesomeIcon,
 } from '@mui/icons-material'
+import { ExpandableCard, ActionButton, LoadingState } from '@/components/ui'
 import RecommendationsPanel from '@/components/RecommendationsPanel'
 import { recommendationsApi } from '@/lib/api'
 
@@ -171,97 +163,89 @@ export default function RecommendationsTab() {
       `}</style>
 
       {/* Recommendations Panel */}
-      <Card sx={{ borderRadius: 0 }}>
-        <CardHeader
-          title={
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Typography variant="h6">Latest Recommendations</Typography>
-              {metadata?.latest_update && (
-                <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.8rem' }}>
-                  Updated: {formatTimestamp(metadata.latest_update)}
-                </Typography>
-              )}
-            </Box>
-          }
-          action={
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-              <Button
-                variant={filtersVisible ? "contained" : "outlined"}
-                onClick={() => setFiltersVisible(!filtersVisible)}
-                size="small"
-                startIcon={<FilterIcon />}
-              >
-                Filters
-              </Button>
-              <Button
-                variant="outlined"
-                onClick={handleClearFilters}
-                size="small"
-                disabled={!filtersVisible}
-              >
-                Clear
-              </Button>
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={handleGenerateRecommendations}
-                disabled={generationStatus === 'pending' || generationStatus === 'running'}
-                startIcon={generationStatus === 'pending' || generationStatus === 'running' ? 
-                  <CircularProgress size={16} /> : <AutoAwesomeIcon />}
-                size="small"
-              >
-                {generationStatus === 'pending' ? 'Starting...' : 
-                 generationStatus === 'running' ? 'Generating...' : 
-                 generationStatus === 'completed' ? 'Complete!' : 'Generate'}
-              </Button>
-              <Button
-                variant="outlined"
-                onClick={handleRefresh}
-                disabled={refreshing}
-                startIcon={refreshing ? <CircularProgress size={16} /> : <RefreshIcon />}
-                size="small"
-              >
-                Refresh
-              </Button>
-              {/* Auto-refresh controls */}
-              <FormControlLabel
-                control={
-                  <Switch
-                    size="small"
-                    checked={pollingEnabled}
-                    onChange={(e) => setPollingEnabled(e.target.checked)}
-                  />
-                }
-                label="Auto"
-                sx={{ ml: 1 }}
-              />
-              {pollingEnabled && (
-                <FormControl size="small" sx={{ minWidth: 60 }}>
-                  <Select
-                    value={pollingInterval}
-                    onChange={(e) => setPollingInterval(e.target.value as number)}
-                    sx={{ '.MuiOutlinedInput-notchedOutline': { border: 'none' } }}
-                  >
-                    <MenuItem value={1}>1m</MenuItem>
-                    <MenuItem value={2}>2m</MenuItem>
-                    <MenuItem value={5}>5m</MenuItem>
-                    <MenuItem value={10}>10m</MenuItem>
-                    <MenuItem value={15}>15m</MenuItem>
-                    <MenuItem value={30}>30m</MenuItem>
-                  </Select>
-                </FormControl>
-              )}
-              <IconButton
-                onClick={() => setExpanded(!expanded)}
-                sx={{ borderRadius: 0 }}
-              >
-                {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-              </IconButton>
-            </Box>
-          }
-        />
-        <Collapse in={expanded}>
-          <CardContent sx={{ pt: 0 }}>
+      <ExpandableCard
+        title={
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Typography variant="h6">Latest Recommendations</Typography>
+            {metadata?.latest_update && (
+              <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.8rem' }}>
+                Updated: {formatTimestamp(metadata.latest_update)}
+              </Typography>
+            )}
+          </Box>
+        }
+        action={
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <ActionButton
+              variant={filtersVisible ? "contained" : "outlined"}
+              onClick={() => setFiltersVisible(!filtersVisible)}
+              size="small"
+              startIcon={<FilterIcon />}
+            >
+              Filters
+            </ActionButton>
+            <ActionButton
+              variant="outlined"
+              onClick={handleClearFilters}
+              size="small"
+              disabled={!filtersVisible}
+            >
+              Clear
+            </ActionButton>
+            <ActionButton
+              variant="contained"
+              color="primary"
+              onClick={handleGenerateRecommendations}
+              loading={generationStatus === 'pending' || generationStatus === 'running'}
+              loadingText={generationStatus === 'pending' ? 'Starting...' : 'Generating...'}
+              startIcon={<AutoAwesomeIcon />}
+              size="small"
+            >
+              {generationStatus === 'completed' ? 'Complete!' : 'Generate'}
+            </ActionButton>
+            <ActionButton
+              variant="outlined"
+              onClick={handleRefresh}
+              loading={refreshing}
+              loadingText="Refreshing..."
+              startIcon={<RefreshIcon />}
+              size="small"
+            >
+              Refresh
+            </ActionButton>
+            {/* Auto-refresh controls */}
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={pollingEnabled}
+                  onChange={(e) => setPollingEnabled(e.target.checked)}
+                />
+              }
+              label="Auto"
+              sx={{ ml: 1 }}
+            />
+            {pollingEnabled && (
+              <FormControl size="small" sx={{ minWidth: 60 }}>
+                <Select
+                  value={pollingInterval}
+                  onChange={(e) => setPollingInterval(e.target.value as number)}
+                  sx={{ '.MuiOutlinedInput-notchedOutline': { border: 'none' } }}
+                >
+                  <MenuItem value={1}>1m</MenuItem>
+                  <MenuItem value={2}>2m</MenuItem>
+                  <MenuItem value={5}>5m</MenuItem>
+                  <MenuItem value={10}>10m</MenuItem>
+                  <MenuItem value={15}>15m</MenuItem>
+                  <MenuItem value={30}>30m</MenuItem>
+                </Select>
+              </FormControl>
+            )}
+          </Box>
+        }
+        defaultExpanded={expanded}
+        onExpandChange={setExpanded}
+      >
             {/* Generation Status Alert */}
             {generationStatus !== 'idle' && (
               <Alert 
@@ -351,9 +335,7 @@ export default function RecommendationsTab() {
               onPollingEnabledChange={setPollingEnabled}
               onPollingIntervalChange={setPollingInterval}
             />
-          </CardContent>
-        </Collapse>
-      </Card>
+      </ExpandableCard>
     </Box>
   )
 }

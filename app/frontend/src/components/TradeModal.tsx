@@ -6,11 +6,9 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Button,
   Typography,
   Box,
   Grid,
-  Paper,
   TextField,
   Select,
   MenuItem,
@@ -18,7 +16,6 @@ import {
   InputLabel,
   Chip,
   Alert,
-  CircularProgress,
   Table,
   TableBody,
   TableCell,
@@ -28,8 +25,6 @@ import {
   Divider,
   IconButton,
   Tooltip,
-  Card,
-  CardContent,
 } from '@mui/material'
 import {
   Close as CloseIcon,
@@ -41,6 +36,7 @@ import {
 } from '@mui/icons-material'
 import { useThemeContext } from '@/contexts/ThemeContext'
 import { marketDataApi, accountApi } from '@/lib/api'
+import { BaseCard, ActionButton, LoadingState } from '@/components/ui'
 
 interface TradeModalProps {
   open: boolean
@@ -352,15 +348,13 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
 
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '2fr 1fr' }, gap: 2, alignItems: 'start' }}>
           {/* Option Chain */}
-          <Paper sx={{ p: 1.5, borderRadius: 0, display: 'flex', flexDirection: 'column', maxHeight: 280 }}>
+          <BaseCard sx={{ p: 1.5, display: 'flex', flexDirection: 'column', maxHeight: 280 }}>
             <Typography variant="h6" gutterBottom sx={{ mb: 1 }}>
               Put Options Chain - {recommendation.expiry}
             </Typography>
             
             {loading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 220 }}>
-                <CircularProgress />
-              </Box>
+              <LoadingState message="Loading options..." size={24} />
             ) : (
               <TableContainer sx={{ height: 220, overflowY: 'auto', overflowX: 'hidden', width: '100%' }}>
                 <Table size="small" stickyHeader sx={{ minWidth: 0, tableLayout: 'fixed' }} padding="checkbox">
@@ -443,10 +437,10 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
                 </Table>
               </TableContainer>
             )}
-          </Paper>
+          </BaseCard>
 
           {/* Key Metrics */}
-          <Paper sx={{ p: 1.5, borderRadius: 0, display: 'flex', flexDirection: 'column', height: 280 }}>
+          <BaseCard sx={{ p: 1.5, display: 'flex', flexDirection: 'column', height: 280 }}>
             <Typography variant="h6" gutterBottom sx={{ mb: 1 }}>
               Key Metrics
             </Typography>
@@ -562,14 +556,14 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
                 </Typography>
               </Box>
             </Box>
-          </Paper>
+          </BaseCard>
         </Box>
 
         {/* Order Entry and Trade Summary - Moved below option chains */}
         <Grid container spacing={2} sx={{ mt: 1 }}>
           {/* Order Entry */}
           <Grid item xs={12} lg={6}>
-            <Paper sx={{ p: 1.5, borderRadius: 0 }}>
+            <BaseCard sx={{ p: 1.5 }}>
               <Typography variant="h6" gutterBottom sx={{ mb: 1.5 }}>
                 Order Entry
               </Typography>
@@ -654,12 +648,12 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
               </Grid>
 
 
-            </Paper>
+            </BaseCard>
           </Grid>
 
           {/* Trade Summary */}
           <Grid item xs={12} lg={6}>
-            <Paper sx={{ p: 1.5, borderRadius: 0 }}>
+            <BaseCard sx={{ p: 1.5 }}>
               <Typography variant="h6" gutterBottom sx={{ mb: 1 }}>
                 Trade Summary
               </Typography>
@@ -770,7 +764,7 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
                   </Typography>
                 </Alert>
               )}
-            </Paper>
+            </BaseCard>
           </Grid>
         </Grid>
       </DialogContent>
@@ -784,19 +778,19 @@ const TradeModal: React.FC<TradeModalProps> = ({ open, onClose, recommendation }
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button onClick={onClose} sx={{ borderRadius: 0 }}>
+          <ActionButton onClick={onClose} variant="outlined">
             Cancel
-          </Button>
-          <Button
+          </ActionButton>
+          <ActionButton
             variant="contained"
             onClick={handleSubmitTrade}
-            disabled={!selectedOption || !limitPrice || submitting}
+            disabled={!selectedOption || !limitPrice}
+            loading={submitting}
+            loadingText="Submitting..."
             color="primary"
-            sx={{ borderRadius: 0 }}
-            startIcon={submitting ? <CircularProgress size={16} /> : undefined}
           >
-            {submitting ? 'Submitting...' : 'Submit Trade'}
-          </Button>
+            Submit Trade
+          </ActionButton>
         </Box>
       </DialogActions>
     </Dialog>

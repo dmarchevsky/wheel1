@@ -108,6 +108,7 @@ class TradeInfo(BaseModel):
 class PositionResponse(BaseModel):
     """Position response (equity or option)."""
     symbol: str
+    name: Optional[str] = None  # Company name from InterestingTicker
     instrument_type: str  # "equity" or "option"
     quantity: float
     cost_basis: float
@@ -383,7 +384,7 @@ async def get_positions(request: Request, db: AsyncSession = Depends(get_async_d
             positions = await client.get_account_positions()
             
             # Get recommendation IDs from trades for position linking
-            from db.models import Trade
+            from db.models import Trade, InterestingTicker
             from sqlalchemy import select, and_
             
             # Query all trades to get recommendation mappings
@@ -404,6 +405,17 @@ async def get_positions(request: Request, db: AsyncSession = Depends(get_async_d
                 key = trade.option_symbol if trade.option_symbol else trade.symbol
                 if key:
                     recommendation_lookup[key] = trade.recommendation_id
+            
+            # Get company names from InterestingTicker table
+            ticker_query = select(InterestingTicker.symbol, InterestingTicker.name)
+            ticker_result = await db.execute(ticker_query)
+            ticker_names = ticker_result.fetchall()
+            
+            # Create lookup for company names
+            name_lookup = {}
+            for ticker in ticker_names:
+                if ticker.symbol and ticker.name:
+                    name_lookup[ticker.symbol] = ticker.name
             
             position_responses = []
             
@@ -440,11 +452,13 @@ async def get_positions(request: Request, db: AsyncSession = Depends(get_async_d
                         pnl = (current_price - avg_price) * quantity
                         pnl_percent = ((current_price - avg_price) / avg_price * 100) if avg_price > 0 else 0.0
                         
-                        # Look for recommendation_id
+                        # Look for recommendation_id and company name
                         recommendation_id = recommendation_lookup.get(symbol)
+                        company_name = name_lookup.get(symbol)
                         
                         position_responses.append(PositionResponse(
                             symbol=symbol,
+                            name=company_name,
                             instrument_type="equity",
                             quantity=quantity,
                             cost_basis=cost_basis,
@@ -487,27 +501,36 @@ async def get_positions(request: Request, db: AsyncSession = Depends(get_async_d
                             pnl_percent = 0.0
                         
                         # Parse option details from symbol
-                        underlying_symbol = symbol[:3] if len(symbol) > 10 else symbol
+                        underlying_symbol = symbol
                         option_type = None
                         strike = None
                         expiration = None
                         
                         if len(symbol) > 10:
                             try:
-                                if 'P' in symbol:
-                                    option_type = 'put'
-                                    strike_pos = symbol.find('P')
-                                elif 'C' in symbol:
-                                    option_type = 'call'
-                                    strike_pos = symbol.find('C')
+                                # Find LAST P or C position (to avoid symbols like INTC)
+                                put_pos = symbol.rfind('P')
+                                call_pos = symbol.rfind('C')
                                 
-                                if strike_pos > 0:
+                                strike_pos = None
+                                if put_pos > call_pos and put_pos > 0:
+                                    option_type = 'put'
+                                    strike_pos = put_pos
+                                elif call_pos > put_pos and call_pos > 0:
+                                    option_type = 'call'
+                                    strike_pos = call_pos
+                                
+                                if strike_pos and strike_pos >= 6:
+                                    # Extract underlying symbol (everything before date)
+                                    # Date is 6 chars before P/C position
+                                    underlying_symbol = symbol[:strike_pos-6]
+                                    
                                     strike_str = symbol[strike_pos+1:]
                                     if strike_str.isdigit() and len(strike_str) >= 5:
                                         strike = float(strike_str) / 1000.0
                                     
                                     # Extract expiration date (YYMMDD format)
-                                    date_part = symbol[len(underlying_symbol):strike_pos]
+                                    date_part = symbol[strike_pos-6:strike_pos]
                                     if len(date_part) == 6 and date_part.isdigit():
                                         year = 2000 + int(date_part[:2])
                                         month = int(date_part[2:4])
@@ -519,8 +542,12 @@ async def get_positions(request: Request, db: AsyncSession = Depends(get_async_d
                         # Look for recommendation_id using the full option symbol
                         recommendation_id = recommendation_lookup.get(symbol)
                         
+                        # Get company name for the underlying symbol
+                        company_name = name_lookup.get(underlying_symbol)
+                        
                         position_responses.append(PositionResponse(
                             symbol=underlying_symbol,
+                            name=company_name,
                             instrument_type="option",
                             quantity=quantity,
                             cost_basis=cost_basis,
@@ -694,30 +721,37 @@ async def get_enhanced_positions(request: Request, db: AsyncSession = Depends(ge
                     pnl = (current_price - avg_price) * contracts * 100
                     pnl_percent = ((current_price - avg_price) / avg_price * 100) if avg_price > 0 else 0.0
                     
-                    # Extract underlying symbol and option details
-                    underlying_symbol = symbol[:3] if len(symbol) > 10 else symbol
-                    
                     # Parse option details from symbol
+                    underlying_symbol = symbol
                     option_type = None
                     strike = None
                     expiration = None
                     
                     if len(symbol) > 10:
                         try:
-                            if 'P' in symbol:
-                                option_type = 'put'
-                                strike_pos = symbol.find('P')
-                            elif 'C' in symbol:
-                                option_type = 'call'
-                                strike_pos = symbol.find('C')
+                            # Find LAST P or C position (to avoid symbols like INTC)
+                            put_pos = symbol.rfind('P')
+                            call_pos = symbol.rfind('C')
                             
-                            if strike_pos > 0:
+                            strike_pos = None
+                            if put_pos > call_pos and put_pos > 0:
+                                option_type = 'put'
+                                strike_pos = put_pos
+                            elif call_pos > put_pos and call_pos > 0:
+                                option_type = 'call'
+                                strike_pos = call_pos
+                            
+                            if strike_pos and strike_pos >= 6:
+                                # Extract underlying symbol (everything before date)
+                                # Date is 6 chars before P/C position
+                                underlying_symbol = symbol[:strike_pos-6]
+                                
                                 strike_str = symbol[strike_pos+1:]
                                 if strike_str.isdigit() and len(strike_str) >= 5:
                                     strike = float(strike_str) / 1000.0
                                 
                                 # Extract expiration date (YYMMDD format)
-                                date_part = symbol[len(underlying_symbol):strike_pos]
+                                date_part = symbol[strike_pos-6:strike_pos]
                                 if len(date_part) == 6 and date_part.isdigit():
                                     year = 2000 + int(date_part[:2])
                                     month = int(date_part[2:4])

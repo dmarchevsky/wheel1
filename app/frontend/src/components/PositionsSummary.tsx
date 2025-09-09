@@ -3,32 +3,26 @@
 import React, { useState, useEffect } from 'react'
 import {
   Box,
-  Card,
-  CardHeader,
-  CardContent,
   Typography,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
-  Chip,
   Alert,
-  CircularProgress,
-  IconButton,
-  Collapse,
   Grid,
   useTheme,
+  CircularProgress,
 } from '@mui/material'
 import {
-  ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
   Refresh as RefreshIcon,
 } from '@mui/icons-material'
 import { accountApi } from '@/lib/api'
 import { Position, OptionPosition } from '@/types'
+import { 
+  ExpandableCard, 
+  DataTable, 
+  TableColumn, 
+  LoadingState, 
+  StatusChip, 
+  PnLIndicator,
+  ActionButton 
+} from '@/components/ui'
 
 interface PortfolioData {
   account_status?: any
@@ -65,12 +59,50 @@ export default function PositionsSummary() {
     try {
       setLoading(true)
       setError(null)
-      const response = await accountApi.getPortfolio()
-      console.log('Portfolio API response:', response.data) // Debug log
-      setPortfolio(response.data)
+      
+      // Instead of calling the combined /portfolio endpoint, call individual endpoints
+      // This helps us isolate which specific API call is failing
+      try {
+        console.log('Fetching positions...')
+        const positionsResponse = await accountApi.getPositions()
+        
+        // Create portfolio structure from positions data
+        const portfolioData: PortfolioData = {
+          positions: positionsResponse.data || []
+        }
+        
+        console.log('Portfolio data constructed:', portfolioData)
+        setPortfolio(portfolioData)
+        
+      } catch (positionsError: any) {
+        console.error('Positions API failed, trying fallback approach:', positionsError)
+        
+        // Fallback: try to get basic balances at least
+        try {
+          const balancesResponse = await accountApi.getBalances()
+          console.log('Got balances as fallback:', balancesResponse.data)
+          
+          setPortfolio({
+            positions: [], // Empty positions if positions API fails
+            balances: balancesResponse.data
+          })
+          
+          // Set a warning instead of error for partial success
+          setError('Positions data unavailable. Showing account balances only.')
+          
+        } catch (balancesError: any) {
+          throw new Error(`Both positions and balances APIs failed. Positions: ${positionsError.message}, Balances: ${balancesError.message}`)
+        }
+      }
+      
     } catch (err: any) {
       console.error('Error fetching portfolio:', err)
-      setError(err.response?.data?.detail || 'Failed to fetch portfolio data')
+      // Enhanced error handling with specific API error messages
+      const errorMsg = err.response?.data?.detail || 
+        err.response?.data?.message || 
+        err.message || 
+        'Failed to fetch portfolio data'
+      setError(`API Error: ${errorMsg}`)
     } finally {
       setLoading(false)
     }
@@ -80,39 +112,26 @@ export default function PositionsSummary() {
     fetchPortfolio()
   }, [])
 
-  const formatCurrency = (value: number | undefined | null) => {
-    if (value === undefined || value === null) return '$0.00'
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(value)
-  }
-
-  const formatPercent = (value: number | undefined | null) => {
-    if (value === undefined || value === null) return '0.00%'
-    return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
-  }
-
-  const getPnLColor = (value: number | undefined | null) => {
-    if (value === undefined || value === null || value === 0) return theme.palette.text.secondary
-    return value > 0 ? theme.palette.success.main : theme.palette.error.main
-  }
-
   if (loading) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
-        <CircularProgress />
-      </Box>
-    )
+    return <LoadingState message="Loading portfolio data..." />
   }
 
   if (error) {
     return (
-      <Alert severity="error" action={
-        <IconButton onClick={fetchPortfolio} color="inherit" size="small">
-          <RefreshIcon />
-        </IconButton>
-      }>
+      <Alert 
+        severity="error" 
+        action={
+          <ActionButton 
+            onClick={fetchPortfolio} 
+            size="small" 
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+          >
+            Retry
+          </ActionButton>
+        }
+        sx={{ mb: 2 }}
+      >
         {error}
       </Alert>
     )
@@ -135,167 +154,138 @@ export default function PositionsSummary() {
   const topStockPositions = stockPositions.slice(0, 5)
   const topOptionPositions = optionPositions.slice(0, 5)
 
+  const stockColumns: TableColumn[] = [
+    { id: 'symbol', label: 'Symbol', width: '20%' },
+    { id: 'quantity', label: 'Shares', align: 'right', width: '15%', format: (val: number) => Math.abs(val).toLocaleString() },
+    { id: 'current_price', label: 'Current Price', align: 'right', width: '20%' },
+    { id: 'market_value', label: 'Market Value', align: 'right', width: '20%' },
+    {
+      id: 'pnl_percent',
+      label: 'P&L %',
+      align: 'right',
+      width: '25%',
+      format: (value: number, row: any) => (
+        <StatusChip 
+          status={row?.pnl && row.pnl > 0 ? 'success' : 'error'}
+          label={`${value >= 0 ? '+' : ''}${value?.toFixed(2) || 0}%`}
+        />
+      )
+    }
+  ]
+
+  const optionColumns: TableColumn[] = [
+    {
+      id: 'contract_symbol',
+      label: 'Contract',
+      width: '35%',
+      format: (value: string) => (
+        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+          {value && value.length > 20 ? `${value.substring(0, 20)}...` : value}
+        </Typography>
+      )
+    },
+    { id: 'symbol', label: 'Underlying', width: '15%' },
+    {
+      id: 'side',
+      label: 'Side',
+      align: 'center',
+      width: '15%',
+      format: (value: string, row: any) => (
+        <StatusChip 
+          status={value === 'long' || (row?.quantity && row.quantity > 0) ? 'info' : 'warning'}
+          label={value || (row?.quantity && row.quantity > 0 ? 'long' : 'short')}
+        />
+      )
+    },
+    { 
+      id: 'quantity', 
+      label: 'Qty', 
+      align: 'right', 
+      width: '10%',
+      format: (val: number) => Math.abs(val)
+    },
+    {
+      id: 'pnl_percent',
+      label: 'P&L %',
+      align: 'right',
+      width: '25%',
+      format: (value: number, row: any) => (
+        <StatusChip 
+          status={row?.pnl && row.pnl > 0 ? 'success' : 'error'}
+          label={`${value >= 0 ? '+' : ''}${value?.toFixed(2) || 0}%`}
+        />
+      )
+    }
+  ]
+
   return (
     <Grid container spacing={3}>
       {/* Stock Positions Summary */}
       <Grid item xs={12} lg={6}>
-        <Card>
-          <CardHeader
-            title={`Stock Positions (${stockPositions.length})`}
-            action={
-              <Box>
-                <IconButton onClick={fetchPortfolio} size="small">
-                  <RefreshIcon />
-                </IconButton>
-                <IconButton onClick={() => setStockExpanded(!stockExpanded)} size="small">
-                  {stockExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                </IconButton>
-              </Box>
-            }
+        <ExpandableCard
+          title={`Stock Positions (${stockPositions.length})`}
+          action={
+            <ActionButton 
+              onClick={fetchPortfolio} 
+              size="small"
+              variant="outlined"
+              startIcon={<RefreshIcon />}
+            >
+              Refresh
+            </ActionButton>
+          }
+          defaultExpanded={stockExpanded}
+          onExpandChange={setStockExpanded}
+        >
+          <DataTable
+            columns={stockColumns}
+            data={topStockPositions}
+            emptyMessage="No stock positions found"
+            dense
+            maxHeight={300}
           />
-          <Collapse in={stockExpanded}>
-            <CardContent sx={{ pt: 0 }}>
-              {topStockPositions.length === 0 ? (
-                <Typography color="textSecondary" textAlign="center" py={2}>
-                  No stock positions found
-                </Typography>
-              ) : (
-                <TableContainer component={Paper} variant="outlined">
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell><strong>Symbol</strong></TableCell>
-                        <TableCell align="right"><strong>Shares</strong></TableCell>
-                        <TableCell align="right"><strong>Current Price</strong></TableCell>
-                        <TableCell align="right"><strong>Market Value</strong></TableCell>
-                        <TableCell align="right"><strong>P&L %</strong></TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {topStockPositions.map((position, index) => (
-                        <TableRow key={`${position.symbol}-${index}`} hover>
-                          <TableCell>
-                            <Typography fontWeight="bold">{position.symbol}</Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            {Math.abs(position.quantity).toLocaleString()}
-                          </TableCell>
-                          <TableCell align="right">
-                            {formatCurrency(position.current_price)}
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography fontWeight="bold">
-                              {formatCurrency(position.market_value)}
-                            </Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Chip 
-                              label={formatPercent(position.pnl_percent)}
-                              color={position.pnl && position.pnl > 0 ? 'success' : 'error'}
-                              variant="outlined"
-                              size="small"
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
-              {stockPositions.length > 5 && (
-                <Box textAlign="center" mt={2}>
-                  <Typography variant="body2" color="textSecondary">
-                    Showing top 5 positions. <a href="/portfolio" style={{ color: theme.palette.primary.main }}>View all positions</a>
-                  </Typography>
-                </Box>
-              )}
-            </CardContent>
-          </Collapse>
-        </Card>
+          {stockPositions.length > 5 && (
+            <Box textAlign="center" mt={2}>
+              <Typography variant="body2" color="textSecondary">
+                Showing top 5 positions. <a href="/portfolio" style={{ color: theme.palette.primary.main }}>View all positions</a>
+              </Typography>
+            </Box>
+          )}
+        </ExpandableCard>
       </Grid>
 
       {/* Options Positions Summary */}
       <Grid item xs={12} lg={6}>
-        <Card>
-          <CardHeader
-            title={`Options Positions (${optionPositions.length})`}
-            action={
-              <Box>
-                <IconButton onClick={fetchPortfolio} size="small">
-                  <RefreshIcon />
-                </IconButton>
-                <IconButton onClick={() => setOptionsExpanded(!optionsExpanded)} size="small">
-                  {optionsExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                </IconButton>
-              </Box>
-            }
+        <ExpandableCard
+          title={`Options Positions (${optionPositions.length})`}
+          action={
+            <ActionButton 
+              onClick={fetchPortfolio} 
+              size="small"
+              variant="outlined"
+              startIcon={<RefreshIcon />}
+            >
+              Refresh
+            </ActionButton>
+          }
+          defaultExpanded={optionsExpanded}
+          onExpandChange={setOptionsExpanded}
+        >
+          <DataTable
+            columns={optionColumns}
+            data={topOptionPositions}
+            emptyMessage="No options positions found"
+            dense
+            maxHeight={300}
           />
-          <Collapse in={optionsExpanded}>
-            <CardContent sx={{ pt: 0 }}>
-              {topOptionPositions.length === 0 ? (
-                <Typography color="textSecondary" textAlign="center" py={2}>
-                  No options positions found
-                </Typography>
-              ) : (
-                <TableContainer component={Paper} variant="outlined">
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell><strong>Contract</strong></TableCell>
-                        <TableCell><strong>Underlying</strong></TableCell>
-                        <TableCell align="center"><strong>Side</strong></TableCell>
-                        <TableCell align="right"><strong>Qty</strong></TableCell>
-                        <TableCell align="right"><strong>P&L %</strong></TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {topOptionPositions.map((position, index) => (
-                        <TableRow key={`${position.contract_symbol || position.symbol}-${index}`} hover>
-                          <TableCell>
-                            <Typography variant="body2" fontFamily="monospace" fontSize="0.75rem">
-                              {position.contract_symbol && position.contract_symbol.length > 20 
-                                ? `${position.contract_symbol.substring(0, 20)}...` 
-                                : position.contract_symbol || position.symbol
-                              }
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Typography fontWeight="bold">{position.symbol}</Typography>
-                          </TableCell>
-                          <TableCell align="center">
-                            <Chip 
-                              label={position.side || (position.quantity > 0 ? 'long' : 'short')}
-                              color={position.side === 'long' || position.quantity > 0 ? 'primary' : 'secondary'}
-                              size="small"
-                            />
-                          </TableCell>
-                          <TableCell align="right">
-                            {Math.abs(position.quantity)}
-                          </TableCell>
-                          <TableCell align="right">
-                            <Chip 
-                              label={formatPercent(position.pnl_percent)}
-                              color={position.pnl && position.pnl > 0 ? 'success' : 'error'}
-                              variant="outlined"
-                              size="small"
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
-              {optionPositions.length > 5 && (
-                <Box textAlign="center" mt={2}>
-                  <Typography variant="body2" color="textSecondary">
-                    Showing top 5 positions. <a href="/portfolio" style={{ color: theme.palette.primary.main }}>View all positions</a>
-                  </Typography>
-                </Box>
-              )}
-            </CardContent>
-          </Collapse>
-        </Card>
+          {optionPositions.length > 5 && (
+            <Box textAlign="center" mt={2}>
+              <Typography variant="body2" color="textSecondary">
+                Showing top 5 positions. <a href="/portfolio" style={{ color: theme.palette.primary.main }}>View all positions</a>
+              </Typography>
+            </Box>
+          )}
+        </ExpandableCard>
       </Grid>
     </Grid>
   )

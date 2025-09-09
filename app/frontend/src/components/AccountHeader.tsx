@@ -3,20 +3,16 @@
 import React, { useState, useEffect } from 'react';
 import {
   Box,
-  Card,
-  CardContent,
   Typography,
   IconButton,
-  CircularProgress,
   Alert,
   useTheme,
   useMediaQuery,
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
-  TrendingUp,
-  TrendingDown,
 } from '@mui/icons-material';
+import { BaseCard, LoadingState } from '@/components/ui';
 import { accountApi } from '@/lib/api';
 import EnvironmentToggle from './EnvironmentToggle';
 import { TradingEnvironment } from '@/types';
@@ -103,49 +99,33 @@ export default function AccountHeader() {
   }
 
   if (!balanceData) {
-    // Dynamic styling for loading state too
-    const loadingCardBackground = currentEnvironment === 'sandbox' 
-      ? 'linear-gradient(135deg, #2d1a00 0%, #4a2c00 100%)' 
-      : 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)';
-    const loadingCardBorderColor = currentEnvironment === 'sandbox' ? '#ff9800' : '#333';
-    
     return (
-      <Card sx={{ 
-        mb: 3, 
-        background: loadingCardBackground, 
-        border: `1px solid ${loadingCardBorderColor}`,
-        borderRadius: 0,
-        width: '100%',
-        ml: 0,
-        mr: 0,
-      }}>
-        <CardContent sx={{ py: 3, px: 4 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-            <CircularProgress size={24} />
-          </Box>
-        </CardContent>
-      </Card>
+      <BaseCard 
+        environmentAware 
+        sx={{ 
+          mb: 3, 
+          width: '100%',
+          ml: 0,
+          mr: 0,
+        }}
+      >
+        <LoadingState variant="centered" message="Loading account data..." />
+      </BaseCard>
     );
   }
 
-  // Dynamic styling based on environment
-  const isSandbox = currentEnvironment === 'sandbox';
-  const cardBackground = isSandbox 
-    ? 'linear-gradient(135deg, #2d1a00 0%, #4a2c00 100%)' // Orange/amber gradient for sandbox
-    : 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)'; // Default dark gradient
-  const cardBorderColor = isSandbox ? '#ff9800' : '#333'; // Orange border for sandbox
-
   return (
-    <Card sx={{ 
-      mb: 3, 
-      background: cardBackground, 
-      border: `1px solid ${cardBorderColor}`,
-      borderRadius: 0,
-      width: '100%',
-      ml: 0,
-      mr: 0,
-    }}>
-      <CardContent sx={{ py: 3, px: 4 }}>
+    <BaseCard 
+      environmentAware
+      sx={{ 
+        mb: 3, 
+        width: '100%',
+        ml: 0,
+        mr: 0,
+        py: 3, 
+        px: 4 
+      }}
+    >
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Box sx={{ 
             display: 'flex', 
@@ -244,7 +224,6 @@ export default function AccountHeader() {
             </IconButton>
           </Box>
         </Box>
-      </CardContent>
-    </Card>
+    </BaseCard>
   );
 }
